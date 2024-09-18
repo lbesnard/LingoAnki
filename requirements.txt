@@ -1,0 +1,7 @@
+openai-whisper
+deep-translator
+pydub
+numpy
+spacy
+genanki
+argparse
