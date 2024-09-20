@@ -5,3 +5,7 @@ numpy
 spacy
 genanki
 argparse
+pyttsx3==2.95
+TTS
+soundfile
+gTTS
