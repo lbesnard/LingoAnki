@@ -1,43 +1,68 @@
 #!/usr/bin/env python3
-import whisper
-import re
-import hashlib
-import pyttsx3
-import numpy as np
-from pydub import AudioSegment
-import spacy
+"""
+Script Explanation:
+
+This script automates the creation of Anki flashcards from transcripts extracted from audio recordings. It processes
+both individual words and sentences, generating transcriptions and translations, and attaching audio to each flashcard.
+
+Features:
+- Uses Whisper for transcription and Google Text-to-Speech (TTS) for generating audio.
+- Translates words and sentences using GoogleTranslator or ChatGptTranslator.
+- Organizes flashcards into two Anki subdecks: one for words and one for sentences.
+- Supports multiple languages.
+
+Example:
+```bash
+python lingoAnki.py path_to_audio_files --ankideck "MyDeckName" --input-language "en" --target-language "fr" --output-folder "output_directory"
+```
+"""
+
 import argparse
-import os
-from deep_translator import GoogleTranslator
-import genanki
-import re
-import glob
-import tempfile
-import spacy.cli
-import shutil
-from time import sleep
-from TTS.api import TTS
-from gtts import gTTS
+import hashlib
 import json
-import requests
+import logging
+import os
+import re
+import shutil
+import tempfile
+
+import genanki
+import spacy
+import spacy.cli
+import whisper
+from deep_translator import GoogleTranslator, ChatGptTranslator
+from gtts import gTTS
+from pydub import AudioSegment
 
 ANKICONNECT_URL = 'http://localhost:8765'
 
+# Create unique model ids for different card types
+WORD_CARD_MODEL_ID = 123456789
+SENTENCE_CARD_MODEL_ID = 987654321
+COMBINED_SENTENCES_MODEL_ID = 987654322
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
 # Define a mapping of language names to spaCy model names
+# see https://spacy.io/models
 language_to_model = {
-    'no': 'nb_core_news_sm',
-    'en': 'en_core_web_sm',
-    'ger': 'de_core_news_sm',
-    'fr': 'fr_core_news_sm',
+    'no': 'nb_core_news_lg',
+    'en': 'en_core_web_lg',
+    'ger': 'de_core_news_lg',
+    'fr': 'fr_core_news_lg',
     # Add other languages and models as needed
 }
 
+# TODO: remove maybe as was robotic
 language_to_pyttsx3 = {
     'no': 'nb',
     'fr': 'fr-fr',
     'en': 'en-gb'
 }
 
+# TODO: investigate, not for all languages, for example not for bokmal
 language_to_tts = {
     'no': "tts_models/nb/nb_model",
     'fr': "tts_models/fr/css10"
@@ -45,22 +70,42 @@ language_to_tts = {
 
 
 def download_model_for_language(language_name):
+    """
+    Downloads the spaCy model for the specified language.
+
+    Args:
+        language_name (str): The name of the language for which to download the model.
+
+    Returns:
+        str: The name of the downloaded model, or None if no model is available.
+    """
     model_name = language_to_model.get(language_name.lower())
 
     if model_name:
         installed_models = spacy.util.get_installed_models()
 
         if model_name in installed_models:
-            print(f"Model for {language_name} is already installed.")
+            logger.info(f"Model for {language_name} is already installed.")
         else:
-            print(f"Model for {language_name} not found. Downloading: {model_name}")
+            logger.info(f"Model for {language_name} not found. Downloading: {model_name}")
             spacy.cli.download(model_name)
         return model_name
     else:
-        print(f"No model found for language: {language_name}")
+        logger.info(f"No model found for language: {language_name}")
         return None
 
+
 def generate_unique_id(input_string, length=9):
+    """
+    Generates a unique ID based on a hash of the input string.
+
+    Args:
+        input_string (str): The string to hash.
+        length (int): The length of the unique ID to generate (default: 9).
+
+    Returns:
+        int: A unique ID of the specified length.
+    """
     # Hash the string using SHA256
     hash_object = hashlib.sha256(input_string.encode('utf-8'))
 
@@ -73,25 +118,39 @@ def generate_unique_id(input_string, length=9):
     return unique_id
 
 
-def process_words_with_audio(words_list, audio_dir, language_code='no'):
-    """Process words, generating missing audio if necessary and returning a dictionary of words and audio file paths."""
+def process_words_with_audio(words_list, audio_dir, input_language='no'):
+    """
+    Processes words and generates audio if necessary, returning a dictionary of words and audio paths.
+
+    Args:
+        words_list (list): List of words to process.
+        audio_dir (str): Directory to save the generated audio.
+        input_language (str): The language code for TTS (default: 'no').
+
+    Returns:
+        dict: Dictionary mapping words to their audio file paths.
+    """
     audio_paths = {}  # Dictionary to hold words and their audio file paths
 
     for word in words_list:
-        # audio_fp = tempfile.NamedTemporaryFile(suffix='.mp3', dir=audio_dir, delete=False).name
-        # audio_fp = os.path.join(audio_dir, f"{word}.mp3")
-
-        # if not os.path.exists(audio_fp):
-        audio_fp = handle_missing_audio(word, audio_dir, language_code)
-
-        # Add the word and its audio file path to the dictionary
-
+        audio_fp = handle_missing_audio(word, audio_dir, input_language)
         audio_paths[word] = audio_fp
 
     return audio_paths
 
+
 def handle_missing_audio(word, audio_dir, language_code='no'):
-    """Generate and save TTS audio for a missing word."""
+    """
+    Generates TTS audio for a word and saves it to the specified directory.
+
+    Args:
+        word (str): The word for which to generate audio.
+        audio_dir (str): Directory to save the audio file.
+        language_code (str): The language code for the TTS engine (default: 'no').
+
+    Returns:
+        str: The file path to the generated audio.
+    """
 
     # import ipdb;ipdb.set_trace()
     # tts = TTS(model_name=language_to_tts[language_code], progress_bar=True)
@@ -137,17 +196,29 @@ def handle_missing_audio(word, audio_dir, language_code='no'):
     tts = gTTS(word, lang=language_code, tld='com.au')
     tts.save(audio_fp)
 
-    print(f"Generated TTS audio for: {word}")
+    logger.info(f"Generated TTS audio for: {word}")
     return audio_fp
 
 
-def transcript_audio(audio_fp, language="no", check=False):
-    model = whisper.load_model("large-v3")
+def transcript_audio(audio_fp, input_language="no", check=False, model="large-v3"):
+    """
+    Transcribes an audio file using the Whisper model.
+
+    Args:
+        audio_fp (str): The path to the audio file.
+        input_language (str): The language of the audio (default: 'no').
+        check (bool): If True, manually review and modify transcription (default: False).
+        model (str): The Whisper model to use (default: 'large-v3').
+
+    Returns:
+        dict: The transcription result including segments.
+    """
+    model = whisper.load_model(model)
     # model = whisper.load_model("tiny")
 
     result = model.transcribe(
         audio_fp,
-        language=language,
+        language=input_language,
         beam_size=1,
         best_of=2,
         word_timestamps=True,
@@ -194,9 +265,9 @@ def transcript_audio(audio_fp, language="no", check=False):
 
     # If check flag is set, manually review each sentence
     if check:
-        print("Review the transcription below:")
+        logger.info("Review the transcription below:")
         for idx, segment in enumerate(transcription['segments'], start=1):  # start=1 for numbering from 1
-            print(f"Sentence {idx}: {segment['text']}")
+            logger.info(f"Sentence {idx}: {segment['text']}")
             modified = input(f"Press Enter to keep Sentence {idx}, or type a new sentence to modify: ").strip()
 
             if modified:  # If the user provides a new sentence, overwrite the original
@@ -207,6 +278,19 @@ def transcript_audio(audio_fp, language="no", check=False):
 
 
 def split_audio_sentences(audio_fp, whisper_transcription):
+    """
+    Splits an audio file into individual sentences based on timestamps from a Whisper transcription.
+
+    This function uses Whisper transcription results to extract the start and end timestamps of each sentence.
+    It splits the audio file into smaller audio files for each sentence, saving them as MP3 files.
+
+    Args:
+        audio_fp (str): The file path of the input audio file.
+        whisper_transcription (dict): The Whisper transcription containing sentence start and end timestamps.
+
+    Returns:
+        list: A list of file paths for the split sentence audio clips.
+    """
     audio = AudioSegment.from_file(audio_fp)
     sentence_timestamps = whisper_transcription['segments']  # Assuming Whisper returns timestamps
     tmpdir = tempfile.mkdtemp()
@@ -221,9 +305,23 @@ def split_audio_sentences(audio_fp, whisper_transcription):
         sentence_audio_fp_list.append(sentence_audio_fp)
     return sentence_audio_fp_list
 
-def create_list_word_verbs(transcription, language_name='no'):
 
-    language_model = download_model_for_language(language_name)
+def create_list_word_verbs(transcription, input_language='no'):
+    """
+    Extracts and returns a list of lemmatized verbs, nouns, adjectives, adverbs, and other tokens from a transcription.
+
+    This function processes the provided transcription using the spaCy model for the specified input language,
+    identifies the part of speech for each token (verb, noun, adjective, adverb), and lemmatizes them to create a
+    list of unique words.
+
+    Args:
+        transcription (dict): The transcription containing the text to be analyzed.
+        input_language (str): The language code of the input text for spaCy model loading (default: 'no' for Norwegian).
+
+    Returns:
+        list: A list of unique, cleaned, and lemmatized words (verbs, nouns, adjectives, adverbs, etc.).
+    """
+    language_model = download_model_for_language(input_language)
     nlp = spacy.load(language_model)
     sentence = transcription['text']
     doc = nlp(sentence)
@@ -231,7 +329,10 @@ def create_list_word_verbs(transcription, language_name='no'):
 
     for token in doc:
         if token.pos_ == "VERB":
-            infinitive_verbs.append("å " + token.lemma_)
+            if input_language == "no":
+                infinitive_verbs.append("å " + token.lemma_)
+            else:
+                infinitive_verbs.append(token.lemma_)
         elif token.pos_ == "NOUN":
             singular_nouns.append(token.lemma_)
         elif token.pos_ == "ADJ":
@@ -242,32 +343,112 @@ def create_list_word_verbs(transcription, language_name='no'):
             other_tokens.append(token.lemma_)
 
     list_words = infinitive_verbs + singular_nouns + adverbs + base_adjectives + other_tokens
+    list_words = [word.lower() for word in list_words]
+
     unique_list = [*{*list_words}]
     unique_list = clean_and_lemmatize(unique_list)
+    unique_list = [word for word in unique_list if word.isalpha()]
+
     return unique_list
 
+
 def clean_and_lemmatize(word_list):
+    """
+    Cleans and removes duplicates from a list of words.
+
+    This function strips whitespace from each word in the provided list and then removes any duplicates
+    by converting the list to a set.
+
+    Args:
+        word_list (list): A list of words to clean and de-duplicate.
+
+    Returns:
+        list: A cleaned and de-duplicated list of words.
+    """
     cleaned_words = [word.strip() for word in word_list]
     return list(set(cleaned_words))  # Remove duplicates
 
-def translate_list(list_words, language='no', translate_language_output='en'):
-    translated = GoogleTranslator(language, translate_language_output).translate_batch(list_words)
+
+def translate_list(list_words, input_language='no', target_language='en'):
+    """
+    Translates a list of words from the input language to the target language using OpenAI's ChatGPT translator
+    or Google Translator as a fallback.
+
+    This function checks for an OpenAI API key in the 'openai.json' file. If available, it uses the ChatGptTranslator
+    to translate the list of words. If the translation fails or the API key is unavailable, it falls back to the
+    GoogleTranslator.
+
+    Args:
+        list_words (list): The list of words to translate.
+        input_language (str): The language code of the source language (default: 'no' for Norwegian).
+        target_language (str): The language code for the target language (default: 'en' for English).
+
+    Returns:
+        list: A list of translated words.
+    """
+    # Get the path to the openai.json file (in the same directory as the script)
+    file_path = os.path.join(os.path.dirname(__file__), 'openai.json')
+    if os.path.exists(file_path):
+        # Load the JSON file
+        with open(file_path, 'r') as file:
+            data = json.load(file)
+
+        # Extract the OpenAI API key and assign it to a variable
+        api_key = data['api_key']
+        try:
+            translated = ChatGptTranslator(api_key=api_key, source=input_language, target=target_language).translate_batch(list_words)
+        except Exception as err:
+            logger.info(f'ChatGPT translator failed: {err}. Fallback using Google Translator')
+            translated = GoogleTranslator(source=input_language, target=target_language).translate_batch(list_words)
+    else:
+        logger.info('Using Google Translator')
+        translated = GoogleTranslator(source=input_language, target=target_language).translate_batch(list_words)
+
     return translated
 
+
 def sentences_list(transcription):
+    """
+    Extracts sentences from a Whisper transcription.
+
+    This function takes a transcription result from Whisper and extracts the text of each segment as a sentence.
+
+    Args:
+        transcription (dict): The Whisper transcription containing text segments.
+
+    Returns:
+        list
+    """
     sentences = [segment['text'] for segment in transcription['segments']]
     return sentences
 
-# Function to add media (audio) to Anki note
+
 def add_audio(media_file):
+    """
+    Formats the media file path for use in Anki flashcards.
+
+    This function takes the path to a media file and returns a formatted string that Anki can use to include audio in a flashcard.
+
+    Args:
+        media_file (str): The file path of the audio file.
+
+    Returns:
+        str: A formatted string to include audio in Anki flashcards.
+    """
     return f'[sound:{os.path.basename(media_file)}]'
 
-# Create unique model ids for different card types
-WORD_CARD_MODEL_ID = 123456789
-SENTENCE_CARD_MODEL_ID = 987654321
-COMBINED_SENTENCES_MODEL_ID = 987654322
 
 def create_word_model():
+    """
+    Creates an Anki model for word flashcards.
+
+    This function defines an Anki model for flashcards that display a word, its translation, and an audio clip.
+    The model includes two templates: one to show the word and ask for the translation, and another to show
+    the translation and ask for the word.
+
+    Returns:
+        genanki.Model: A model for generating word flashcards in Anki.
+    """
     return genanki.Model(
         WORD_CARD_MODEL_ID,
         'Word Flashcards Model',
@@ -301,6 +482,7 @@ def create_word_model():
         }
         """
     )
+
 
 def create_sentence_model():
     return genanki.Model(
@@ -374,20 +556,29 @@ def create_combined_sentences_model():
         """
     )
 
+
 def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards"):
 
     lesson_name = deck_name.split('::')[1].replace(' ', '_')
     main_deck_name = deck_name.split('::')[0].replace(' ', '_')
 
-    deck_unique_id = generate_unique_id(deck_name)
-    deck = genanki.Deck(deck_unique_id, deck_name)
+    # Create unique IDs for the subdecks
+    deck_words_name = f"{deck_name} Words"
+    deck_sentences_name = f"{deck_name} Sentences"
+
+    deck_words_unique_id = generate_unique_id(deck_words_name)
+    deck_sentences_unique_id = generate_unique_id(deck_sentences_name)
+
+    # Create two subdecks: one for words and one for sentences
+    deck_words = genanki.Deck(deck_words_unique_id, deck_words_name)
+    deck_sentences = genanki.Deck(deck_sentences_unique_id, deck_sentences_name)
 
     word_model = create_word_model()
     sentence_model = create_sentence_model()
     combined_model = create_combined_sentences_model()
     media_files = []
 
-    # Add word flashcards
+    # Add word flashcards to the 'Words' subdeck
     for word, data in word_dict.items():
         audio_fp = data["audio_fp"]
         translation = data["translated_word"]
@@ -395,55 +586,51 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
             model=word_model,
             fields=[word, translation, add_audio(audio_fp)],
             tags=["lingoAnki_words_verbs_adjs", main_deck_name, lesson_name]
-            # tags=["lingoAnki_words_verbs_adjs", main_deck_name]
-
         )
-        deck.add_note(note)
+        deck_words.add_note(note)
         media_files.append(audio_fp)
 
-    # Add individual sentence flashcards
+    # Add individual sentence flashcards to the 'Sentences' subdeck
     for sentence, data in sentence_dict.items():
         audio_fp = data["audio_fp"]
         sentence_number = data["sentence_number"]
         translated_sentence = data["translated_sentence"]
         note = genanki.Note(
             model=sentence_model,
-            fields=[ f"{sentence_number:02d}. {sentence}", translated_sentence, add_audio(audio_fp)],
+            fields=[f"{sentence_number:03d}. {sentence}", translated_sentence, add_audio(audio_fp)],
             tags=['lingoAnki_individual_sentence', main_deck_name, lesson_name]
         )
-        deck.add_note(note)
+        deck_sentences.add_note(note)
         media_files.append(audio_fp)
 
     # Prepare combined sentences with individual play buttons
     combined_sentences = f"{lesson_name}<br><br>"
     combined_audio = ""
     sorted_sentences = sorted(sentence_dict.items(), key=lambda item: item[1]['sentence_number'])
-    for sentence, data in sorted_sentences:#.items():
+
+    for sentence, data in sorted_sentences:
         sentence_number = data["sentence_number"]
         audio_fp = data["audio_fp"]
-        combined_sentences += f'<b>{sentence_number:02d}. {sentence}</b><br>'
-        combined_audio += f'{sentence_number:02d}. {add_audio(audio_fp)} <br> '  # Combine audio file paths
+        combined_sentences += f'<b>{sentence_number:03d}. {sentence}</b><br>'
+        combined_audio += f'{sentence_number:03d}. {add_audio(audio_fp)} <br>'
 
     combined_translation = " ".join(
         f"{i + 1}. {data['translated_sentence']} <br>"
         for i, (_, data) in enumerate(sorted_sentences)
     )
 
+    # Add the combined sentences to the 'Sentences' subdeck
     combined_note = genanki.Note(
         model=combined_model,
         fields=[combined_sentences, combined_translation, combined_audio],
         tags=['lingoAnki_combined_sentences', main_deck_name, lesson_name]
     )
-    deck.add_note(combined_note)
+    deck_sentences.add_note(combined_note)
 
-    # Add combined audio files to media
-    # for data in sentence_dict.values():
-        # media_files.append(data["audio_fp"])
+    # Return both subdecks in a list and the media files
+    return [deck_words, deck_sentences], media_files
 
-    return deck, media_files
 
-# Adding a new card with all sentences ordered and numbered
-# Function to sort files numerically
 def sorted_alphanumeric(data):
     def convert(text):
         return int(text) if text.isdigit() else text.lower()
@@ -451,62 +638,16 @@ def sorted_alphanumeric(data):
         return [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(data, key=alphanum_key)
 
-# Function to list and sort all .mp3 files in a folder
+
 def get_mp3_files(audio_dir):
     mp3_files = [f for f in os.listdir(audio_dir) if f.endswith('.mp3')]
     return sorted_alphanumeric(mp3_files)
 
 
-def delete_sentence_mp3_files(directory):
-    # Get all files starting with 'sentence_' and ending with '.mp3'
-    sentence_files = glob.glob(os.path.join(directory, "sentence_*.mp3"))
-
-    # Delete each file
-    for file_path in sentence_files:
-        try:
-            os.remove(file_path)
-            print(f"Deleted: {file_path}")
-        except OSError as e:
-            print(f"Error deleting {file_path}: {e}")
-
-# Function to send requests to AnkiConnect
-def invoke(action, params=None):
-    return requests.post(ANKICONNECT_URL, json.dumps({
-        'action': action,
-        'version': 6,
-        'params': params
-    })).json()
-
-def import_apkg_file(apkg_path):
-    params = {
-        "path": apkg_path
-    }
-
-    response = invoke('importPackage', params)
-    return response
-
-def create_filtered_deck(deck_name, tags, combine_logic="AND"):
-    if combine_logic == "AND":
-        # Combine tags with AND logic
-        search_query = " ".join([f"tag:{tag}" for tag in tags])
-    elif combine_logic == "OR":
-        # Combine tags with OR logic
-        search_query = " OR ".join([f"tag:{tag}" for tag in tags])
-
-    params = {
-        "deck": deck_name,
-        "search": search_query,
-        "reschedule": False,  # Set to True if you want to reschedule cards
-        "deliberate": False   # Set to True for manual steps mode
-    }
-
-    response = invoke('createCustomStudyDeck', params)
-    return response
-
-
 def extract_lesson_number(filename):
     # Regular expression to find 1 to 3 digit numbers, possibly with leading zeros
-    match = re.search(r'\b(0*\d{1,3})\b', filename)
+    # match = re.search(r'\b(0*\d{1,3})\b', filename)
+    match = re.search(r'(?<!\w)(0*\d{1,3})(?!\w)', filename)
 
     if match:
         # Convert the matched string to an integer to remove leading zeros
@@ -519,11 +660,10 @@ def main():
     parser = argparse.ArgumentParser(description="Automates the creation of Anki flashcards from transcripts extracted from audio recordings.")
     parser.add_argument('audio_dir', type=str, help="Directory containing the input audio files to process")
     parser.add_argument('--ankideck', '-a', type=str, default="MyLanguageCards", help="Anki main Deck name")
-    parser.add_argument('--language', type=str, default="no", help="Language Code to parse (en,bo,fr ...)")
-    parser.add_argument('--language-output', type=str, default="en", help="Language Code output (en,fr ...)")
+    parser.add_argument('--input-language', '-il', type=str, default="no", help="Language Code input to parse (en,bo,fr ...)")
+    parser.add_argument('--target-language', '-tl', type=str, default="en", help="Language Code output (en,fr ...)")
     parser.add_argument('--output-folder', '-o', type=str, default="", help="Output folder")
-    parser.add_argument('--check', '-c', action='store_true', help="Manually review and modify the transcription")
-    parser.add_argument('--import-anki', '-i', action='store_true', help="Automatically Import anki card via ankiconnect")
+    parser.add_argument('--check-sentences', '-c', action='store_true', help="Manually review and modify the transcription")
     args = parser.parse_args()
 
     # Set default to a temporary directory if not specified
@@ -535,31 +675,32 @@ def main():
 
     # Get the list of .mp3 files in the folder, sorted alphanumerically
     mp3_files = get_mp3_files(args.audio_dir)
-    print(mp3_files)
 
     # Iterate over each mp3 file and create a deck for each one
     for idx, mp3_file in enumerate(mp3_files):
+        logger.info(f"Processing {mp3_file}")
         all_media_files = []
         lesson_number = extract_lesson_number(mp3_file)
+
         if lesson_number == None:
             lesson_number = idx + 1
-        lesson_name = f"{args.ankideck}::Lesson {lesson_number:02d}"
+
+        lesson_name = f"{args.ankideck}::Lesson {lesson_number:03d}"
 
         # Generate transcription and split audio into sentences
         audio_fp = os.path.join(args.audio_dir, mp3_file)
-        transcription = transcript_audio(audio_fp, language=args.language, check=args.check)
-        unique_verb_word_list_og = create_list_word_verbs(transcription, language_name=args.language)
+        transcription = transcript_audio(audio_fp, input_language=args.input_language, check=args.check_sentences)
+        unique_verb_word_list_og = create_list_word_verbs(transcription, input_language=args.input_language)
         split_audio_fp_list = split_audio_sentences(audio_fp, transcription)
 
-        unique_verb_word_list_translated = translate_list(unique_verb_word_list_og, translate_language_output=args.language_output)
+        unique_verb_word_list_translated = translate_list(unique_verb_word_list_og, input_language=args.input_language, target_language=args.target_language)
         tmpdir = tempfile.mkdtemp()
-        words_audio_fp = process_words_with_audio(unique_verb_word_list_og, tmpdir, language_code=args.language)
+        words_audio_fp = process_words_with_audio(unique_verb_word_list_og, tmpdir, input_language=args.input_language)
 
         sentence_list_og = sentences_list(transcription)
-        sentence_list_translated = translate_list(sentence_list_og, translate_language_output=args.language_output)
+        sentence_list_translated = translate_list(sentence_list_og, input_language=args.input_language, target_language=args.target_language)
 
         # Create words and sentences dictionaries
-        # words_dict = {og: translated for og, translated in zip(unique_verb_word_list_og, unique_verb_word_list_translated)}
         audio_fp_array = [words_audio_fp[word] for word in unique_verb_word_list_og]
         words_dict = {}
         for og_word, translated_word, word_audio_fp in zip(unique_verb_word_list_og, unique_verb_word_list_translated, audio_fp_array):
@@ -567,12 +708,6 @@ def main():
                 'translated_word': translated_word,
                 'audio_fp': word_audio_fp
             }
-
-        # words_dict =  {
-            # og: (translated, audio_fp)
-            # for og, translated, audio_fp in zip(unique_verb_word_list_og, unique_verb_word_list_translated, words_audio_fp)
-        # }
-        # import ipdb; ipdb.set_trace()
 
         sentences_dict = {}
         idx = 1
@@ -593,19 +728,9 @@ def main():
         package.media_files = all_media_files
         package.write_to_file(os.path.join(args.output_folder, f'{lesson_name}.apkg'))
 
-        if args.import_anki:
-            try:
-                import_apkg_file(os.path.join(args.output_folder, f'{lesson_name}.apkg'))
-                print('{lesson_name} imported via ankiconnect')
-            except:
-                print('Could not import anki package')
-
-        # delete_sentence_mp3_files(os.path.dirname(split_audio_fp_list[0]))
         shutil.rmtree(os.path.dirname(split_audio_fp_list[0]))
         shutil.rmtree(tmpdir)
-        # delete_sentence_mp3_files(tmpdir)
-        # delete_sentence_mp3_files(os.path.dirname(os.path.abspath(__file__)))
+
 
 if __name__ == "__main__":
     main()
-
