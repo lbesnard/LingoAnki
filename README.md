@@ -9,7 +9,7 @@ Features:
 - Organizes flashcards into two Anki subdecks: one for words and one for sentences.
 - Supports multiple languages.
 
-##Example:
+## Example:
 ```bash
 python lingoAnki.py path_to_audio_files --ankideck "MyDeckName" --input-language "en" --target-language "fr" --output-folder "output_directory"
 ```
