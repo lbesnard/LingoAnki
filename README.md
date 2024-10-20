@@ -9,6 +9,19 @@ Features:
 - Organizes flashcards into two Anki subdecks: one for words and one for sentences.
 - Supports multiple languages.
 
+## Installation
+
+```bash
+curl -f https://raw.githubusercontent.com/lbesnard/LingoAnki/refs/heads/main/install.sh | bash
+```
+
+## Installation with Poetry
+Clone the repo
+```bash
+pip install poetry
+poetry install
+`
+
 ##Example:
 ```bash
 python lingoAnki.py path_to_audio_files --ankideck "MyDeckName" --input-language "en" --target-language "fr" --output-folder "output_directory"

@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import tempfile
+import inquirer
 
 import genanki
 import spacy
@@ -34,39 +35,36 @@ from deep_translator import GoogleTranslator, ChatGptTranslator
 from gtts import gTTS
 from pydub import AudioSegment
 
-ANKICONNECT_URL = 'http://localhost:8765'
+ANKICONNECT_URL = "http://localhost:8765"
 
 # Create unique model ids for different card types
 WORD_CARD_MODEL_ID = 123456789
 SENTENCE_CARD_MODEL_ID = 987654321
 COMBINED_SENTENCES_MODEL_ID = 987654322
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+WHISPER_MODELS = ["tiny", "medium", "large-v2", "large-v3"]
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 # Define a mapping of language names to spaCy model names
 # see https://spacy.io/models
 language_to_model = {
-    'no': 'nb_core_news_lg',
-    'en': 'en_core_web_lg',
-    'ger': 'de_core_news_lg',
-    'fr': 'fr_core_news_lg',
+    "no": "nb_core_news_lg",
+    "en": "en_core_web_lg",
+    "ger": "de_core_news_lg",
+    "fr": "fr_core_news_lg",
     # Add other languages and models as needed
 }
 
 # TODO: remove maybe as was robotic
-language_to_pyttsx3 = {
-    'no': 'nb',
-    'fr': 'fr-fr',
-    'en': 'en-gb'
-}
+language_to_pyttsx3 = {"no": "nb", "fr": "fr-fr", "en": "en-gb"}
 
 # TODO: investigate, not for all languages, for example not for bokmal
-language_to_tts = {
-    'no': "tts_models/nb/nb_model",
-    'fr': "tts_models/fr/css10"
-}
+language_to_tts = {"no": "tts_models/nb/nb_model", "fr": "tts_models/fr/css10"}
 
 
 def download_model_for_language(language_name):
@@ -87,7 +85,9 @@ def download_model_for_language(language_name):
         if model_name in installed_models:
             logger.info(f"Model for {language_name} is already installed.")
         else:
-            logger.info(f"Model for {language_name} not found. Downloading: {model_name}")
+            logger.info(
+                f"Model for {language_name} not found. Downloading: {model_name}"
+            )
             spacy.cli.download(model_name)
         return model_name
     else:
@@ -107,18 +107,18 @@ def generate_unique_id(input_string, length=9):
         int: A unique ID of the specified length.
     """
     # Hash the string using SHA256
-    hash_object = hashlib.sha256(input_string.encode('utf-8'))
+    hash_object = hashlib.sha256(input_string.encode("utf-8"))
 
     # Convert the hash to an integer
     hash_int = int(hash_object.hexdigest(), 16)
 
     # Take a portion of the integer and ensure it's the desired length
-    unique_id = hash_int % (10 ** length)
+    unique_id = hash_int % (10**length)
 
     return unique_id
 
 
-def process_words_with_audio(words_list, audio_dir, input_language='no'):
+def process_words_with_audio(words_list, audio_dir, input_language="no"):
     """
     Processes words and generates audio if necessary, returning a dictionary of words and audio paths.
 
@@ -139,7 +139,7 @@ def process_words_with_audio(words_list, audio_dir, input_language='no'):
     return audio_paths
 
 
-def handle_missing_audio(word, audio_dir, language_code='no'):
+def handle_missing_audio(word, audio_dir, language_code="no"):
     """
     Generates TTS audio for a word and saves it to the specified directory.
 
@@ -164,18 +164,18 @@ def handle_missing_audio(word, audio_dir, language_code='no'):
     # voices = engine.getProperty('voices')
 
     # Select a voice based on language code
-#     selected_voice = None
+    #     selected_voice = None
     # for voice in voices:
-        # # Check if the voice's language matches the desired language code
-        # if language_code in voice.languages:
-            # selected_voice = voice
-            # break
+    # # Check if the voice's language matches the desired language code
+    # if language_code in voice.languages:
+    # selected_voice = voice
+    # break
 
     # if selected_voice:
-        # engine.setProperty('voice', selected_voice.id)
-        # print(f"Selected voice: {selected_voice.name}")
+    # engine.setProperty('voice', selected_voice.id)
+    # print(f"Selected voice: {selected_voice.name}")
     # else:
-        # print(f"No voice found for language code: {language_code}. Using default voice.")
+    # print(f"No voice found for language code: {language_code}. Using default voice.")
 
     # Define file path
     # wave_fp = tempfile.NamedTemporaryFile(suffix='.wav', dir=audio_dir, delete=False).name
@@ -193,7 +193,7 @@ def handle_missing_audio(word, audio_dir, language_code='no'):
     #  engine.stop()
     # audio_fp = tempfile.NamedTemporaryFile(suffix='.mp3', dir=audio_dir, delete=False).name
     audio_fp = os.path.join(audio_dir, f"{word.replace(' ', '_')}.mp3")
-    tts = gTTS(word, lang=language_code, tld='com.au')
+    tts = gTTS(word, lang=language_code, tld="com.au")
     tts.save(audio_fp)
 
     logger.info(f"Generated TTS audio for: {word}")
@@ -214,64 +214,78 @@ def transcript_audio(audio_fp, input_language="no", check=False, model="large-v3
         dict: The transcription result including segments.
     """
     model = whisper.load_model(model)
-    # model = whisper.load_model("tiny")
+    # model = whisper.load_model("large-v2")
+    audio = whisper.load_audio(audio_fp)
+    mel = whisper.log_mel_spectrogram(audio).to(model.device)
+    # import ipdb; ipdb.set_trace()
 
-    result = model.transcribe(
-        audio_fp,
-        language=input_language,
-        beam_size=1,
-        best_of=2,
-        word_timestamps=True,
-        no_speech_threshold=0.6,
-        logprob_threshold=-0.5,
-        compression_ratio_threshold=2.4,
-        condition_on_previous_text=False,
-        verbose=True,
-    )
+    transcription_options = {
+        "language": input_language,
+        "beam_size": 2,
+        "best_of": 3,
+        "word_timestamps": True,
+        "no_speech_threshold": 0.4,  # Adjusted
+        "logprob_threshold": -0.3,  # Adjusted
+        "compression_ratio_threshold": 2.0,  # Adjusted
+        "condition_on_previous_text": False,  # Use context from previous text
+        "verbose": True,
+    }
+
+    # Transcribe the audio
+    transcription = model.transcribe(audio, **transcription_options)
 
     # Filter out segments with a duration less than 200ms (0.2 seconds)
-    transcription = result
     filtered_segments = []
 
-    for segment in transcription['segments']:
-        start_time = segment['start']
-        end_time = segment['end']
+    for segment in transcription["segments"]:
+        start_time = segment["start"]
+        end_time = segment["end"]
         duration = end_time - start_time
 
         # Check if duration is 200ms or more
         if duration >= 0.3:
             filtered_segments.append(segment)
 
-    transcription['segments'] = filtered_segments
+    transcription["segments"] = filtered_segments
 
     # Adjust the end time of each segment
     additional_time = 0.500
-    for idx, segment in enumerate(transcription['segments']):
+    for idx, segment in enumerate(transcription["segments"]):
         # Adjust the start time
         if idx > 0:
-            previous_segment_end = transcription['segments'][idx - 1]['end']
-            segment['start'] = max(segment['start'] - additional_time/3, previous_segment_end)
+            previous_segment_end = transcription["segments"][idx - 1]["end"]
+            segment["start"] = max(
+                segment["start"] - additional_time / 3, previous_segment_end
+            )
         else:
             # For the first segment, just subtract the additional time
-            segment['start'] = max(segment['start'] - additional_time/3, 0)  # Ensure start time doesn't go below 0
+            segment["start"] = max(
+                segment["start"] - additional_time / 3, 0
+            )  # Ensure start time doesn't go below 0
 
         # Increase the end time of each segment by additional_time, but ensure it does not overlap with the next segment
-        if idx < len(transcription['segments']) - 1:
-            next_segment_start = transcription['segments'][idx + 1]['start']
-            segment['end'] = min(segment['end'] + additional_time, next_segment_start)
+        if idx < len(transcription["segments"]) - 1:
+            next_segment_start = transcription["segments"][idx + 1]["start"]
+            segment["end"] = min(segment["end"] + additional_time, next_segment_start)
         else:
             # For the last segment, just add the additional time
-            segment['end'] = segment['end'] + additional_time
+            segment["end"] = segment["end"] + additional_time
 
     # If check flag is set, manually review each sentence
     if check:
         logger.info("Review the transcription below:")
-        for idx, segment in enumerate(transcription['segments'], start=1):  # start=1 for numbering from 1
+        for idx, segment in enumerate(
+            transcription["segments"], start=1
+        ):  # start=1 for numbering from 1
             logger.info(f"Sentence {idx}: {segment['text']}")
-            modified = input(f"Press Enter to keep Sentence {idx}, or type a new sentence to modify: ").strip()
+            modified = input(
+                f"Press Enter to keep Sentence {idx}, or type a new sentence to modify: "
+            ).strip()
 
             if modified:  # If the user provides a new sentence, overwrite the original
-                transcription['segments'][idx-1]['text'] = modified  # idx-1 to match zero-indexed list
+                transcription["segments"][idx - 1][
+                    "text"
+                ] = modified  # idx-1 to match zero-indexed list
             print()  # For spacing between sentences
 
     return transcription
@@ -292,13 +306,15 @@ def split_audio_sentences(audio_fp, whisper_transcription):
         list: A list of file paths for the split sentence audio clips.
     """
     audio = AudioSegment.from_file(audio_fp)
-    sentence_timestamps = whisper_transcription['segments']  # Assuming Whisper returns timestamps
+    sentence_timestamps = whisper_transcription[
+        "segments"
+    ]  # Assuming Whisper returns timestamps
     tmpdir = tempfile.mkdtemp()
 
     sentence_audio_fp_list = []
     for idx, segment in enumerate(sentence_timestamps):
-        start = segment['start'] * 1000  # in milliseconds
-        end = segment['end'] * 1000
+        start = segment["start"] * 1000  # in milliseconds
+        end = segment["end"] * 1000
         sentence_audio = audio[start:end]
         sentence_audio_fp = os.path.join(tmpdir, f"sentence_{idx}.mp3")
         sentence_audio.export(sentence_audio_fp, format="mp3")
@@ -306,7 +322,7 @@ def split_audio_sentences(audio_fp, whisper_transcription):
     return sentence_audio_fp_list
 
 
-def create_list_word_verbs(transcription, input_language='no'):
+def create_list_word_verbs(transcription, input_language="no"):
     """
     Extracts and returns a list of lemmatized verbs, nouns, adjectives, adverbs, and other tokens from a transcription.
 
@@ -323,9 +339,15 @@ def create_list_word_verbs(transcription, input_language='no'):
     """
     language_model = download_model_for_language(input_language)
     nlp = spacy.load(language_model)
-    sentence = transcription['text']
+    sentence = transcription["text"]
     doc = nlp(sentence)
-    infinitive_verbs, singular_nouns, base_adjectives, adverbs, other_tokens = [], [], [], [], []
+    infinitive_verbs, singular_nouns, base_adjectives, adverbs, other_tokens = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
 
     for token in doc:
         if token.pos_ == "VERB":
@@ -342,7 +364,9 @@ def create_list_word_verbs(transcription, input_language='no'):
         elif token.is_alpha:  # Ensures the token is made up of letters only
             other_tokens.append(token.lemma_)
 
-    list_words = infinitive_verbs + singular_nouns + adverbs + base_adjectives + other_tokens
+    list_words = (
+        infinitive_verbs + singular_nouns + adverbs + base_adjectives + other_tokens
+    )
     list_words = [word.lower() for word in list_words]
 
     unique_list = [*{*list_words}]
@@ -369,7 +393,7 @@ def clean_and_lemmatize(word_list):
     return list(set(cleaned_words))  # Remove duplicates
 
 
-def translate_list(list_words, input_language='no', target_language='en'):
+def translate_list(list_words, input_language="no", target_language="en"):
     """
     Translates a list of words from the input language to the target language using OpenAI's ChatGPT translator
     or Google Translator as a fallback.
@@ -387,22 +411,30 @@ def translate_list(list_words, input_language='no', target_language='en'):
         list: A list of translated words.
     """
     # Get the path to the openai.json file (in the same directory as the script)
-    file_path = os.path.join(os.path.dirname(__file__), 'openai.json')
+    file_path = os.path.join(os.path.dirname(__file__), "openai.json")
     if os.path.exists(file_path):
         # Load the JSON file
-        with open(file_path, 'r') as file:
+        with open(file_path, "r") as file:
             data = json.load(file)
 
         # Extract the OpenAI API key and assign it to a variable
-        api_key = data['api_key']
+        api_key = data["api_key"]
         try:
-            translated = ChatGptTranslator(api_key=api_key, source=input_language, target=target_language).translate_batch(list_words)
+            translated = ChatGptTranslator(
+                api_key=api_key, source=input_language, target=target_language
+            ).translate_batch(list_words)
         except Exception as err:
-            logger.info(f'ChatGPT translator failed: {err}. Fallback using Google Translator')
-            translated = GoogleTranslator(source=input_language, target=target_language).translate_batch(list_words)
+            logger.info(
+                f"ChatGPT translator failed: {err}. Fallback using Google Translator"
+            )
+            translated = GoogleTranslator(
+                source=input_language, target=target_language
+            ).translate_batch(list_words)
     else:
-        logger.info('Using Google Translator')
-        translated = GoogleTranslator(source=input_language, target=target_language).translate_batch(list_words)
+        logger.info("Using Google Translator")
+        translated = GoogleTranslator(
+            source=input_language, target=target_language
+        ).translate_batch(list_words)
 
     return translated
 
@@ -419,7 +451,7 @@ def sentences_list(transcription):
     Returns:
         list
     """
-    sentences = [segment['text'] for segment in transcription['segments']]
+    sentences = [segment["text"] for segment in transcription["segments"]]
     return sentences
 
 
@@ -435,7 +467,7 @@ def add_audio(media_file):
     Returns:
         str: A formatted string to include audio in Anki flashcards.
     """
-    return f'[sound:{os.path.basename(media_file)}]'
+    return f"[sound:{os.path.basename(media_file)}]"
 
 
 def create_word_model():
@@ -451,22 +483,22 @@ def create_word_model():
     """
     return genanki.Model(
         WORD_CARD_MODEL_ID,
-        'Word Flashcards Model',
+        "Word Flashcards Model",
         fields=[
-            {'name': 'Word'},
-            {'name': 'Translation'},
-            {'name': 'Audio'},
+            {"name": "Word"},
+            {"name": "Translation"},
+            {"name": "Audio"},
         ],
         templates=[
             {
-                'name': 'Word to Translation',
-                'qfmt': '{{Word}}<br>{{Audio}}',
-                'afmt': '{{FrontSide}}<hr id="answer">{{Translation}}',
+                "name": "Word to Translation",
+                "qfmt": "{{Word}}<br>{{Audio}}",
+                "afmt": '{{FrontSide}}<hr id="answer">{{Translation}}',
             },
             {
-                'name': 'Translation to Word',
-                'qfmt': '{{Translation}}',
-                'afmt': '{{FrontSide}}<hr id="answer">{{Word}}<br>{{Audio}}',
+                "name": "Translation to Word",
+                "qfmt": "{{Translation}}",
+                "afmt": '{{FrontSide}}<hr id="answer">{{Word}}<br>{{Audio}}',
             },
         ],
         css="""
@@ -480,30 +512,30 @@ def create_word_model():
         .button {
             padding: 10px;
         }
-        """
+        """,
     )
 
 
 def create_sentence_model():
     return genanki.Model(
         SENTENCE_CARD_MODEL_ID,
-        'Sentence Flashcards Model',
+        "Sentence Flashcards Model",
         fields=[
-            {'name': 'Sentence'},
-            {'name': 'Translation'},
-            {'name': 'Audio'},
+            {"name": "Sentence"},
+            {"name": "Translation"},
+            {"name": "Audio"},
         ],
         templates=[
             {
-                'name': 'Sentence to Translation',
-                'qfmt': '{{Audio}}',
-                'afmt': '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Translation}}',
+                "name": "Sentence to Translation",
+                "qfmt": "{{Audio}}",
+                "afmt": '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Translation}}',
             },
             {
-                'name': 'Translation to Sentence',
-                'qfmt': '{{Translation}}',
-                'afmt': '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Audio}}',
-            }
+                "name": "Translation to Sentence",
+                "qfmt": "{{Translation}}",
+                "afmt": '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Audio}}',
+            },
         ],
         css="""
         .card {
@@ -516,30 +548,30 @@ def create_sentence_model():
         .button {
             padding: 10px;
         }
-        """
+        """,
     )
 
 
 def create_combined_sentences_model():
     return genanki.Model(
         COMBINED_SENTENCES_MODEL_ID,
-        'Combined Sentences Flashcards Model',
+        "Combined Sentences Flashcards Model",
         fields=[
-            {'name': 'CombinedSentences'},
-            {'name': 'Translation'},
-            {'name': 'Audio'},
+            {"name": "CombinedSentences"},
+            {"name": "Translation"},
+            {"name": "Audio"},
         ],
         templates=[
             {
-                'name': 'Combined Sentences Card',
-                'qfmt': '''
+                "name": "Combined Sentences Card",
+                "qfmt": """
                     {{#CombinedSentences}}
                     {{CombinedSentences}}<br>
                     {{/CombinedSentences}}
                     <br>
                     [sound:{{Audio}}]
-                ''',
-                'afmt': '{{FrontSide}}<hr id="answer">{{Translation}}',
+                """,
+                "afmt": '{{FrontSide}}<hr id="answer">{{Translation}}',
             }
         ],
         css="""
@@ -553,14 +585,14 @@ def create_combined_sentences_model():
         .button {
             padding: 10px;
         }
-        """
+        """,
     )
 
 
 def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards"):
 
-    lesson_name = deck_name.split('::')[1].replace(' ', '_')
-    main_deck_name = deck_name.split('::')[0].replace(' ', '_')
+    lesson_name = deck_name.split("::")[1].replace(" ", "_")
+    main_deck_name = deck_name.split("::")[0].replace(" ", "_")
 
     # Create unique IDs for the subdecks
     deck_words_name = f"{deck_name} Words"
@@ -585,7 +617,7 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
         note = genanki.Note(
             model=word_model,
             fields=[word, translation, add_audio(audio_fp)],
-            tags=["lingoAnki_words_verbs_adjs", main_deck_name, lesson_name]
+            tags=["lingoAnki_words_verbs_adjs", main_deck_name, lesson_name],
         )
         deck_words.add_note(note)
         media_files.append(audio_fp)
@@ -597,8 +629,12 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
         translated_sentence = data["translated_sentence"]
         note = genanki.Note(
             model=sentence_model,
-            fields=[f"{sentence_number:03d}. {sentence}", translated_sentence, add_audio(audio_fp)],
-            tags=['lingoAnki_individual_sentence', main_deck_name, lesson_name]
+            fields=[
+                f"{sentence_number:03d}. {sentence}",
+                translated_sentence,
+                add_audio(audio_fp),
+            ],
+            tags=["lingoAnki_individual_sentence", main_deck_name, lesson_name],
         )
         deck_sentences.add_note(note)
         media_files.append(audio_fp)
@@ -606,13 +642,15 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
     # Prepare combined sentences with individual play buttons
     combined_sentences = f"{lesson_name}<br><br>"
     combined_audio = ""
-    sorted_sentences = sorted(sentence_dict.items(), key=lambda item: item[1]['sentence_number'])
+    sorted_sentences = sorted(
+        sentence_dict.items(), key=lambda item: item[1]["sentence_number"]
+    )
 
     for sentence, data in sorted_sentences:
         sentence_number = data["sentence_number"]
         audio_fp = data["audio_fp"]
-        combined_sentences += f'<b>{sentence_number:03d}. {sentence}</b><br>'
-        combined_audio += f'{sentence_number:03d}. {add_audio(audio_fp)} <br>'
+        combined_sentences += f"<b>{sentence_number:03d}. {sentence}</b><br>"
+        combined_audio += f"{sentence_number:03d}. {add_audio(audio_fp)} <br>"
 
     combined_translation = " ".join(
         f"{i + 1}. {data['translated_sentence']} <br>"
@@ -623,7 +661,7 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
     combined_note = genanki.Note(
         model=combined_model,
         fields=[combined_sentences, combined_translation, combined_audio],
-        tags=['lingoAnki_combined_sentences', main_deck_name, lesson_name]
+        tags=["lingoAnki_combined_sentences", main_deck_name, lesson_name],
     )
     deck_sentences.add_note(combined_note)
 
@@ -634,20 +672,27 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
 def sorted_alphanumeric(data):
     def convert(text):
         return int(text) if text.isdigit() else text.lower()
+
     def alphanum_key(key):
-        return [convert(c) for c in re.split('([0-9]+)', key)]
+        return [convert(c) for c in re.split("([0-9]+)", key)]
+
     return sorted(data, key=alphanum_key)
 
 
 def get_mp3_files(audio_dir):
-    mp3_files = [f for f in os.listdir(audio_dir) if f.endswith('.mp3')]
+    mp3_files = []
+    # Walk through all directories and subdirectories
+    for root, dirs, files in os.walk(audio_dir):
+        # Filter files that end with .mp3 and append full path
+        mp3_files.extend(os.path.join(root, f) for f in files if f.endswith(".mp3"))
+
     return sorted_alphanumeric(mp3_files)
 
 
 def extract_lesson_number(filename):
     # Regular expression to find 1 to 3 digit numbers, possibly with leading zeros
     # match = re.search(r'\b(0*\d{1,3})\b', filename)
-    match = re.search(r'(?<!\w)(0*\d{1,3})(?!\w)', filename)
+    match = re.search(r"(?<!\w)(0*\d{1,3})(?!\w)", filename)
 
     if match:
         # Convert the matched string to an integer to remove leading zeros
@@ -657,13 +702,59 @@ def extract_lesson_number(filename):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Automates the creation of Anki flashcards from transcripts extracted from audio recordings.")
-    parser.add_argument('audio_dir', type=str, help="Directory containing the input audio files to process")
-    parser.add_argument('--ankideck', '-a', type=str, default="MyLanguageCards", help="Anki main Deck name")
-    parser.add_argument('--input-language', '-il', type=str, default="no", help="Language Code input to parse (en,bo,fr ...)")
-    parser.add_argument('--target-language', '-tl', type=str, default="en", help="Language Code output (en,fr ...)")
-    parser.add_argument('--output-folder', '-o', type=str, default="", help="Output folder")
-    parser.add_argument('--check-sentences', '-c', action='store_true', help="Manually review and modify the transcription")
+    parser = argparse.ArgumentParser(
+        description="Automates the creation of Anki flashcards from transcripts extracted from audio recordings."
+    )
+    parser.add_argument(
+        "audio_dir",
+        type=str,
+        help="Directory containing the input audio files to process",
+    )
+    parser.add_argument(
+        "--ankideck",
+        "-a",
+        type=str,
+        default="MyLanguageCards",
+        help="Anki main Deck name",
+    )
+    parser.add_argument(
+        "--input-language",
+        "-il",
+        type=str,
+        default="no",
+        help="Language Code input to parse (en,bo,fr ...)",
+    )
+    parser.add_argument(
+        "--target-language",
+        "-tl",
+        type=str,
+        default="en",
+        help="Language Code output (en,fr ...)",
+    )
+    parser.add_argument(
+        "--output-folder", "-o", type=str, default="", help="Output folder"
+    )
+    parser.add_argument(
+        "--check-sentences",
+        "-c",
+        action="store_true",
+        help="Manually review and modify the transcription",
+    )
+    # Add the --model argument with default value
+    parser.add_argument(
+        "--model",
+        "-m",
+        nargs="?",  # This makes the argument optional with a default
+        const=True,  # This will trigger inquirer if the flag is used without a value
+        default="large-v3",  # Default value if not specified
+        help="Choose a model from the list or use default.",
+    )
+    parser.add_argument(
+        "--select-files",
+        "-s",
+        action="store_true",
+        help="If set, allows you to select files interactively for processing.",
+    )
     args = parser.parse_args()
 
     # Set default to a temporary directory if not specified
@@ -673,11 +764,42 @@ def main():
     # Create the output folder if it does not exist
     os.makedirs(args.output_folder, exist_ok=True)
 
+    # If the model argument is set
+    if args.model is True:
+        # Use inquirer to display a list of models for the user to choose from
+        questions = [
+            inquirer.List(
+                "selected_model",
+                message="Choose a model",
+                choices=WHISPER_MODELS,
+            )
+        ]
+        answers = inquirer.prompt(questions)
+        selected_model = answers["selected_model"]
+
+        # Output the chosen model
+        print(f"Model selected: {selected_model}")
+    else:
+        print("No model selected. Use --model to select one.")
+
     # Get the list of .mp3 files in the folder, sorted alphanumerically
     mp3_files = get_mp3_files(args.audio_dir)
 
+    if args.select_files:
+        questions = [
+            inquirer.Checkbox(
+                "selected_files",
+                message="Select the files to process (use space to select, arrows to navigate):",
+                choices=mp3_files,
+            )
+        ]
+        answers = inquirer.prompt(questions)
+        selected_files = answers.get("selected_files", [])
+    else:
+        selected_files = mp3_files
+
     # Iterate over each mp3 file and create a deck for each one
-    for idx, mp3_file in enumerate(mp3_files):
+    for idx, mp3_file in enumerate(selected_files):
         logger.info(f"Processing {mp3_file}")
         all_media_files = []
         lesson_number = extract_lesson_number(mp3_file)
@@ -689,44 +811,64 @@ def main():
 
         # Generate transcription and split audio into sentences
         audio_fp = os.path.join(args.audio_dir, mp3_file)
-        transcription = transcript_audio(audio_fp, input_language=args.input_language, check=args.check_sentences)
-        unique_verb_word_list_og = create_list_word_verbs(transcription, input_language=args.input_language)
+        transcription = transcript_audio(
+            audio_fp, input_language=args.input_language, check=args.check_sentences
+        )
+        unique_verb_word_list_og = create_list_word_verbs(
+            transcription, input_language=args.input_language
+        )
         split_audio_fp_list = split_audio_sentences(audio_fp, transcription)
 
-        unique_verb_word_list_translated = translate_list(unique_verb_word_list_og, input_language=args.input_language, target_language=args.target_language)
+        unique_verb_word_list_translated = translate_list(
+            unique_verb_word_list_og,
+            input_language=args.input_language,
+            target_language=args.target_language,
+        )
         tmpdir = tempfile.mkdtemp()
-        words_audio_fp = process_words_with_audio(unique_verb_word_list_og, tmpdir, input_language=args.input_language)
+        words_audio_fp = process_words_with_audio(
+            unique_verb_word_list_og, tmpdir, input_language=args.input_language
+        )
 
         sentence_list_og = sentences_list(transcription)
-        sentence_list_translated = translate_list(sentence_list_og, input_language=args.input_language, target_language=args.target_language)
+        sentence_list_translated = translate_list(
+            sentence_list_og,
+            input_language=args.input_language,
+            target_language=args.target_language,
+        )
 
         # Create words and sentences dictionaries
         audio_fp_array = [words_audio_fp[word] for word in unique_verb_word_list_og]
         words_dict = {}
-        for og_word, translated_word, word_audio_fp in zip(unique_verb_word_list_og, unique_verb_word_list_translated, audio_fp_array):
+        for og_word, translated_word, word_audio_fp in zip(
+            unique_verb_word_list_og, unique_verb_word_list_translated, audio_fp_array
+        ):
             words_dict[og_word] = {
-                'translated_word': translated_word,
-                'audio_fp': word_audio_fp
+                "translated_word": translated_word,
+                "audio_fp": word_audio_fp,
             }
 
         sentences_dict = {}
         idx = 1
-        for og_sentence, translated_sentence, audio_fp in zip(sentence_list_og, sentence_list_translated, split_audio_fp_list):
+        for og_sentence, translated_sentence, audio_fp in zip(
+            sentence_list_og, sentence_list_translated, split_audio_fp_list
+        ):
             sentences_dict[og_sentence] = {
                 "translated_sentence": translated_sentence,
                 "audio_fp": audio_fp,
-                "sentence_number": idx
+                "sentence_number": idx,
             }
             idx += 1
 
         # Create flashcards for the current lesson and add them to the deck
-        deck, media_files = create_flashcards(words_dict, sentences_dict, deck_name=lesson_name)
+        deck, media_files = create_flashcards(
+            words_dict, sentences_dict, deck_name=lesson_name
+        )
         all_media_files.extend(media_files)
 
         # Write each subdeck to its own Anki package
         package = genanki.Package(deck)
         package.media_files = all_media_files
-        package.write_to_file(os.path.join(args.output_folder, f'{lesson_name}.apkg'))
+        package.write_to_file(os.path.join(args.output_folder, f"{lesson_name}.apkg"))
 
         shutil.rmtree(os.path.dirname(split_audio_fp_list[0]))
         shutil.rmtree(tmpdir)

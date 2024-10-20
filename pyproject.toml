@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "lingoAnki"
+version = "0.1.0"
+description = "A script to create Anki flashcards from audio transcript to learn a foreign language."
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+genanki = ">=0.13.1"
+inquirer = ">=3.1.1"
+spacy = ">=3.6.1"  # or latest stable version
+openai-whisper = { git = "https://github.com/openai/whisper", rev = "main" }
+deep_translator = {version=">=1.10.1", extras=['ai']}  # version supporting ChatGptTranslator
+gtts = ">=2.2.4"
+pydub = ">=0.25.1"
+numpy = ">=2.0.0"
+
+
+[tool.poetry.scripts]
+lingoAnki = "lingoAnki.__main__:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.1"
+ipdb = "^0.13"
+ipython = "^7.5.3"
+coverage = "^7.5.3"
+pre-commit = "^3.7.1"
+poetry-pre-commit-plugin = "^0.1.2"
+
+[tool.pre_commit]
+version = "2.3.0"
+config = ".pre-commit-config.yaml"
