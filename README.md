@@ -20,11 +20,32 @@ Clone the repo
 ```bash
 pip install poetry
 poetry install
-`
+```
 
-##Example:
+## Example:
 ```bash
-python lingoAnki.py path_to_audio_files --ankideck "MyDeckName" --input-language "en" --target-language "fr" --output-folder "output_directory"
+usage: lingoAnki [-h] [--ankideck ANKIDECK] [--input-language INPUT_LANGUAGE] [--target-language TARGET_LANGUAGE] [--output-folder OUTPUT_FOLDER] [--check-sentences] [--model [MODEL]] [--select-files] audio_dir
+
+Automates the creation of Anki flashcards from transcripts extracted from audio recordings.
+
+positional arguments:
+  audio_dir             Directory containing the input audio files to process
+
+options:
+  -h, --help            show this help message and exit
+  --ankideck ANKIDECK, -a ANKIDECK
+                        Anki main Deck name
+  --input-language INPUT_LANGUAGE, -il INPUT_LANGUAGE
+                        Language Code input to parse (en,bo,fr ...)
+  --target-language TARGET_LANGUAGE, -tl TARGET_LANGUAGE
+                        Language Code output (en,fr ...)
+  --output-folder OUTPUT_FOLDER, -o OUTPUT_FOLDER
+                        Output folder
+  --check-sentences, -c
+                        Manually review and modify the transcription
+  --model [MODEL], -m [MODEL]
+                        Choose a model from the list or use default.
+  --select-files, -s    If set, allows you to select files interactively for processing.
 ```
 
 ## When to use
