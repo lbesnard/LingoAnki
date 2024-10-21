@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "lingoAnki"
+name = "lingoanki"
 version = "0.1.0"
 description = "A script to create Anki flashcards from audio transcript to learn a foreign language."
 authors = ["Your Name <your.email@example.com>"]
@@ -19,7 +19,7 @@ numpy = ">=2.0.0"
 
 
 [tool.poetry.scripts]
-lingoAnki = "lingoAnki.__main__:main"
+lingoAnki = "lingoanki.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
