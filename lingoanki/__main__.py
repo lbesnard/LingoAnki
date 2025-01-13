@@ -493,12 +493,24 @@ def create_word_model():
             {
                 "name": "Word to Translation",
                 "qfmt": "{{Word}}<br>{{Audio}}",
-                "afmt": '{{FrontSide}}<hr id="answer">{{Translation}}',
+                "afmt": """
+                {{FrontSide}}<hr id="answer">
+
+                <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+                  <div style="color:#009933; font-size:1em;">{{Translation}}</div>
+                </div>
+                """,
             },
             {
                 "name": "Translation to Word",
                 "qfmt": "{{Translation}}",
-                "afmt": '{{FrontSide}}<hr id="answer">{{Word}}<br>{{Audio}}',
+                "afmt": """
+                {{FrontSide}}<hr id="answer">
+                <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+                  <div style="color:#009933; font-size:1em;">{{Word}}<br>{{Audio}}
+                </div>
+                </div>
+                """,
             },
         ],
         css="""
@@ -529,12 +541,26 @@ def create_sentence_model():
             {
                 "name": "Sentence to Translation",
                 "qfmt": "{{Audio}}",
-                "afmt": '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Translation}}',
+                "afmt": """
+            <div style="font-weight:bold; font-size:1.2em; color:#0073e6;">
+              {{FrontSide}}<hr id="answer">
+            </div>
+            <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+              <div style="color:#333; font-size:1em;">{{Sentence}}</div>
+              <hr style="border: 1px solid #0073e6;">
+              <div style="color:#009933; font-size:1em;">{{Translation}}</div>
+            </div>
+            """,
             },
             {
                 "name": "Translation to Sentence",
                 "qfmt": "{{Translation}}",
-                "afmt": '{{FrontSide}}<hr id="answer">{{Sentence}}<br>{{Audio}}',
+                "afmt": """
+            {{FrontSide}}<hr id="answer">{{Audio}}
+            <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+              <div style="color:#009933; font-size:1em;">{{Sentence}}</div>
+            </div>
+            """,
             },
         ],
         css="""
@@ -569,7 +595,6 @@ def create_combined_sentences_model():
                     {{CombinedSentences}}<br>
                     {{/CombinedSentences}}
                     <br>
-                    [sound:{{Audio}}]
                 """,
                 "afmt": '{{FrontSide}}<hr id="answer">{{Translation}}',
             }
@@ -649,7 +674,9 @@ def create_flashcards(word_dict, sentence_dict, deck_name="Language Flashcards")
     for sentence, data in sorted_sentences:
         sentence_number = data["sentence_number"]
         audio_fp = data["audio_fp"]
-        combined_sentences += f"<b>{sentence_number:03d}. {sentence}</b><br>"
+        combined_sentences += (
+            f"<b>{sentence_number:03d}. {add_audio(audio_fp)} {sentence}</b><br>"
+        )
         combined_audio += f"{sentence_number:03d}. {add_audio(audio_fp)} <br>"
 
     combined_translation = " ".join(
