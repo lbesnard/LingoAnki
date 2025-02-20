@@ -346,7 +346,7 @@ anki_model = Model(
 def main():
     parser = argparse.ArgumentParser(
         description="Create Anki flashcards from a Markdown file.",
-        epilog='Example:\n ./diary.py -m /home/lbesnard/Nextcloud/joplin/18cf5fb35d3d4e20b5c6a4be0a56e429.md -d "Norwegian 🇳🇴:::Diary 📖" -o ~/Documents',
+        epilog='Example:\n diaryAnki -m /home/lbesnard/Nextcloud/joplin/18cf5fb35d3d4e20b5c6a4be0a56e429.md -d "Norwegian 🇳🇴:::Diary 📖" -o ~/Documents',
     )
     parser.add_argument(
         "-m", "--markdown-path", required=True, help="Path to the markdown file."
