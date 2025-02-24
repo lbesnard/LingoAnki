@@ -35,9 +35,13 @@ import logging
 import os
 import re
 import tempfile
+import wave
 
 from genanki import Deck, Model, Note, Package
 from gtts import gTTS
+from ovos_tts_plugin_piper import PiperTTSPlugin
+from piper import PiperVoice
+from pydub import AudioSegment
 
 
 def generate_unique_id(input_string, length=9):
@@ -222,14 +226,36 @@ def create_note(english, norwegian, tips, date, sub_deck_name, i):
     """
     norwegian = norwegian.replace("**", "").strip()
     english = english.replace("**", "").strip()
-    logging.info(f"Creating gTTS audio for: {norwegian}")
+    logging.info(f"Creating TTS audio for: {norwegian}")
 
     if norwegian == "":
         return None, None
 
-    tts = gTTS(text=norwegian, lang="no")
-    audio_filename = os.path.join(tempfile.gettempdir(), f"{hash(norwegian)}.mp3")
-    tts.save(audio_filename)
+    if not USE_PIPER:
+        logging.info("Using gTTS")
+        tts = gTTS(text=norwegian, lang="no")
+        audio_filename = os.path.join(tempfile.gettempdir(), f"{hash(norwegian)}.mp3")
+        tts.save(audio_filename)
+    else:
+        logging.info("Using piper-tts")
+        # config = {
+        #     "module": "ovos-tts-plugin-piper",
+        # }
+        # e = PiperTTSPlugin(config=config)
+        e = PiperTTSPlugin()
+
+        # voice = PiperVoice.load("no_NO-talesyntese-medium.onnx")
+        audio_filename = os.path.join(tempfile.gettempdir(), f"{hash(norwegian)}.wav")
+        # wav_file = wave.open(audio_filename, "w")
+        e.get_tts(norwegian, audio_filename, lang="no")
+
+        # audio = voice.synthesize(norwegian, wav_file) # using plugin instead
+
+        # convert to mp3
+        audio = AudioSegment.from_wav(audio_filename)
+        audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
+        audio_filename = audio_filename.replace(".wav", ".mp3")
+        logging.info(f"{audio_filename}")
 
     # main_deck_name = "Diary test"
 
@@ -259,7 +285,7 @@ def create_note(english, norwegian, tips, date, sub_deck_name, i):
     return note, audio_filename
 
 
-def parse_markdown_to_anki(markdown_path, deck_name, output_dir):
+def parse_markdown_to_anki(markdown_path, deck_name, output_dir, piper=False):
     """
     Parse the markdown file and generate Anki flashcards with audio.
 
@@ -269,6 +295,9 @@ def parse_markdown_to_anki(markdown_path, deck_name, output_dir):
         output_dir (str): Path to the output directory.
     """
     validate_arguments(markdown_path, output_dir)
+    global USE_PIPER
+    USE_PIPER = piper
+
     content = read_markdown_file(markdown_path)
 
     logging.basicConfig(
@@ -360,10 +389,18 @@ def main():
         required=False,
         help="Path to the output directory. Defaults to a temporary directory.",
     )
+    parser.add_argument(
+        "-p",
+        "--piper",
+        action="store_true",
+        help="User piper for TTS.",
+    )
 
     args = parser.parse_args()
 
-    parse_markdown_to_anki(args.markdown_path, args.deck_name, args.output_dir)
+    parse_markdown_to_anki(
+        args.markdown_path, args.deck_name, args.output_dir, piper=args.piper
+    )
 
 
 if __name__ == "__main__":
