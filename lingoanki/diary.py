@@ -243,6 +243,7 @@ def create_note(english, norwegian, tips, date, sub_deck_name, i):
         # }
         # e = PiperTTSPlugin(config=config)
         e = PiperTTSPlugin()
+        e.length_scale = 1.4
 
         # voice = PiperVoice.load("no_NO-talesyntese-medium.onnx")
         audio_filename = os.path.join(tempfile.gettempdir(), f"{hash(norwegian)}.wav")
@@ -255,6 +256,7 @@ def create_note(english, norwegian, tips, date, sub_deck_name, i):
         audio = AudioSegment.from_wav(audio_filename)
         audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
         audio_filename = audio_filename.replace(".wav", ".mp3")
+        os.remove(audio_filename.replace(".mp3", ".wav"))
         logging.info(f"{audio_filename}")
 
     # main_deck_name = "Diary test"
@@ -325,6 +327,9 @@ def parse_markdown_to_anki(markdown_path, deck_name, output_dir, piper=False):
     package = Package(main_deck)
     package.media_files = all_media_files
     package.write_to_file(deck_file)
+
+    for f in all_media_files:
+        os.remove(f)
 
     logging.info(f"Anki deck created: {deck_file}")
 
