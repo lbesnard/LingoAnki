@@ -44,6 +44,74 @@ from piper import PiperVoice
 from pydub import AudioSegment
 
 
+# Define the model for Anki cards
+anki_model = Model(
+    model_id=3602398329,
+    name="English-Norwegian Model",
+    fields=[
+        {"name": "English"},
+        {"name": "Norwegian"},
+        {"name": "Tips"},
+        {"name": "Audio"},
+        {"name": "Date"},
+        {"name": "SentenceNumber"},
+    ],
+    templates=[
+        {
+            "name": "English to Norwegian",
+            "qfmt": "{{English}}",
+            "afmt": """
+            {{FrontSide}}<hr id="answer">
+            <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+              <div style="color:#009933; font-size:1em;">{{Norwegian}}</div>
+              <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{Tips}}</em></div>
+            </div>
+            <center>{{Audio}}</center>
+
+            """,
+        },
+        {
+            "name": "Norwegian to English",
+            "qfmt": "{{Audio}}",
+            "afmt": """
+                    <div style="font-weight:bold; font-size:1.2em; color:#0073e6;">
+                    {{FrontSide}}<hr id="answer">
+                    </div>
+                    <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
+                    <div style="color:#333; font-size:1em;">{{Norwegian}}</div>
+                    <hr style="border: 1px solid #0073e6;">
+                    <div style="color:#009933; font-size:1em;">{{English}}</div>
+                    <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{Tips}}</em></div>
+                    </div>
+                    """,
+        },
+    ],
+    css="""
+        .card {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        }
+
+        .card {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family: arial;
+        font-size: 20px;
+        text-align: center; bottom: 0
+        color: black;
+        background-color: white;
+        }
+        .replay-button svg
+        { width: 80px;
+        height: 80px;
+        }
+        """,
+)
+
+
 def generate_unique_id(input_string, length=9):
     """
     Generates a unique ID based on a hash of the input string.
@@ -332,49 +400,6 @@ def parse_markdown_to_anki(markdown_path, deck_name, output_dir, piper=False):
         os.remove(f)
 
     logging.info(f"Anki deck created: {deck_file}")
-
-
-# Define the model for Anki cards
-anki_model = Model(
-    model_id=3602398329,
-    name="English-Norwegian Model",
-    fields=[
-        {"name": "English"},
-        {"name": "Norwegian"},
-        {"name": "Tips"},
-        {"name": "Audio"},
-        {"name": "Date"},
-        {"name": "SentenceNumber"},
-    ],
-    templates=[
-        {
-            "name": "English to Norwegian",
-            "qfmt": "{{English}}",
-            "afmt": """
-            {{FrontSide}}<hr id="answer">{{Audio}}
-            <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
-              <div style="color:#009933; font-size:1em;">{{Norwegian}}</div>
-              <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{Tips}}</em></div>
-            </div>
-            """,
-        },
-        {
-            "name": "Norwegian to English",
-            "qfmt": "{{Audio}}",
-            "afmt": """
-                    <div style="font-weight:bold; font-size:1.2em; color:#0073e6;">
-                    {{FrontSide}}<hr id="answer">
-                    </div>
-                    <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
-                    <div style="color:#333; font-size:1em;">{{Norwegian}}</div>
-                    <hr style="border: 1px solid #0073e6;">
-                    <div style="color:#009933; font-size:1em;">{{English}}</div>
-                    <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{Tips}}</em></div>
-                    </div>
-                    """,
-        },
-    ],
-)
 
 
 def main():
