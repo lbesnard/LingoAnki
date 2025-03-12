@@ -34,6 +34,7 @@ import hashlib
 import logging
 import os
 import re
+from sre_compile import REPEAT_ONE
 import tempfile
 import wave
 
@@ -220,13 +221,14 @@ def process_year_block(year_block, deck_name):
     return notes, media_files
 
 
-def process_day_block(day_block, year_deck_prefix):
+def process_day_block(day_block, year_deck_prefix, repeat_sentence=4):
     """
     Process a day block and add notes to the deck.
 
     Args:
         day_block (str): Block of text for a specific day.
         year_deck_prefix (str): Prefix for the year deck name.
+        repeat_sentence (int): for audio file, repeat n times the sentence in a row to facilitate understanding
 
     Returns:
         list: List of notes for the day.
@@ -273,6 +275,23 @@ def process_day_block(day_block, year_deck_prefix):
                 )  # create unique id https://github.com/kerrickstaley/genanki/issues/61
                 notes.append(note)
                 media_files.append(media_file)
+
+    # create a mp3 per day of all the notes to be listened with an audio player
+    playlist_media = [AudioSegment.from_mp3(mp3_file) for mp3_file in media_files]
+
+    combined = AudioSegment.empty()
+    for sentence in playlist_media:
+        combined += (
+            sentence * repeat_sentence
+        )  # repeat audio 4 times so that it's easier to remember
+    # combined = playlist_media[0]
+    # for sentence in playlist_media[1:]:
+    # combined = combined.append(sentence, crossfade=2000)
+
+    combined.export(
+        f"/home/lbesnard/Documents/anki-{date.replace('/', '-')}.mp3",
+        format="mp3",
+    )
 
     return notes, media_files
 
