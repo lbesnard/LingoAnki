@@ -36,13 +36,20 @@ import os
 import re
 from sre_compile import REPEAT_ONE
 import tempfile
-import wave
 
 from genanki import Deck, Model, Note, Package
 from gtts import gTTS
 from ovos_tts_plugin_piper import PiperTTSPlugin
 from piper import PiperVoice
 from pydub import AudioSegment
+
+
+# norwegian template used in markdown file
+diary_template = {
+    "trial": '<span style="color: #C70039 ">Forsøk</span>:',
+    "answer": '<span style="color: #097969">Rettelse</span>:',
+    "tips": '<span style="color: #dda504">Tips</span>:',
+}
 
 
 # Define the model for Anki cards
@@ -259,7 +266,11 @@ class AnkiMarkdownParser:
         )
 
         # pattern = r"-\s\*\*(.*?)\*\*\s*\n.*?\s*<span style=\"color: #097969\">Rettelse</span>:\s*\*(.*?)\*\s*\n.*?\s*<span style=\"color: #dda504\">Tips</span>:\s*(.*?)\s*\n"
-        pattern = r"-(.*?)\n.*?<span style=\"color: #097969\">Rettelse</span>:(.*?)\n.*?<span style=\"color: #dda504\">Tips</span>:(.*?)\n"
+        # pattern = r"-(.*?)\n.*?<span style=\"color: #097969\">Rettelse</span>:(.*?)\n.*?<span style=\"color: #dda504\">Tips</span>:(.*?)\n"
+        answer_template = diary_template["answer"]
+        tips_template = diary_template["tips"]
+
+        pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
         entries = re.findall(pattern, day_block, re.DOTALL)
 
         if not any(entry[1] for entry in entries):
