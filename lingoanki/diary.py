@@ -305,7 +305,7 @@ class AnkiMarkdownParser:
             )  # repeat audio 4 times so that it's easier to remember
 
         combined.export(
-            f"{self.output_dir}/{self.deck_name}_{date.replace('/', '-')}.mp3",
+            f"{self.output_dir}/{self.deck_name.replace(':', '')}_{date.replace('/', '-')}.mp3",
             format="mp3",
         )
 
