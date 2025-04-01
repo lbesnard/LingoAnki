@@ -25,6 +25,7 @@ numpy = ">=2.0.0"
 [tool.poetry.scripts]
 lingoAnki = "lingoanki.__main__:main"
 diaryAnki = "lingoanki.diary:main"
+diaryTprs = "lingoanki.tprs:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
