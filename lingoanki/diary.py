@@ -31,7 +31,7 @@ import re
 import openai
 import json
 import tempfile
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 from genanki import Deck, Model, Note, Package
@@ -265,7 +265,8 @@ class DiaryHandler:
         if not day_block.strip():
             return None, None
 
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})\s+(.*)", day_block)
+        # day_match = re.match(r"^(\d{4}/\d{2}/\d{2})\s+(.*)", day_block)
+        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
         if not day_match:
             return None, None
 
@@ -324,7 +325,7 @@ class DiaryHandler:
             os.path.join(
                 f"{self.output_dir}",
                 "DAILY_AUDIO",
-                f"{self.deck_name.replace(':', '')}_{date.replace('/', '-')}.mp3",
+                f"{self.deck_name.replace(':', '')}_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
             ),
             format="mp3",
         )
@@ -474,6 +475,32 @@ class DiaryHandler:
         dates = [datetime.strptime(date, "%Y/%m/%d") for date in date_strings]
         return dates
 
+    def get_title_for_date(self, text, target_date):
+        # Convert datetime to string format used in the text (YYYY/MM/DD)
+        target_date_str = target_date.strftime("%Y/%m/%d")
+
+        # Regex pattern to match headers (## YYYY/MM/DD ...)
+        pattern = r"^## (\d{4}/\d{2}/\d{2})(.*)"
+
+        lines = text.split("\n")
+
+        title_exists = None
+        for line in lines:
+            match = re.match(pattern, line)
+            if match:
+                # If this is the target date, start capturing text
+                if match.group(1) == target_date_str:
+                    # check for title
+                    # if there is a column after the date,
+                    # this means there is a title created by openai. then catch it! otherwise create it
+                    if ":" in match.group(2):
+                        title_exists = match.group(2).replace(":", "").strip()
+                        break
+                    else:
+                        title_exists = None
+                        continue
+        return title_exists  # Skip the header itself
+
     def get_text_for_date(self, text, target_date):
         # Convert datetime to string format used in the text (YYYY/MM/DD)
         target_date_str = target_date.strftime("%Y/%m/%d")
@@ -518,6 +545,37 @@ class DiaryHandler:
             study_language_sentences.append(study_language_sentence.strip())
 
         return study_language_sentences
+
+    def openai_create_day_title(self, day_block_dict):
+        sentences = [
+            dict[1]["study_language_sentence"] for dict in day_block_dict.items()
+        ]
+        # TODO:
+
+        prompt = f"""
+        Given the following sentences (written as python array) in {self.config["languages"]["study_language"]},
+        could you create in no more than 5/6 words a catchy title about them?
+        - Don't use commas, exclamation marks, column.
+        - if you need a comma, use a -
+
+
+        give the result as text in {self.config["languages"]["study_language"]}
+
+        The sentences are:
+            {sentences}
+        """
+        openai.api_key = self.config["openai"]["key"]  # Set the API key
+        response = openai.ChatCompletion.create(
+            model=self.config["openai"]["model"],
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        # Extract and parse the JSON response
+        output = response["choices"][0]["message"]["content"]
+        return output
 
     def openapi_translate_sentence(self, sentence_dict):
         prompt = f"""
@@ -565,31 +623,74 @@ class DiaryHandler:
         ]
         return output["sentence"]
 
+    def get_all_days_title(self, diary_dict):
+        titles_dict = {}
+        for date_diary in diary_dict:
+            if date_diary in diary_dict.keys():
+                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
+                if title_day is None:
+                    title_day = self.openai_create_day_title(diary_dict[date_diary])
+                    logging.info(
+                        f"created title with openai for {date_diary} - {title_day}"
+                    )
+                titles_dict[date_diary] = title_day
+
+        self.titles_dict = titles_dict
+
     def write_diary(self, diary_dict):
+        # create one mardkown files for all entries
+        self.get_all_days_title(diary_dict)
+
         if not self.config["overwrite_diary_markdown"]:
             with open(self.diary_markdown_filepath, "w", encoding="utf-8") as file:
                 for date_diary in diary_dict:
-                    if date_diary in diary_dict.keys():
-                        file.write(f"## {date_diary.strftime('%Y/%m/%d')} \n")
-                        for sentence_no, sentence_dict in diary_dict[
-                            date_diary
-                        ].items():
-                            file.write(
-                                f"- **{sentence_dict['primary_language_sentence']}\n"
-                            )
-                            file.write(
-                                f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
-                            )
-                            file.write(
-                                f"  {self.config['template_diary']['answer']} {sentence_dict['study_language_sentence']}\n"
-                            )
-                            file.write(
-                                f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
-                            )
+                    file.write(
+                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
+                    )
+                    for sentence_no, sentence_dict in diary_dict[date_diary].items():
+                        file.write(
+                            f"- **{sentence_dict['primary_language_sentence']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['answer']} {sentence_dict['study_language_sentence']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
+                        )
+
+        for date_diary in diary_dict:
+            if date_diary in diary_dict.keys():
+                diary_day_txt_filename = os.path.join(
+                    self.output_dir,
+                    "DAILY_AUDIO",
+                    f"{self.deck_name.replace(':', '')}_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
+                )
+
+                with open(diary_day_txt_filename, "w", encoding="utf-8") as file:
+                    file.write(
+                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
+                    )
+                    for sentence_no, sentence_dict in diary_dict[date_diary].items():
+                        file.write(
+                            f"- **{sentence_dict['primary_language_sentence']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['answer']} {sentence_dict['study_language_sentence']}\n"
+                        )
+                        file.write(
+                            f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
+                        )
 
     def diary_complete_translations(self):
         dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
         all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
+        self.all_diary_text = all_diary_text
 
         diary_dict = {}
         for date_diary in dates_diary:

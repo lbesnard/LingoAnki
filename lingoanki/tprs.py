@@ -12,6 +12,7 @@ import openai
 import tempfile
 import numpy as np
 
+from datetime import datetime
 from ovos_tts_plugin_piper import PiperTTSPlugin
 from pydub import AudioSegment
 from collections import defaultdict
@@ -25,6 +26,20 @@ class TprsCreation(DiaryHandler):
         self.tprs_lessons_filepath = os.path.join(
             self.config["output_dir"], "tprs_lessons.md"
         )
+        self.get_all_tprs_titles()
+
+    def get_all_tprs_titles(self):
+        self.titles_dict = {}
+
+        content = self.read_markdown_file(self.markdown_tprs_path)
+        days = re.split(r"^##\s+", content, flags=re.MULTILINE)
+        for day_block in days:
+            if day_block.strip():
+                day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
+                if day_match:
+                    date = day_match.group(1)
+                    title = day_match.group(2).replace(":", "").strip()
+                    self.titles_dict[datetime.strptime(date, "%Y/%m/%d")] = title
 
     def read_tprs_day_block(self, day_block):
         """
@@ -39,14 +54,14 @@ class TprsCreation(DiaryHandler):
         if not day_block.strip():
             return None, None
 
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})\s+(.*)", day_block)
+        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
         if not day_match:
             day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
             if not day_match:
                 return None, None
 
         date = day_match.group(1)
-        title = day_match.group(2)
+        title = day_match.group(2).replace(":", "").strip()
 
         logging.info(f"Processing day: {date} - {title}")
 
@@ -83,7 +98,7 @@ class TprsCreation(DiaryHandler):
         tprs_audio_lesson_filepath = os.path.join(
             f"{self.output_dir}",
             "TPRS",
-            f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}.mp3",
+            f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
         )
         if (
             os.path.exists(tprs_audio_lesson_filepath)
@@ -182,10 +197,10 @@ class TprsCreation(DiaryHandler):
 
     def convert_tts_tprs_entries(self):
         self.validate_arguments()
-        if os.path.exists(self.tprs_lessons_filepath):
-            content = self.read_markdown_file(self.tprs_lessons_filepath)
-        else:
-            content = self.read_markdown_file(self.markdown_tprs_path)
+        # if os.path.exists(self.tprs_lessons_filepath):
+        #     content = self.read_markdown_file(self.tprs_lessons_filepath)
+        # else:
+        content = self.read_markdown_file(self.markdown_tprs_path)
 
         logging.basicConfig(
             level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -293,14 +308,33 @@ class TprsCreation(DiaryHandler):
 
                 tprs_dict[missing_date_tprs] = tprs_block_day_text
 
+        # add missing title
+
         # append tprs_block_day_text to top of markdown_tprs_path
         if not self.config["overwrite_tprs_markdown"]:
             with open(self.tprs_lessons_filepath, "w", encoding="utf-8") as file:
                 for date_diary in dates_diary:
                     if date_diary in tprs_dict.keys():
-                        file.write(f"## {date_diary.strftime('%Y/%m/%d')} lesson\n")
+                        file.write(
+                            f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                        )
                         file.write(tprs_dict[date_diary])
                         file.write("\n\n")
+
+        # create a markdown tprs file per day for convenience
+        for date_diary in dates_diary:
+            if date_diary in tprs_dict.keys():
+                tprs_day_txt_filename = os.path.join(
+                    self.output_dir,
+                    "TPRS",
+                    f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
+                )
+                with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+                    file.write(
+                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                    )
+                    file.write(tprs_dict[date_diary])
+                    file.write("\n\n")
 
 
 def main():
