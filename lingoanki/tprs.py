@@ -26,6 +26,8 @@ class TprsCreation(DiaryHandler):
         self.tprs_lessons_filepath = os.path.join(
             self.config["output_dir"], "tprs_lessons.md"
         )
+
+        os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
         self.get_all_tprs_titles()
 
     def get_all_tprs_titles(self):
@@ -65,7 +67,6 @@ class TprsCreation(DiaryHandler):
 
         logging.info(f"Processing day: {date} - {title}")
 
-        #
         result = defaultdict(list)
         current_setning = None
         current_question = None
@@ -100,18 +101,17 @@ class TprsCreation(DiaryHandler):
             "TPRS",
             f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
         )
+
+        # reprocessing existing audio file depending on config
         if (
             os.path.exists(tprs_audio_lesson_filepath)
             and not self.config["overwrite_tprs_audio"]
         ):
-            logging.info("Already processed")
+            logging.info(f"TPRS file for {date} already processed")
             return
 
-        logging.info("Using piper-tts")
-        # config = {
-        #     "module": "ovos-tts-plugin-piper",
-        # }
-        # e = PiperTTSPlugin(config=config)
+        logging.info("Generating TPRS file for {date}")
+
         e = PiperTTSPlugin()
         e.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
 
@@ -183,8 +183,6 @@ class TprsCreation(DiaryHandler):
             combined += (
                 sentence * self.config["tts"]["repeat_sentence_tprs"]
             )  # repeat audio n times so that it's easier to remember
-
-        os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
 
         combined.export(
             tprs_audio_lesson_filepath,
@@ -307,8 +305,6 @@ class TprsCreation(DiaryHandler):
                 )
 
                 tprs_dict[missing_date_tprs] = tprs_block_day_text
-
-        # add missing title
 
         # append tprs_block_day_text to top of markdown_tprs_path
         if not self.config["overwrite_tprs_markdown"]:

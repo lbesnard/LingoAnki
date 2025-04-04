@@ -3,20 +3,21 @@
 This code converts diary entries written in a foreign language into flashcards to learn more efficently.
 
 
-This is a bit hacky, but here is my workflow:
+Here is the workflow:
 
-1) writing in a markdown file (Joplin) sentences in primary_language following the template defined below
+1) writing in a markdown file (for example Joplin) sentences in primary_language following the template defined below
 2) attempt to write in study_language the sentence (optional)
 3) run this script which creates an anki deck and calls openai to fill up the correct answers
-6) import the anki deck
+4) import the anki deck
+
+Audio "Lessons" will also be generated.
 
 
 TEMPLATE:
 
 # 2025
 
-## 2025/01/28 Tirsdag 28. Januar (Tuesday) 2025
-
+## 2025/01/28
 - **I want to speak Bokmal**
   <span style="color: #C70039 ">Forsøk</span>:
   <span style="color: #097969">Rettelse</span>:
@@ -58,6 +59,7 @@ class DiaryHandler:
         self.diary_markdown_filepath = os.path.join(
             self.config["output_dir"], "diary_all.md"
         )
+        os.makedirs(os.path.join(f"{self.output_dir}", "DAILY_AUDIO"), exist_ok=True)
 
         self.validate_arguments()
         self.setup_logging()
@@ -95,7 +97,7 @@ class DiaryHandler:
         if self.output_dir:
             if not os.path.exists(self.output_dir):
                 try:
-                    os.makedirs(self.output_dir)
+                    os.makedirs(self.output_dir, exist_ok=True)
                 except Exception as e:
                     raise ValueError(
                         f"Failed to create output directory: {self.output_dir}. Error: {e}"
@@ -320,7 +322,6 @@ class DiaryHandler:
                 sentence * self.config["tts"]["repeat_sentence_diary"]
             )  # repeat audio n times so that it's easier to remember
 
-        os.makedirs(os.path.join(f"{self.output_dir}", "DAILY_AUDIO"), exist_ok=True)
         combined.export(
             os.path.join(
                 f"{self.output_dir}",
@@ -649,7 +650,7 @@ class DiaryHandler:
                     )
                     for sentence_no, sentence_dict in diary_dict[date_diary].items():
                         file.write(
-                            f"- **{sentence_dict['primary_language_sentence']}\n"
+                            f"- **{sentence_dict['primary_language_sentence']}**\n"
                         )
                         file.write(
                             f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
@@ -701,7 +702,9 @@ class DiaryHandler:
 
             # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
             # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
-            pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
+            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
+            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*{tips_template}(.*)"
+            pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
             entries = re.findall(pattern, day_block_text, re.DOTALL)
 
             if not any(entry[1] for entry in entries):
