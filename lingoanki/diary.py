@@ -56,7 +56,7 @@ class DiaryHandler:
         self.output_dir = self.config["output_dir"]
         self.tts_model = self.config["tts"]["model"]
 
-        self.diary_markdown_filepath = os.path.join(
+        self.markdown_script_generated_diary_path = os.path.join(
             self.config["output_dir"], "diary_all.md"
         )
         os.makedirs(os.path.join(f"{self.output_dir}", "DAILY_AUDIO"), exist_ok=True)
@@ -433,10 +433,6 @@ class DiaryHandler:
 
         content = self.read_markdown_file(self.markdown_diary_path)
 
-        logging.basicConfig(
-            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-        )
-
         years = re.split(r"^#\s+", content, flags=re.MULTILINE)
         main_deck = self.create_main_deck()
         all_notes = []
@@ -643,7 +639,9 @@ class DiaryHandler:
         self.get_all_days_title(diary_dict)
 
         if not self.config["overwrite_diary_markdown"]:
-            with open(self.diary_markdown_filepath, "w", encoding="utf-8") as file:
+            with open(
+                self.markdown_script_generated_diary_path, "w", encoding="utf-8"
+            ) as file:
                 for date_diary in diary_dict:
                     file.write(
                         f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
@@ -704,8 +702,16 @@ class DiaryHandler:
             # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
             # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
             # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*{tips_template}(.*)"
-            pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
-            entries = re.findall(pattern, day_block_text, re.DOTALL)
+            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
+            # entries = re.findall(pattern, day_block_text, re.DOTALL)
+            pattern = (
+                rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
+                rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
+                rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
+                rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
+            )
+
+            entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
 
             if not any(entry[1] for entry in entries):
                 logging.warning(f"{dates_diary} as it has no valid translations.")
