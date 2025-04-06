@@ -26,23 +26,24 @@ TEMPLATE:
 """
 
 import hashlib
+import json
 import logging
 import os
 import re
-import openai
-import json
+import shutil
 import tempfile
 from datetime import date, datetime
-import yaml
-
-from genanki import Deck, Model, Note, Package
-from gtts import gTTS
-from ovos_tts_plugin_piper import PiperTTSPlugin
-from ovos_plugin_manager.tts import load_tts_plugin
-from piper import PiperVoice
-from pydub import AudioSegment
 from pathlib import Path
 from sre_compile import REPEAT_ONE
+
+import openai
+import yaml
+from genanki import Deck, Model, Note, Package
+from gtts import gTTS
+from ovos_plugin_manager.tts import load_tts_plugin
+from ovos_tts_plugin_piper import PiperTTSPlugin
+from piper import PiperVoice
+from pydub import AudioSegment
 
 CONFIG_DIR = os.path.join(Path.home(), ".config", "diaryAnki")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.yaml")
@@ -53,16 +54,12 @@ class DiaryHandler:
         self.config = self.load_config()
         self.markdown_diary_path = self.config["markdown_diary_path"]
         self.deck_name = self.config["anki_deck_name"]
-        self.output_dir = self.config["output_dir"]
+        self.output_dir = os.path.dirname(self.config["output_dir"])
         self.tts_model = self.config["tts"]["model"]
-
-        self.markdown_script_generated_diary_path = os.path.join(
-            self.config["output_dir"], "diary_all.md"
-        )
-        os.makedirs(os.path.join(f"{self.output_dir}", "DAILY_AUDIO"), exist_ok=True)
 
         self.validate_arguments()
         self.setup_logging()
+        self.setup_output_diary_markdown()
         self.anki_model_def()
 
     def load_config(self):
@@ -71,6 +68,59 @@ class DiaryHandler:
             with open(CONFIG_PATH) as f:
                 return yaml.safe_load(f) or {}
         raise FileNotFoundError
+
+    def setup_output_diary_markdown(self):
+        # doing it this way, as the TPRS class can inherit this DiaryHandler class
+        if self.__class__.__name__ == "DiaryHandler":
+            time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if self.config["overwrite_diary_markdown"]:
+                # backing up original file, and add bak.timestamp
+                shutil.copy(
+                    self.markdown_diary_path,
+                    self.markdown_diary_path.replace(
+                        ".md",
+                        f".md.bak_{time_now_str}",
+                    ).replace(
+                        os.path.basename(self.markdown_diary_path),
+                        "." + os.path.basename(self.markdown_diary_path),
+                    ),
+                )
+
+                self.markdown_script_generated_diary_path = self.markdown_diary_path
+            else:
+                # if overwrite is False, we need to replace the output_dir
+                org_dir_path = os.path.dirname(self.markdown_diary_path)
+
+                self.markdown_script_generated_diary_path = self.markdown_diary_path
+                if org_dir_path == self.output_dir:
+                    # same dir, modify filename
+                    self.markdown_script_generated_diary_path = (
+                        self.markdown_script_generated_diary_path.replace(
+                            ".md", f"_{time_now_str}.md"
+                        )
+                    )
+
+                else:
+                    # different dir, filename stays the same
+                    self.markdown_script_generated_diary_path = (
+                        self.markdown_script_generated_diary_path.replace(
+                            org_dir_path, self.output_dir
+                        )
+                    )
+        else:
+            self.markdown_script_generated_diary_path = self.markdown_diary_path
+            org_dir_path = os.path.dirname(self.markdown_diary_path)
+            self.markdown_script_generated_diary_path = (
+                self.markdown_script_generated_diary_path.replace(
+                    org_dir_path, self.output_dir
+                )
+            )
+            # if the new markdown file doesnt exist yet, default back to the original one
+            if not os.path.exists(self.markdown_script_generated_diary_path):
+                self.markdown_script_generated_diary_path = self.markdown_diary_path
+
+            # simplify code so that when not called from main class, both variables are the same
+            self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
         logging.basicConfig(
@@ -638,27 +688,24 @@ class DiaryHandler:
         # create one mardkown files for all entries
         self.get_all_days_title(diary_dict)
 
-        if not self.config["overwrite_diary_markdown"]:
-            with open(
-                self.markdown_script_generated_diary_path, "w", encoding="utf-8"
-            ) as file:
-                for date_diary in diary_dict:
+        with open(
+            self.markdown_script_generated_diary_path, "w", encoding="utf-8"
+        ) as file:
+            for date_diary in diary_dict:
+                file.write(
+                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
+                )
+                for sentence_no, sentence_dict in diary_dict[date_diary].items():
+                    file.write(f"- **{sentence_dict['primary_language_sentence']}**\n")
                     file.write(
-                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
+                        f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
                     )
-                    for sentence_no, sentence_dict in diary_dict[date_diary].items():
-                        file.write(
-                            f"- **{sentence_dict['primary_language_sentence']}**\n"
-                        )
-                        file.write(
-                            f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
-                        )
-                        file.write(
-                            f"  {self.config['template_diary']['answer']} {sentence_dict['study_language_sentence']}\n"
-                        )
-                        file.write(
-                            f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
-                        )
+                    file.write(
+                        f"  {self.config['template_diary']['answer']} {sentence_dict['study_language_sentence']}\n"
+                    )
+                    file.write(
+                        f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
+                    )
 
         for date_diary in diary_dict:
             if date_diary in diary_dict.keys():
@@ -713,8 +760,8 @@ class DiaryHandler:
 
             entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
 
-            if not any(entry[1] for entry in entries):
-                logging.warning(f"{dates_diary} as it has no valid translations.")
+            if not any(entry[2] for entry in entries):
+                logging.warning(f"{date_diary} has no valid translations.")
 
             i = 0
             diary_day_dict = {}
