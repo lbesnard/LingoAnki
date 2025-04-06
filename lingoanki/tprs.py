@@ -106,7 +106,14 @@ class TprsCreation(DiaryHandler):
         if not day_block.strip():
             return None, None
 
+        # pattern where ## from .split()
         day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
+
+        # normal full pattern
+        if not day_match:
+            day_match = re.match(r"^## (\d{4}/\d{2}/\d{2})(.*)", day_block)
+
+        ## pattern with title
         if not day_match:
             day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
             if not day_match:
@@ -151,6 +158,13 @@ class TprsCreation(DiaryHandler):
             "TPRS",
             f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
         )
+
+        # TODO: ceate code to check if a new sentence was added to the main TPRS code, but now missing from the individual lesson
+        tprs_md_lesson_fp = tprs_audio_lesson_filepath.replace(".mp3", ".md")
+        if os.path.exists(tprs_md_lesson_fp):
+            content = self.read_markdown_file(tprs_md_lesson_fp)
+
+            result, date = self.read_tprs_day_block(content)
 
         # reprocessing existing audio file depending on config
         if (
