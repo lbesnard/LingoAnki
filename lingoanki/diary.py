@@ -2,7 +2,6 @@
 """
 This code converts diary entries written in a foreign language into flashcards to learn more efficently.
 
-
 Here is the workflow:
 
 1) writing in a markdown file (for example Joplin) sentences in primary_language following the template defined below
@@ -784,9 +783,10 @@ class DiaryHandler:
                     logging.info(
                         f"create missing diary entry with openai for {primary_language_sentence.strip()}"
                     )
-                    diary_day_dict[i] = self.openapi_translate_sentence(
-                        diary_day_dict[i]
-                    )
+                    if self.config["create_diary_answers_auto"]:
+                        diary_day_dict[i] = self.openapi_translate_sentence(
+                            diary_day_dict[i]
+                        )
 
                 diary_dict[date_diary] = diary_day_dict
                 i += 1
