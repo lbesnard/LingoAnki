@@ -31,7 +31,7 @@ import os
 import re
 import shutil
 import tempfile
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from sre_compile import REPEAT_ONE
 
@@ -60,6 +60,13 @@ class DiaryHandler:
         self.setup_logging()
         self.setup_output_diary_markdown()
         self.anki_model_def()
+
+        if self.config["diary_entries_prompt_user"]:
+            if self.__class__.__name__ == "DiaryHandler":
+                self.diary_new_entries_day = self.prompt_new_diary_entry()
+                old_dict = self.markdown_diary_to_dict()
+        else:
+            self.diary_new_entries_day = None
 
     def load_config(self):
         """Load YAML config if it exists."""
@@ -151,6 +158,56 @@ class DiaryHandler:
                     raise ValueError(
                         f"Failed to create output directory: {self.output_dir}. Error: {e}"
                     )
+
+    def prompt_new_diary_entry(self):
+        """Prompt user to add new diary entries for today."""
+        diary = {}
+
+        user_input = (
+            input("Do you want to add new diary entries for today? (y/N): ")
+            .strip()
+            .lower()
+        )
+        if user_input != "y":
+            return None
+
+        today_key = datetime.now().date()
+        diary[today_key] = {}
+
+        sentence_number = 0
+        while True:
+            primary_sentence = input(
+                f"\nEnter sentence {sentence_number} in your primary language: "
+            ).strip()
+
+            if primary_sentence == "":
+                confirm = input(
+                    "You entered an empty sentence. Press enter again to confirm and stop adding sentences, or type anything to continue: "
+                ).strip()
+                if confirm == "":
+                    print("No more sentences will be added.")
+                    break
+                else:
+                    continue  # User mistyped – let them re-enter the sentence
+
+            trial_translation = input(
+                "Try to translate it into the study language (press Enter to skip): "
+            ).strip()
+            if trial_translation == "":
+                print(
+                    "Empty input detected – this will be saved as an empty trial translation."
+                )
+
+            diary[today_key][sentence_number] = {
+                "study_language_sentence": "",
+                "study_language_sentence_trial": trial_translation,
+                "primary_language_sentence": primary_sentence,
+                "tips": "",
+            }
+
+            sentence_number += 1
+
+        return diary
 
     def anki_model_def(self):
         # Define the model for Anki cards
@@ -578,16 +635,29 @@ class DiaryHandler:
     def get_sentences_from_diary(self, day_block):
         answer_template = self.config["template_diary"]["answer"]
         tips_template = self.config["template_diary"]["tips"]
+        trial_template = self.config["template_diary"]["trial"]
 
-        pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
-        entries = re.findall(pattern, day_block, re.DOTALL)
+        pattern = (
+            rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
+            rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
+            rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
+            rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
+        )
+
+        entries = re.findall(pattern, day_block, re.DOTALL | re.MULTILINE)
 
         if not any(entry[1] for entry in entries):
             logging.warning(f"Skipping day as it has no valid translations.")
             return None
 
         study_language_sentences = []
-        for primary_language_sentence, study_language_sentence, tips in entries:
+        for entry in entries:
+            (
+                primary_language_sentence,
+                study_language_sentence_trial,
+                study_language_sentence,
+                tips,
+            ) = entry
             study_language_sentences.append(study_language_sentence.strip())
 
         return study_language_sentences
@@ -623,7 +693,7 @@ class DiaryHandler:
         output = response["choices"][0]["message"]["content"]
         return output
 
-    def openapi_translate_sentence(self, sentence_dict):
+    def openai_translate_sentence(self, sentence_dict):
         prompt = f"""
         You need to translate a sentence given in {self.config["languages"]["primary_language"]} into {self.config["languages"]["study_language"]}].
         The output should be a JSON dictionary where:
@@ -687,6 +757,7 @@ class DiaryHandler:
         # create one mardkown files for all entries
         self.get_all_days_title(diary_dict)
 
+        logging.info(f"Writing diary to {self.markdown_script_generated_diary_path}")
         with open(
             self.markdown_script_generated_diary_path, "w", encoding="utf-8"
         ) as file:
@@ -714,6 +785,7 @@ class DiaryHandler:
                     f"{self.deck_name.replace(':', '')}_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
                 )
 
+                logging.info(f"Writing daily diary to {diary_day_txt_filename}")
                 with open(diary_day_txt_filename, "w", encoding="utf-8") as file:
                     file.write(
                         f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
@@ -732,7 +804,7 @@ class DiaryHandler:
                             f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
                         )
 
-    def diary_complete_translations(self):
+    def markdown_diary_to_dict(self):
         dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
         all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
         self.all_diary_text = all_diary_text
@@ -744,12 +816,6 @@ class DiaryHandler:
             tips_template = self.config["template_diary"]["tips"]
             trial_template = self.config["template_diary"]["trial"]
 
-            # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
-            # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
-            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
-            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*{tips_template}(.*)"
-            # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
-            # entries = re.findall(pattern, day_block_text, re.DOTALL)
             pattern = (
                 rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
                 rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
@@ -779,20 +845,92 @@ class DiaryHandler:
                     "tips": tips.strip(),
                 }
 
-                if diary_day_dict[i]["study_language_sentence"] == "":
+                diary_dict[date_diary] = diary_day_dict
+                i += 1
+
+        return diary_dict
+
+    def diary_complete_translations(self):
+        diary_dict = self.markdown_diary_to_dict()
+        if self.diary_new_entries_day:
+            diary_dict = self.diary_new_entries_day | diary_dict
+
+        for date_diary, date_dict in diary_dict.items():
+            for sentence_no, sentence_dict in date_dict.items():
+                primary_language_sentence = sentence_dict["primary_language_sentence"]
+                if sentence_dict["study_language_sentence"] == "":
                     logging.info(
                         f"create missing diary entry with openai for {primary_language_sentence.strip()}"
                     )
                     if self.config["create_diary_answers_auto"]:
-                        diary_day_dict[i] = self.openapi_translate_sentence(
-                            diary_day_dict[i]
-                        )
-
-                diary_dict[date_diary] = diary_day_dict
-                i += 1
+                        res = self.openai_translate_sentence(sentence_dict)
+                        diary_dict[date_diary][sentence_no] = res
 
         self.write_diary(diary_dict)
-        return
+
+    #
+    # def diary_complete_translations(self):
+    #     dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
+    #     all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
+    #     self.all_diary_text = all_diary_text
+    #
+    #     diary_dict = {}
+    #     for date_diary in dates_diary:
+    #         day_block_text = self.get_text_for_date(all_diary_text, date_diary)
+    #         answer_template = self.config["template_diary"]["answer"]
+    #         tips_template = self.config["template_diary"]["tips"]
+    #         trial_template = self.config["template_diary"]["trial"]
+    #
+    #         # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
+    #         # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
+    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
+    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*{tips_template}(.*)"
+    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
+    #         # entries = re.findall(pattern, day_block_text, re.DOTALL)
+    #         pattern = (
+    #             rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
+    #             rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
+    #             rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
+    #             rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
+    #         )
+    #
+    #         entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
+    #
+    #         if not any(entry[2] for entry in entries):
+    #             logging.warning(f"{date_diary} has no valid translations.")
+    #
+    #         i = 0
+    #         diary_day_dict = {}
+    #         for (
+    #             primary_language_sentence,
+    #             study_language_sentence_trial,
+    #             study_language_sentence,
+    #             tips,
+    #         ) in entries:
+    #             diary_day_dict[i] = {
+    #                 "study_language_sentence": study_language_sentence.strip(),
+    #                 "study_language_sentence_trial": study_language_sentence_trial.strip(),
+    #                 "primary_language_sentence": primary_language_sentence.replace(
+    #                     "**", ""
+    #                 ).strip(),
+    #                 "tips": tips.strip(),
+    #             }
+    #
+    #             if diary_day_dict[i]["study_language_sentence"] == "":
+    #                 logging.info(
+    #                     f"create missing diary entry with openai for {primary_language_sentence.strip()}"
+    #                 )
+    #                 if self.config["create_diary_answers_auto"]:
+    #                     diary_day_dict[i] = self.openai_translate_sentence(
+    #                         diary_day_dict[i]
+    #                     )
+    #
+    #             diary_dict[date_diary] = diary_day_dict
+    #             i += 1
+    #
+    #     self.write_diary(diary_dict)
+    #     return
+    #
 
 
 def main():
