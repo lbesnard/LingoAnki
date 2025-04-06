@@ -64,7 +64,6 @@ class DiaryHandler:
         if self.config["diary_entries_prompt_user"]:
             if self.__class__.__name__ == "DiaryHandler":
                 self.diary_new_entries_day = self.prompt_new_diary_entry()
-                old_dict = self.markdown_diary_to_dict()
         else:
             self.diary_new_entries_day = None
 
@@ -867,70 +866,6 @@ class DiaryHandler:
                         diary_dict[date_diary][sentence_no] = res
 
         self.write_diary(diary_dict)
-
-    #
-    # def diary_complete_translations(self):
-    #     dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
-    #     all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
-    #     self.all_diary_text = all_diary_text
-    #
-    #     diary_dict = {}
-    #     for date_diary in dates_diary:
-    #         day_block_text = self.get_text_for_date(all_diary_text, date_diary)
-    #         answer_template = self.config["template_diary"]["answer"]
-    #         tips_template = self.config["template_diary"]["tips"]
-    #         trial_template = self.config["template_diary"]["trial"]
-    #
-    #         # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
-    #         # pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
-    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)"
-    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*{tips_template}(.*)"
-    #         # pattern = rf"-(.*?)\n.*?{trial_template}(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*)"
-    #         # entries = re.findall(pattern, day_block_text, re.DOTALL)
-    #         pattern = (
-    #             rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
-    #             rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
-    #             rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
-    #             rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
-    #         )
-    #
-    #         entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
-    #
-    #         if not any(entry[2] for entry in entries):
-    #             logging.warning(f"{date_diary} has no valid translations.")
-    #
-    #         i = 0
-    #         diary_day_dict = {}
-    #         for (
-    #             primary_language_sentence,
-    #             study_language_sentence_trial,
-    #             study_language_sentence,
-    #             tips,
-    #         ) in entries:
-    #             diary_day_dict[i] = {
-    #                 "study_language_sentence": study_language_sentence.strip(),
-    #                 "study_language_sentence_trial": study_language_sentence_trial.strip(),
-    #                 "primary_language_sentence": primary_language_sentence.replace(
-    #                     "**", ""
-    #                 ).strip(),
-    #                 "tips": tips.strip(),
-    #             }
-    #
-    #             if diary_day_dict[i]["study_language_sentence"] == "":
-    #                 logging.info(
-    #                     f"create missing diary entry with openai for {primary_language_sentence.strip()}"
-    #                 )
-    #                 if self.config["create_diary_answers_auto"]:
-    #                     diary_day_dict[i] = self.openai_translate_sentence(
-    #                         diary_day_dict[i]
-    #                     )
-    #
-    #             diary_dict[date_diary] = diary_day_dict
-    #             i += 1
-    #
-    #     self.write_diary(diary_dict)
-    #     return
-    #
 
 
 def main():
