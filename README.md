@@ -43,7 +43,9 @@ Below is an example of a diary entry to learn Norwegian:
 
 [📖 Diary Example](readme_ressources/%F0%9F%93%96%20Diary%20-%20Dagbokkorrigering.md)
 
-[📄 View TPRS markdown example](readme_ressources/TPRS/Norwegian%20🇳🇴-%20Diary%20📖_TPRS_2025-04-07_Testens%20spennende%20reise.md)[🎧 Download and listen to the MP3 TPRS lesson](readme_ressources/TPRS/Norwegian%20🇳🇴-%20Diary%20📖_TPRS_2025-04-07_Testens%20spennende%20reise.mp3)
+[📄 View TPRS markdown example](readme_ressources/TPRS/Norwegian%20🇳🇴-%20Diary%20📖_TPRS_2025-04-07_Testens%20spennende%20reise.md)
+
+[🎧 Download and listen to the MP3 TPRS lesson](readme_ressources/TPRS/Norwegian%20🇳🇴-%20Diary%20📖_TPRS_2025-04-07_Testens%20spennende%20reise.mp3)
 
 ## usage
 
