@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 """
-This code converts diary entries written in a foreign language into flashcards to learn more efficently.
+This script helps convert diary entries written in a foreign language into flashcards to support more effective language learning.
 
-Here is the workflow:
+## Workflow
 
-1) writing in a markdown file (for example Joplin) sentences in primary_language following the template defined below
-2) attempt to write in study_language the sentence (optional)
-3) run this script which creates an anki deck and calls openai to fill up the correct answers
-4) import the anki deck
+1. **Write sentences in your primary language** in a Markdown file, following the template provided:
+    - This can be done manually,
+    - or generated interactively using this script with user prompts.
 
-Audio "Lessons" will also be generated.
+2. **Optionally, write your own translation** of each sentence in the study language:
+    - Either manually,
+    - or through the script with prompting.
+
+3. **The script uses OpenAI** to:
+    - Translate the sentences into the study language,
+    - Provide helpful learning tips,
+    - Generate a title for the diary entry.
+
+4. **An Anki deck is created** (if enabled in `config.yaml`; disabled by default):
+    - This must be imported manually into Anki.
+
+5. **A TPRS (Teaching Proficiency Through Reading and Storytelling) resource is generated** for each diary entry:
+    - Includes both an audio file and a corresponding Markdown file.
 
 
 TEMPLATE:
@@ -987,16 +999,6 @@ class TprsCreation(DiaryHandler):
             f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
         )
 
-        # TODO: ceate code to check if a new sentence was added manually to the main diary, but now missing from the individual TPRS lesson for a day
-        tprs_md_lesson_fp = tprs_audio_lesson_filepath.replace(".mp3", ".md")
-        if os.path.exists(tprs_md_lesson_fp):
-            content = self.read_markdown_file(tprs_md_lesson_fp)
-            result, date = self.read_tprs_day_block(content)
-
-            diary_dict = self.markdown_diary_to_dict()
-            diary_day_dict = diary_dict[datetime.strptime(date, "%Y/%m/%d")]
-            # breakpoint()
-
         # reprocessing existing audio file depending on config
         if (
             os.path.exists(tprs_audio_lesson_filepath)
@@ -1017,20 +1019,22 @@ class TprsCreation(DiaryHandler):
         pause_segment.export(pause_filename, format="wav")
 
         media_files = []
-        for key, value in day_block.items():
-            audio_filename = os.path.join(tempfile.gettempdir(), f"{hash(key)}.wav")
+        for sentence, tprs_qa in day_block.items():
+            audio_filename = os.path.join(
+                tempfile.gettempdir(), f"{hash(sentence)}.wav"
+            )
 
             # add main sentence
             e.get_tts(
-                key,
+                sentence,
                 audio_filename,
                 lang=self.config["languages"]["study_language_code"],
             )
             media_files.append(audio_filename)
             media_files.append(pause_filename)
 
-            logging.info(f"SENTENCE: {key}")
-            for question, answer in value:
+            logging.info(f"SENTENCE: {sentence}")
+            for question, answer in tprs_qa:
                 # create question file
                 audio_filename = os.path.join(
                     tempfile.gettempdir(), f"{hash(question)}.wav"
@@ -1176,6 +1180,121 @@ class TprsCreation(DiaryHandler):
 
         return multiline_text
 
+    def read_tprs_to_dict(self):
+        if os.path.exists(self.markdown_script_generated_tprs_all_path):
+            content = self.read_markdown_file(
+                self.markdown_script_generated_tprs_all_path
+            )
+        else:
+            content = self.read_markdown_file(self.markdown_tprs_path)
+
+        days = re.split(r"^##\s+", content, flags=re.MULTILINE)
+        tprs_dict = {}
+        for day_block in days:
+            if day_block.strip():
+                result, date = self.read_tprs_day_block(day_block)
+                date = datetime.strptime(date, "%Y/%m/%d")
+                tprs_dict[date] = dict()
+                for sentence in result.keys():
+                    qa_dict = {
+                        str(i + 1): {"question": q, "answer": a}
+                        for i, (q, a) in enumerate(result[sentence])
+                    }
+
+                    tprs_dict[date][sentence] = dict()
+                    tprs_dict[date][sentence] = qa_dict
+
+        return tprs_dict
+
+    def check_missing_sentences_from_existing_tprs(self):
+        # TODO: ceate code to check if a new sentence was added manually to the main diary, but now missing from the individual TPRS lesson for a day
+        tprs_dict = self.read_tprs_to_dict()
+
+        diary_dict = self.markdown_diary_to_dict()
+        new_tprs_dict = {}  # to preserver order and add missing sentences if applicable
+        for date_diary in tprs_dict.keys():
+
+            diary_day_dict = diary_dict[date_diary]
+            diary_day_dict_all_sentences = [
+                s["study_language_sentence"]
+                for no, s in diary_day_dict["sentences"].items()
+            ]
+            new_tprs_dict[date_diary] = dict()
+            for sentence in diary_day_dict_all_sentences:
+                new_tprs_dict[date_diary][sentence] = dict()
+                if sentence not in tprs_dict[date_diary].keys():
+                    self.config[
+                        "overwrite_tprs_audio"
+                    ] = True  # overwrite config to recreate them since some parts are missing
+
+                    logging.info(
+                        f"{date_diary} - Missing sentence {sentence} from TPRS output"
+                    )
+                    qa_dict = self.openai_tprs(sentence)
+                    new_tprs_dict[date_diary][sentence] = qa_dict
+                else:
+
+                    new_tprs_dict[date_diary][sentence] = tprs_dict[date_diary][
+                        sentence
+                    ]
+
+        self.write_tprs_dict_to_md(new_tprs_dict)
+        return new_tprs_dict
+
+    def write_tprs_dict_to_md(self, tprs_dict):
+        with open(
+            self.markdown_script_generated_tprs_all_path, "w", encoding="utf-8"
+        ) as file:
+            # multiline_text = ""
+
+            for date_diary in tprs_dict.keys():
+                file.write(
+                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                )
+                for study_language_sentence in tprs_dict[date_diary].keys():
+                    qa_dict = tprs_dict[date_diary][study_language_sentence]
+                    file.write(
+                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
+                    )  # Add each item with a newline
+
+                    for id, item in qa_dict.items():
+                        file.write(
+                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
+                        )  # Add each item with a newline
+                        file.write(
+                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
+                        )  # Add each item with a newline
+
+                    file.write("\n")
+
+        # create a markdown tprs file per day for convenience
+        for date_diary in tprs_dict.keys():
+            tprs_day_txt_filename = os.path.join(
+                self.output_dir,
+                "TPRS",
+                f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
+            )
+            with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+                file.write(
+                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                )
+
+                for study_language_sentence in tprs_dict[date_diary].keys():
+                    qa_dict = tprs_dict[date_diary][study_language_sentence]
+                    file.write(
+                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
+                    )  # Add each item with a newline
+
+                    for id, item in qa_dict.items():
+                        file.write(
+                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
+                        )  # Add each item with a newline
+                        file.write(
+                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
+                        )  # Add each item with a newline
+
+                    file.write("\n")
+
     def add_missing_tprs(self):
         dates_tprs = self.extract_dates_from_md(self.markdown_tprs_path)
 
@@ -1244,6 +1363,7 @@ def main():
     diary_instance.convert_diary_entries_to_ankideck()
 
     tprs_instance = TprsCreation()
+    tprs_instance.check_missing_sentences_from_existing_tprs()
     tprs_instance.add_missing_tprs()
     tprs_instance.convert_tts_tprs_entries()
 
