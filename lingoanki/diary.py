@@ -197,7 +197,8 @@ class DiaryHandler:
                     "Empty input detected – this will be saved as an empty trial translation."
                 )
 
-            diary[today_key][sentence_number] = {
+            diary[today_key]["sentences"] = dict()
+            diary[today_key]["sentences"][sentence_number] = {
                 "study_language_sentence": "",
                 "study_language_sentence_trial": trial_translation,
                 "primary_language_sentence": primary_sentence,
@@ -206,7 +207,10 @@ class DiaryHandler:
 
             sentence_number += 1
 
-        return diary
+        if diary[today_key] == {}:
+            return None
+        else:
+            return diary
 
     def anki_model_def(self):
         # Define the model for Anki cards
@@ -333,69 +337,28 @@ class DiaryHandler:
         """
         return Deck(deck_id=hash(self.deck_name), name=self.deck_name)
 
-    def process_all_days_anki(self, year_block):
-        """
-        Process a year block and create subdecks.
-
-        Args:
-            year_block (str): Block of text for a specific year.
-            deck_name (str): Name of the main deck.
-
-        Returns:
-            list: List of notes for the year.
-        """
-        logging.info("Processing all days")
-
-        days = re.split(r"^##\s+", year_block, flags=re.MULTILINE)
-        notes = []
-        media_files = []
-
-        for day_block in days:
-            note, media_file = self.process_day_block_anki(day_block)
-            if note and media_file:
-                notes.extend(note)
-                media_files.extend(media_file)
-
-        return notes, media_files
-
     def process_day_block_anki(self, day_block):
         """
         Process a day block and add notes to the deck.
 
         Args:
-            day_block (str): Block of text for a specific day.
-            year_deck_prefix (str): Prefix for the year deck name.
+            day_block (dict): dict for a specific day.
 
         Returns:
             list: List of notes for the day.
         """
-        if not day_block.strip():
-            return None, None
-
-        # day_match = re.match(r"^(\d{4}/\d{2}/\d{2})\s+(.*)", day_block)
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
-        if not day_match:
-            return None, None
-
-        date = day_match.group(1)
-        title = day_match.group(2)
+        date, day_dict = day_block
+        title = day_dict["title"]
 
         logging.info(f"Processing day: {date} - {title}")
 
-        answer_template = self.config["template_diary"]["answer"]
-        tips_template = self.config["template_diary"]["tips"]
-
-        pattern = rf"-(.*?)\n.*?{answer_template}(.*?)\n.*?{tips_template}(.*?)\n"
-        entries = re.findall(pattern, day_block, re.DOTALL)
-
-        if not any(entry[1] for entry in entries):
-            logging.warning(f"Skipping day {date} as it has no valid translations.")
-            return None, None
-
         notes = []
         media_files = []
-        i_sentence = 0
-        for primary_language_sentence, study_language_sentence, tips in entries:
+        for sentence_no, sentence in day_dict["sentences"].items():
+            primary_language_sentence = sentence["primary_language_sentence"]
+            tips = sentence["tips"]
+            study_language_sentence = sentence["study_language_sentence"]
+
             if study_language_sentence:
                 logging.info(
                     f"Sentence in {self.config['languages']['primary_language']}: {primary_language_sentence}"
@@ -408,9 +371,8 @@ class DiaryHandler:
                     study_language_sentence,
                     tips,
                     date,
-                    i_sentence,
+                    sentence_no,
                 )
-                i_sentence += 1
                 if note and media_file:
                     note.guid = self.generate_unique_id(
                         primary_language_sentence
@@ -431,7 +393,7 @@ class DiaryHandler:
             os.path.join(
                 f"{self.output_dir}",
                 "DAILY_AUDIO",
-                f"{self.deck_name.replace(':', '')}_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
+                f"{self.deck_name.replace(':', '')}_{date.strftime('%Y-%m-%d')}_{self.titles_dict[date]}.mp3",
             ),
             format="mp3",
         )
@@ -453,7 +415,7 @@ class DiaryHandler:
             primary_language_sentence (str): primary_language_sentence sentence.
             study_language_sentence (str): study_language_sentence translation.
             tips (str): tips about study_language_sentence translation.
-            date (str): Date tag.
+            date (datetime): Date tag.
             sub_deck_name (str): Name of the subdeck.
             i (int): number of the sentence in diary
 
@@ -510,14 +472,15 @@ class DiaryHandler:
         else:
             raise ValueError
 
+        date = date.strftime("%Y/%m/%d")
         note = Note(
             model=self.anki_model,
             fields=[
                 primary_language_sentence.strip(),
                 study_language_sentence,
                 tips,
-                f"[sound:{os.path.basename(audio_filename)}]",
                 date,
+                f"[sound:{os.path.basename(audio_filename)}]",
                 str(i).zfill(2),
             ],
             tags=[date],
@@ -536,19 +499,21 @@ class DiaryHandler:
         """
         self.validate_arguments()
 
-        content = self.read_markdown_file(self.markdown_diary_path)
+        if not self.config["create_anki_deck"]:
+            return
 
-        years = re.split(r"^#\s+", content, flags=re.MULTILINE)
+        diary_dict = self.markdown_diary_to_dict()
+
         main_deck = self.create_main_deck()
         all_notes = []
         all_media_files = []
 
-        for year_block in years:
-            if year_block.strip():
-                all_note, all_media_file = self.process_all_days_anki(year_block)
-                if all_note and all_media_file:
-                    all_notes.extend(all_note)
-                    all_media_files.extend(all_media_file)
+        for day_block in diary_dict.items():
+
+            note, media_file = self.process_day_block_anki(day_block)
+            if note and media_file:
+                all_notes.extend(note)
+                all_media_files.extend(media_file)
 
         for note in all_notes:
             main_deck.add_note(note)
@@ -661,11 +626,10 @@ class DiaryHandler:
 
         return study_language_sentences
 
-    def openai_create_day_title(self, day_block_dict):
+    def openai_create_day_title(self, sentences_block_dict):
         sentences = [
-            dict[1]["study_language_sentence"] for dict in day_block_dict.items()
+            dict[1]["study_language_sentence"] for dict in sentences_block_dict.items()
         ]
-        # TODO:
 
         prompt = f"""
         Given the following sentences (written as python array) in {self.config["languages"]["study_language"]},
@@ -744,13 +708,16 @@ class DiaryHandler:
             if date_diary in diary_dict.keys():
                 title_day = self.get_title_for_date(self.all_diary_text, date_diary)
                 if title_day is None:
-                    title_day = self.openai_create_day_title(diary_dict[date_diary])
+                    title_day = self.openai_create_day_title(
+                        diary_dict[date_diary]["sentences"]
+                    )
                     logging.info(
                         f"created title with openai for {date_diary} - {title_day}"
                     )
                 titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
+        return titles_dict
 
     def write_diary(self, diary_dict):
         # create one mardkown files for all entries
@@ -764,7 +731,9 @@ class DiaryHandler:
                 file.write(
                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
                 )
-                for sentence_no, sentence_dict in diary_dict[date_diary].items():
+                for sentence_no, sentence_dict in diary_dict[date_diary][
+                    "sentences"
+                ].items():
                     file.write(f"- **{sentence_dict['primary_language_sentence']}**\n")
                     file.write(
                         f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
@@ -789,7 +758,9 @@ class DiaryHandler:
                     file.write(
                         f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
                     )
-                    for sentence_no, sentence_dict in diary_dict[date_diary].items():
+                    for sentence_no, sentence_dict in diary_dict[date_diary][
+                        "sentences"
+                    ].items():
                         file.write(
                             f"- **{sentence_dict['primary_language_sentence']}\n"
                         )
@@ -844,8 +815,13 @@ class DiaryHandler:
                     "tips": tips.strip(),
                 }
 
-                diary_dict[date_diary] = diary_day_dict
+                diary_dict[date_diary] = dict()
+                diary_dict[date_diary]["sentences"] = diary_day_dict
                 i += 1
+
+        titles_dict = self.get_all_days_title(diary_dict)
+        for date_diary in dates_diary:
+            diary_dict[date_diary]["title"] = titles_dict[date_diary]
 
         return diary_dict
 
@@ -855,7 +831,7 @@ class DiaryHandler:
             diary_dict = self.diary_new_entries_day | diary_dict
 
         for date_diary, date_dict in diary_dict.items():
-            for sentence_no, sentence_dict in date_dict.items():
+            for sentence_no, sentence_dict in date_dict["sentences"].items():
                 primary_language_sentence = sentence_dict["primary_language_sentence"]
                 if sentence_dict["study_language_sentence"] == "":
                     logging.info(
@@ -863,7 +839,7 @@ class DiaryHandler:
                     )
                     if self.config["create_diary_answers_auto"]:
                         res = self.openai_translate_sentence(sentence_dict)
-                        diary_dict[date_diary][sentence_no] = res
+                        diary_dict[date_diary]["sentences"][sentence_no] = res
 
         self.write_diary(diary_dict)
 
