@@ -97,18 +97,19 @@ class DiaryHandler:
             time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if self.config["overwrite_diary_markdown"]:
                 # backing up original file, and add bak.timestamp
-                shutil.copy(
-                    self.markdown_diary_path,
-                    self.markdown_diary_path.replace(
-                        ".md",
-                        f".md.bak_{time_now_str}",
-                    ).replace(
-                        os.path.basename(self.markdown_diary_path),
-                        "." + os.path.basename(self.markdown_diary_path),
-                    ),
-                )
+                if os.path.exists(self.markdown_diary_path):
+                    shutil.copy(
+                        self.markdown_diary_path,
+                        self.markdown_diary_path.replace(
+                            ".md",
+                            f".md.bak_{time_now_str}",
+                        ).replace(
+                            os.path.basename(self.markdown_diary_path),
+                            "." + os.path.basename(self.markdown_diary_path),
+                        ),
+                    )
 
-                self.markdown_script_generated_diary_path = self.markdown_diary_path
+                    self.markdown_script_generated_diary_path = self.markdown_diary_path
             else:
                 # if overwrite is False, we need to replace the output_dir
                 org_dir_path = os.path.dirname(self.markdown_diary_path)
@@ -162,9 +163,14 @@ class DiaryHandler:
             ValueError: If the output directory does not exist and cannot be created.
         """
         if not os.path.exists(self.markdown_diary_path):
-            raise FileNotFoundError(
-                f"Markdown file not found: {self.markdown_diary_path}"
+            logging.warning(
+                f"Markdown file not found: {self.markdown_diary_path} - will start with an empty file"
             )
+            with open(self.markdown_diary_path, "w"):
+                pass
+            self.new_diary = True
+        else:
+            self.new_diary = False
 
         if self.output_dir:
             if not os.path.exists(self.output_dir):
@@ -227,7 +233,10 @@ class DiaryHandler:
         if diary[today_key] == {}:
             return None
         else:
-            return diary
+            if self.new_diary:
+                self.write_diary(diary)
+            else:
+                return diary
 
     def anki_model_def(self):
         # Define the model for Anki cards
@@ -721,17 +730,29 @@ class DiaryHandler:
 
     def get_all_days_title(self, diary_dict):
         titles_dict = {}
-        for date_diary in diary_dict:
-            if date_diary in diary_dict.keys():
-                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
-                if title_day is None:
-                    title_day = self.openai_create_day_title(
-                        diary_dict[date_diary]["sentences"]
-                    )
-                    logging.info(
-                        f"created title with openai for {date_diary} - {title_day}"
-                    )
+
+        if self.new_diary:
+            for date_diary in diary_dict:
+                title_day = self.openai_create_day_title(
+                    diary_dict[date_diary]["sentences"]
+                )
+                logging.info(
+                    f"created title with openai for {date_diary} - {title_day}"
+                )
                 titles_dict[date_diary] = title_day
+
+        else:
+            for date_diary in diary_dict:
+                if date_diary in diary_dict.keys():
+                    title_day = self.get_title_for_date(self.all_diary_text, date_diary)
+                    if title_day is None:
+                        title_day = self.openai_create_day_title(
+                            diary_dict[date_diary]["sentences"]
+                        )
+                        logging.info(
+                            f"created title with openai for {date_diary} - {title_day}"
+                        )
+                    titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
         return titles_dict
@@ -770,6 +791,7 @@ class DiaryHandler:
                     f"{self.deck_name.replace(':', '')}_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
                 )
 
+                os.makedirs(os.path.join(self.output_dir, "DAILY_AUDIO"), exist_ok=True)
                 logging.info(f"Writing daily diary to {diary_day_txt_filename}")
                 with open(diary_day_txt_filename, "w", encoding="utf-8") as file:
                     file.write(
@@ -867,6 +889,9 @@ class TprsCreation(DiaryHandler):
         self.markdown_tprs_path = self.config["markdown_tprs_path"]
 
         self.setup_output_tprs_markdown()
+        if not os.path.exists(self.markdown_tprs_path):
+            self.create_first_tprs_md_file()
+
         os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
         self.get_all_tprs_titles()
         self.get_all_diary_titles()
@@ -875,17 +900,21 @@ class TprsCreation(DiaryHandler):
         time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if self.config["overwrite_tprs_markdown"]:
             # backing up original file, and add bak.timestamp
-            shutil.copy(
-                self.markdown_tprs_path,
-                self.markdown_tprs_path.replace(
-                    ".md",
-                    f".md.bak_{time_now_str}",
-                ).replace(
-                    os.path.basename(self.markdown_tprs_path),
-                    "." + os.path.basename(self.markdown_tprs_path),
-                ),
-            )
-            self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
+            if os.path.exists(self.markdown_tprs_path):
+                shutil.copy(
+                    self.markdown_tprs_path,
+                    self.markdown_tprs_path.replace(
+                        ".md",
+                        f".md.bak_{time_now_str}",
+                    ).replace(
+                        os.path.basename(self.markdown_tprs_path),
+                        "." + os.path.basename(self.markdown_tprs_path),
+                    ),
+                )
+                self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
+            else:
+                self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
+
         else:
             # if overwrite is False, we need to replace the output_dir
             org_dir_path = os.path.dirname(self.markdown_tprs_path)
@@ -906,8 +935,27 @@ class TprsCreation(DiaryHandler):
                     )
                 )
 
+    def create_first_tprs_md_file(self):
+        diary_dict = self.markdown_diary_to_dict()
+        tprs_dict = {}
+        for diary_date in diary_dict:
+            tprs_dict[diary_date] = dict()
+
+            for sentences in diary_dict[diary_date]["sentences"].items():
+                for sentence_no, sentence_dict in diary_dict[diary_date][
+                    "sentences"
+                ].items():
+                    qa_dict = self.openai_tprs(sentence_dict["study_language_sentence"])
+                    tprs_dict[diary_date][
+                        sentence_dict["study_language_sentence"]
+                    ] = qa_dict
+
+        self.write_tprs_dict_to_md(tprs_dict)
+
     def get_all_tprs_titles(self):
         self.titles_dict = {}
+        if not os.path.exists(self.markdown_tprs_path):
+            return
 
         content = self.read_markdown_file(self.markdown_tprs_path)
         days = re.split(r"^##\s+", content, flags=re.MULTILINE)
@@ -1185,8 +1233,10 @@ class TprsCreation(DiaryHandler):
             content = self.read_markdown_file(
                 self.markdown_script_generated_tprs_all_path
             )
-        else:
+        elif os.path.exists(self.markdown_tprs_path):
             content = self.read_markdown_file(self.markdown_tprs_path)
+        else:
+            return None
 
         days = re.split(r"^##\s+", content, flags=re.MULTILINE)
         tprs_dict = {}
@@ -1209,6 +1259,9 @@ class TprsCreation(DiaryHandler):
     def check_missing_sentences_from_existing_tprs(self):
         # TODO: ceate code to check if a new sentence was added manually to the main diary, but now missing from the individual TPRS lesson for a day
         tprs_dict = self.read_tprs_to_dict()
+
+        if tprs_dict is None:  # when the TPRS file hasnt been created yet
+            return
 
         diary_dict = self.markdown_diary_to_dict()
         new_tprs_dict = {}  # to preserver order and add missing sentences if applicable

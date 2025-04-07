@@ -1,0 +1,56 @@
+markdown_diary_path: "/home/lbesnard/Nextcloud/Norwegian/diary/📖 Diary - Dagbokkorrigering.md"
+markdown_tprs_path: "/home/lbesnard/Nextcloud/Norwegian/diary/📖 Diary - TPRS.md"
+
+output_dir: "/home/lbesnard/Nextcloud/Norwegian/diary/"
+
+# prompt user for new diary entries
+diary_entries_prompt_user: True
+
+# if overwrite_*_markdown if False, changes to
+overwrite_diary_markdown: True
+overwrite_tprs_markdown: True
+
+overwrite_tprs_audio: False
+
+create_anki_deck: False # set to True if needed. It will create a new anki deck and audio lessons every time. Just a bit slower to generate as the deck needs to be recreated from scratch
+create_tprs_auto: True
+create_diary_answers_auto: True
+
+anki_deck_name: "Norwegian 🇳🇴:::Diary 📖"
+tprs_lesson_name: "Norwegian 🇳🇴- Diary 📖"
+
+openai:
+  key: ""
+  model: "gpt-4o-mini" # alternative "gpt-4o"
+
+languages:
+  primary_language: "english"
+  primary_language_code: "en"
+  study_language: "norwegian"
+  study_language_code: "no"
+
+# audio
+tts:
+  model: "piper" # ["piper", "gtts"]
+
+  piper:
+    piper_length_scale_diary: 2 # slow the TTS speed for the diary audio files
+    piper_length_scale_tprs: 2 # slow the TTS speed for the TPRS audio files
+    voice: "talesyntese-medium"
+
+  repeat_sentence_tprs: 2 # how many times each sentence is repeated in the TPRS audio file
+  repeat_sentence_diary: 2
+  pause_between_sentences_duration: 600 # in ms. Pause between sentences.
+  answer_silence_duration: 5000 # in ms. The duration of a silence to give an answer in the TPRS audio file
+
+# template for the diary. this is used to do some regular expression. This needs to match the markdown diary content
+template_diary:
+  trial: '<span style="color: #C70039 ">Forsøk</span>:'
+  answer: '<span style="color: #097969">Rettelse</span>:'
+  tips: '<span style="color: #dda504">Tips</span>:'
+
+# template for the TPRS markdown.
+template_tprs:
+  sentence: "SETNING:"
+  question: "SPØRSMÅL:"
+  answer: "SVAR:"
