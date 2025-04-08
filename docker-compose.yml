@@ -1,0 +1,12 @@
+services:
+  lingo-diary:
+    build: .
+    ports:
+      - "${FLASK_RUN_PORT}:${FLASK_RUN_PORT}" # Expose dynamic port
+    volumes:
+      # - ./config.yaml:/root/.config/lingoDiary/config.yaml  # Mount config file from the host to the container
+      - ~/.config/lingoDiary/config.yaml:/root/.config/lingoDiary/config.yaml # Mount config file from the host to the container
+    environment:
+      FLASK_RUN_PORT: ${FLASK_RUN_PORT:-8084} # Default to 8084 if not specified
+      CONFIG_PATH: /root/.config/lingoDiary/config.yaml # Container config path
+    # You can specify the environment variables here or via .env file

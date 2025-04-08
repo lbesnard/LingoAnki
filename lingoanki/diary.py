@@ -35,6 +35,7 @@ TEMPLATE:
   <span style="color: #dda504">Tips</span>:
 
 """
+
 import hashlib
 import json
 import logging
@@ -42,6 +43,7 @@ import os
 import re
 import shutil
 import tempfile
+import textwrap
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +71,8 @@ class DiaryHandler:
         self.deck_name = self.config["anki_deck_name"]
         self.output_dir = os.path.dirname(self.config["output_dir"])
         self.tts_model = self.config["tts"]["model"]
+        self.diary_new_entries_day = None
+        self.template_help_string = self.template_help()
 
         self.validate_arguments()
 
@@ -76,19 +80,13 @@ class DiaryHandler:
         self.setup_output_diary_markdown()
         self.anki_model_def()
 
-        if self.config["diary_entries_prompt_user"]:
-            if self.__class__.__name__ == "DiaryHandler":
-                self.diary_new_entries_day = self.prompt_new_diary_entry()
-        else:
-            self.diary_new_entries_day = None
-
     def load_config(self):
         """Load YAML config if it exists."""
         config_path = Path(user_config_dir(APP_NAME)) / CONFIG_FILE
         if os.path.exists(config_path):
             with open(config_path) as f:
                 return yaml.safe_load(f) or {}
-        logging.error(f"Please create configuration file {config_path}")
+        self.logging.error(f"Please create configuration file {config_path}")
         raise FileNotFoundError
 
     def setup_output_diary_markdown(self):
@@ -146,9 +144,25 @@ class DiaryHandler:
             self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
-        logging.basicConfig(
-            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+        log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+        # Create file handler to log into output.log
+        file_handler = logging.FileHandler(
+            os.path.join(self.config["output_dir"], "output.log")
         )
+        file_handler.setFormatter(log_formatter)
+
+        # Create stream handler for console output
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(log_formatter)
+
+        # Get logger and set level to INFO
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)  # You can change this to DEBUG for more verbosity
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+
+        self.logging = logger
 
     def validate_arguments(self):
         """
@@ -163,7 +177,7 @@ class DiaryHandler:
             ValueError: If the output directory does not exist and cannot be created.
         """
         if not os.path.exists(self.markdown_diary_path):
-            logging.warning(
+            self.logging.warning(
                 f"Markdown file not found: {self.markdown_diary_path} - will start with an empty file"
             )
             with open(self.markdown_diary_path, "w"):
@@ -181,8 +195,39 @@ class DiaryHandler:
                         f"Failed to create output directory: {self.output_dir}. Error: {e}"
                     )
 
+    def template_help(self):
+        multiline = textwrap.dedent(
+            f"""\
+            ## YYYY/MM/DD\n
+            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+              {self.config["template_diary"]["trial"]}
+              {self.config["template_diary"]["answer"]}
+              {self.config["template_diary"]["tips"]}
+
+            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+              {self.config["template_diary"]["trial"]}
+              {self.config["template_diary"]["answer"]}
+              {self.config["template_diary"]["tips"]}
+
+            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+              {self.config["template_diary"]["trial"]}
+              {self.config["template_diary"]["answer"]}
+              {self.config["template_diary"]["tips"]}
+        """
+        ).strip()
+        return multiline
+
     def prompt_new_diary_entry(self):
+        if self.config["diary_entries_prompt_user"]:
+            if self.__class__.__name__ == "DiaryHandler":
+                self.diary_new_entries_day = self._prompt_new_diary_entry()
+        else:
+            self.diary_new_entries_day = None
+            return
+
+    def _prompt_new_diary_entry(self):
         """Prompt user to add new diary entries for today."""
+
         diary = {}
 
         user_input = (
@@ -376,7 +421,7 @@ class DiaryHandler:
         date, day_dict = day_block
         title = day_dict["title"]
 
-        logging.info(f"Processing day: {date} - {title}")
+        self.logging.info(f"Processing day: {date} - {title}")
 
         notes = []
         media_files = []
@@ -386,10 +431,10 @@ class DiaryHandler:
             study_language_sentence = sentence["study_language_sentence"]
 
             if study_language_sentence:
-                logging.info(
+                self.logging.info(
                     f"Sentence in {self.config['languages']['primary_language']}: {primary_language_sentence}"
                 )
-                logging.info(
+                self.logging.info(
                     f"Sentence in {self.config['languages']['study_language']}: {study_language_sentence}"
                 )
                 note, media_file = self.create_note(
@@ -450,13 +495,13 @@ class DiaryHandler:
         """
         study_language_sentence = study_language_sentence.replace("**", "").strip()
         primary_language_sentence = primary_language_sentence.replace("**", "").strip()
-        logging.info(f"Creating TTS audio for: {study_language_sentence}")
+        self.logging.info(f"Creating TTS audio for: {study_language_sentence}")
 
         if study_language_sentence == "":
             return None, None
 
         if self.tts_model == "gtts":
-            logging.info("Using gTTS")
+            self.logging.info("Using gTTS")
             tts = gTTS(
                 text=study_language_sentence,
                 lang=self.config["languages"]["study_language_code"],
@@ -466,7 +511,7 @@ class DiaryHandler:
             )
             tts.save(audio_filename)
         elif self.tts_model == "piper":
-            logging.info("Using piper-tts")
+            self.logging.info("Using piper-tts")
             piper_config = {
                 "module": "ovos-tts-plugin-piper",
                 "ovos-tts-plugin-piper": {
@@ -494,7 +539,7 @@ class DiaryHandler:
             audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
             audio_filename = audio_filename.replace(".wav", ".mp3")
             os.remove(audio_filename.replace(".mp3", ".wav"))
-            logging.info(f"{audio_filename}")
+            self.logging.info(f"{audio_filename}")
         else:
             raise ValueError
 
@@ -535,7 +580,6 @@ class DiaryHandler:
         all_media_files = []
 
         for day_block in diary_dict.items():
-
             note, media_file = self.process_day_block_anki(day_block)
             if note and media_file:
                 all_notes.extend(note)
@@ -554,7 +598,7 @@ class DiaryHandler:
         for f in all_media_files:
             os.remove(f)
 
-        logging.info(f"Anki deck created: {deck_file}")
+        self.logging.info(f"Anki deck created: {deck_file}")
 
     def extract_dates_from_md(self, markdown_path):
         text = self.read_markdown_file(markdown_path)
@@ -636,8 +680,8 @@ class DiaryHandler:
 
         entries = re.findall(pattern, day_block, re.DOTALL | re.MULTILINE)
 
-        if not any(entry[1] for entry in entries):
-            logging.warning(f"Skipping day as it has no valid translations.")
+        if not any(entry[2] for entry in entries):
+            self.logging.warning(f"Skipping day as it has no valid translations.")
             return None
 
         study_language_sentences = []
@@ -736,7 +780,7 @@ class DiaryHandler:
                 title_day = self.openai_create_day_title(
                     diary_dict[date_diary]["sentences"]
                 )
-                logging.info(
+                self.logging.info(
                     f"created title with openai for {date_diary} - {title_day}"
                 )
                 titles_dict[date_diary] = title_day
@@ -749,7 +793,7 @@ class DiaryHandler:
                         title_day = self.openai_create_day_title(
                             diary_dict[date_diary]["sentences"]
                         )
-                        logging.info(
+                        self.logging.info(
                             f"created title with openai for {date_diary} - {title_day}"
                         )
                     titles_dict[date_diary] = title_day
@@ -761,7 +805,9 @@ class DiaryHandler:
         # create one mardkown files for all entries
         self.get_all_days_title(diary_dict)
 
-        logging.info(f"Writing diary to {self.markdown_script_generated_diary_path}")
+        self.logging.info(
+            f"Writing diary to {self.markdown_script_generated_diary_path}"
+        )
         with open(
             self.markdown_script_generated_diary_path, "w", encoding="utf-8"
         ) as file:
@@ -792,7 +838,7 @@ class DiaryHandler:
                 )
 
                 os.makedirs(os.path.join(self.output_dir, "DAILY_AUDIO"), exist_ok=True)
-                logging.info(f"Writing daily diary to {diary_day_txt_filename}")
+                self.logging.info(f"Writing daily diary to {diary_day_txt_filename}")
                 with open(diary_day_txt_filename, "w", encoding="utf-8") as file:
                     file.write(
                         f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
@@ -835,7 +881,7 @@ class DiaryHandler:
             entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
 
             if not any(entry[2] for entry in entries):
-                logging.warning(f"{date_diary} has no valid translations.")
+                self.logging.warning(f"{date_diary} has no valid translations.")
 
             i = 0
             diary_day_dict = {}
@@ -873,7 +919,7 @@ class DiaryHandler:
             for sentence_no, sentence_dict in date_dict["sentences"].items():
                 primary_language_sentence = sentence_dict["primary_language_sentence"]
                 if sentence_dict["study_language_sentence"] == "":
-                    logging.info(
+                    self.logging.info(
                         f"create missing diary entry with openai for {primary_language_sentence.strip()}"
                     )
                     if self.config["create_diary_answers_auto"]:
@@ -1010,7 +1056,7 @@ class TprsCreation(DiaryHandler):
         date = day_match.group(1)
         title = day_match.group(2).replace(":", "").strip()
 
-        logging.info(f"Processing day: {date} - {title}")
+        self.logging.info(f"Processing day: {date} - {title}")
 
         result = defaultdict(list)
         current_setning = None
@@ -1052,12 +1098,13 @@ class TprsCreation(DiaryHandler):
             os.path.exists(tprs_audio_lesson_filepath)
             and not self.config["overwrite_tprs_audio"]
         ):
-            logging.info(f"TPRS file for {date} already processed")
+            self.logging.info(f"TPRS file for {date} already processed")
             return
 
-        logging.info(f"Generating TPRS file for {date}")
+        self.logging.info(f"Generating TPRS file for {date}")
 
         e = PiperTTSPlugin()
+
         e.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
 
         # create a pause file
@@ -1081,7 +1128,7 @@ class TprsCreation(DiaryHandler):
             media_files.append(audio_filename)
             media_files.append(pause_filename)
 
-            logging.info(f"SENTENCE: {sentence}")
+            self.logging.info(f"SENTENCE: {sentence}")
             for question, answer in tprs_qa:
                 # create question file
                 audio_filename = os.path.join(
@@ -1119,9 +1166,10 @@ class TprsCreation(DiaryHandler):
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
 
-                logging.info(f"  QUESTION: {question}")
-                logging.info(f"  ANSWER: {answer}")
+                self.logging.info(f"  QUESTION: {question}")
+                self.logging.info(f"  ANSWER: {answer}")
 
+        e.stop()
         # create a mp3 per day of all the notes to be listened with an audio player
         playlist_media = [AudioSegment.from_mp3(mp3_file) for mp3_file in media_files]
 
@@ -1139,6 +1187,7 @@ class TprsCreation(DiaryHandler):
         # cleaning
         for f in np.unique(media_files):
             os.remove(f)
+        return
 
     def convert_tts_tprs_entries(self):
         self.validate_arguments()
@@ -1216,7 +1265,7 @@ class TprsCreation(DiaryHandler):
         multiline_text = ""
 
         for study_language_sentence in study_language_sentences:
-            logging.info(study_language_sentence)
+            self.logging.info(study_language_sentence)
             qa_dict = self.openai_tprs(study_language_sentence)
             multiline_text += f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"  # Add each item with a newline
 
@@ -1266,7 +1315,6 @@ class TprsCreation(DiaryHandler):
         diary_dict = self.markdown_diary_to_dict()
         new_tprs_dict = {}  # to preserver order and add missing sentences if applicable
         for date_diary in tprs_dict.keys():
-
             diary_day_dict = diary_dict[date_diary]
             diary_day_dict_all_sentences = [
                 s["study_language_sentence"]
@@ -1280,13 +1328,12 @@ class TprsCreation(DiaryHandler):
                         "overwrite_tprs_audio"
                     ] = True  # overwrite config to recreate them since some parts are missing
 
-                    logging.info(
+                    self.logging.info(
                         f"{date_diary} - Missing sentence {sentence} from TPRS output"
                     )
                     qa_dict = self.openai_tprs(sentence)
                     new_tprs_dict[date_diary][sentence] = qa_dict
                 else:
-
                     new_tprs_dict[date_diary][sentence] = tprs_dict[date_diary][
                         sentence
                     ]
@@ -1327,6 +1374,8 @@ class TprsCreation(DiaryHandler):
                 "TPRS",
                 f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
             )
+
+            os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
             with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
                 file.write(
                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
@@ -1366,7 +1415,7 @@ class TprsCreation(DiaryHandler):
             tprs_dict[dt] = self.get_text_for_date(all_tprs_text, dt)
 
         for missing_date_tprs in missing_dates_tprs:
-            logging.info(f"Missing TPRS entries for {missing_date_tprs.date()}")
+            self.logging.info(f"Missing TPRS entries for {missing_date_tprs.date()}")
             day_block_text = self.get_text_for_date(all_diary_text, missing_date_tprs)
             study_language_sentences = self.get_sentences_from_diary(day_block_text)
 
@@ -1412,6 +1461,7 @@ class TprsCreation(DiaryHandler):
 
 def main():
     diary_instance = DiaryHandler()
+    diary_instance.prompt_new_diary_entry()
     diary_instance.diary_complete_translations()
     diary_instance.convert_diary_entries_to_ankideck()
 
