@@ -627,7 +627,9 @@ def download_zip():
     return send_file(zip_path, as_attachment=True)
 
 
-if __name__ == "__main__":
-    import os
-
+def main():
     app.run(debug=True, use_reloader=False, host="0.0.0.0", port=8084)
+
+
+if __name__ == "__main__":
+    main()

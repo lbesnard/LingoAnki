@@ -50,7 +50,7 @@ from pathlib import Path
 from sre_compile import REPEAT_ONE
 
 import numpy as np
-import openai
+from openai import OpenAI
 import yaml
 from genanki import Deck, Model, Note, Package
 from gtts import gTTS
@@ -203,17 +203,17 @@ class DiaryHandler:
         multiline = textwrap.dedent(
             f"""\
             ## YYYY/MM/DD\n
-            - **sentence to translate from {self.config["languages"]["primary_language"]}**
+            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
 
-            - **sentence to translate from {self.config["languages"]["primary_language"]}**
+            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
 
-            - **sentence to translate from {self.config["languages"]["primary_language"]}**
+            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
@@ -718,15 +718,16 @@ class DiaryHandler:
         The sentences are:
             {sentences}
         """
-        openai.api_key = self.config["openai"]["key"]  # Set the API key
-        response = openai.ChatCompletion.create(
+
+        client = OpenAI(api_key=self.config["openai"]["api_key"])
+
+        response = client.chat.completions.create(
             model=self.config["openai"]["model"],
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt},
             ],
         )
-
         # Extract and parse the JSON response
         output = response["choices"][0]["message"]["content"]
         return output
@@ -759,14 +760,14 @@ class DiaryHandler:
 
         # Make the API call
 
-        openai.api_key = self.config["openai"]["key"]  # Set the API key
-        response = openai.ChatCompletion.create(
+        client = OpenAI(api_key=self.config["openai"]["api_key"])
+
+        response = client.chat.completions.create(
             model=self.config["openai"]["model"],
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"},
         )
 
         # Extract and parse the JSON response
