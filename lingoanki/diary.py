@@ -4,7 +4,7 @@ This script helps convert diary entries written in a foreign language into flash
 
 ## Workflow
 
-1. **Write sentences in your primary language** in a Markdown file, following the template provided:
+1. **Write sentences in your prlimary language** in a Markdown file, following the template provided:
     - This can be done manually,
     - or generated interactively using this script with user prompts.
 
@@ -65,8 +65,8 @@ CONFIG_FILE = "config.yaml"
 
 
 class DiaryHandler:
-    def __init__(self):
-        self.config = self.load_config()
+    def __init__(self, config_path=None):
+        self.config = self.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
         self.deck_name = self.config["anki_deck_name"]
         self.output_dir = os.path.dirname(self.config["output_dir"])
@@ -74,15 +74,17 @@ class DiaryHandler:
         self.diary_new_entries_day = None
         self.template_help_string = self.template_help()
 
+        self.setup_logging()
         self.validate_arguments()
 
-        self.setup_logging()
         self.setup_output_diary_markdown()
         self.anki_model_def()
 
-    def load_config(self):
+    def load_config(self, config_path=None):
+        if config_path is None:
+            config_path = Path(user_config_dir(APP_NAME)).joinpath(CONFIG_FILE)
+
         """Load YAML config if it exists."""
-        config_path = Path(user_config_dir(APP_NAME)) / CONFIG_FILE
         if os.path.exists(config_path):
             with open(config_path) as f:
                 return yaml.safe_load(f) or {}
@@ -147,6 +149,8 @@ class DiaryHandler:
         log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
         # Create file handler to log into output.log
+        #
+        os.makedirs(self.output_dir, exist_ok=True)
         file_handler = logging.FileHandler(
             os.path.join(self.config["output_dir"], "output.log")
         )
@@ -199,17 +203,17 @@ class DiaryHandler:
         multiline = textwrap.dedent(
             f"""\
             ## YYYY/MM/DD\n
-            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+            - **sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
 
-            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+            - **sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
 
-            - **sentence to translate in {self.config["languages"]["primary_language"]}**
+            - **sentence to translate from {self.config["languages"]["primary_language"]}**
               {self.config["template_diary"]["trial"]}
               {self.config["template_diary"]["answer"]}
               {self.config["template_diary"]["tips"]}
@@ -532,6 +536,7 @@ class DiaryHandler:
                 study_language_sentence,
                 audio_filename,
                 lang=self.config["languages"]["study_language_code"],
+                voice=self.config["tts"]["piper"]["voice"],
             )
 
             # convert to mp3
@@ -930,8 +935,8 @@ class DiaryHandler:
 
 
 class TprsCreation(DiaryHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, config_path=None):
+        super().__init__(config_path)
         self.markdown_tprs_path = self.config["markdown_tprs_path"]
 
         self.setup_output_tprs_markdown()
@@ -1124,6 +1129,7 @@ class TprsCreation(DiaryHandler):
                 sentence,
                 audio_filename,
                 lang=self.config["languages"]["study_language_code"],
+                voice=self.config["tts"]["piper"]["voice"],
             )
             media_files.append(audio_filename)
             media_files.append(pause_filename)
@@ -1138,6 +1144,7 @@ class TprsCreation(DiaryHandler):
                     question,
                     audio_filename,
                     lang=self.config["languages"]["study_language_code"],
+                    voice=self.config["tts"]["piper"]["voice"],
                 )
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
@@ -1162,6 +1169,7 @@ class TprsCreation(DiaryHandler):
                     answer,
                     audio_filename,
                     lang=self.config["languages"]["study_language_code"],
+                    voice=self.config["tts"]["piper"]["voice"],
                 )
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)

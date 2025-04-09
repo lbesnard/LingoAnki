@@ -19,6 +19,7 @@ deep_translator = { version = ">=1.10.1", extras = [
   'ai',
 ] } # version supporting ChatGptTranslator
 gtts = ">=2.2.4"
+bcrypt = "4.3.0"
 piper-tts = ">=1.2.0"
 ovos-tts-plugin-piper = "==0.0.2"
 pydub = ">=0.25.1"

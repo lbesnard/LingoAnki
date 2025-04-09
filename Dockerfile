@@ -28,7 +28,7 @@ RUN poetry install --with dev #--no-interaction # --no-root
 EXPOSE 8084
 
 # Set environment variables for config and port, with defaults
-ENV CONFIG_PATH=~/.config/lingoDiary/config.yaml
+ENV CONFIG_PATH=~/.config/lingoDiary/
 ENV FLASK_RUN_PORT=8084
 
 # Run the application using Poetry

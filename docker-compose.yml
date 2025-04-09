@@ -2,11 +2,15 @@ services:
   lingo-diary:
     build: .
     ports:
-      - "${FLASK_RUN_PORT}:${FLASK_RUN_PORT}" # Expose dynamic port
+      # - "${FLASK_RUN_PORT}:${FLASK_RUN_PORT}" # Expose dynamic port
+      - 8083:8084
     volumes:
-      # - ./config.yaml:/root/.config/lingoDiary/config.yaml  # Mount config file from the host to the container
-      - ~/.config/lingoDiary/config.yaml:/root/.config/lingoDiary/config.yaml # Mount config file from the host to the container
+      - ~/.config/lingoDiary/:/root/.config/lingoDiary/ # Mount config file from the host to the container
+      - ~/Nextcloud/Norwegian/:/home/lbesnard/Nextcloud/Norwegian/
+      - ~/Nextcloud/French/:/home/lbesnard/Nextcloud/French//
     environment:
-      FLASK_RUN_PORT: ${FLASK_RUN_PORT:-8084} # Default to 8084 if not specified
+      # FLASK_RUN_PORT: ${FLASK_RUN_PORT:-8084} # Default to 8084 if not specified
       CONFIG_PATH: /root/.config/lingoDiary/config.yaml # Container config path
-    # You can specify the environment variables here or via .env file
+      SECRET_KEY: "bceac54fc00cbdfee69e3f10905b73ec550eb9bf6779a9476471171170493962" # python -c "import secrets; print(secrets.token_hex(32))"
+      CONFIG_ROOT: /root/.config/lingoDiary
+      USER_DB_FILE: /root/.config/lingoDiary/users.json

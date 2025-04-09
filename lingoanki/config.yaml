@@ -36,6 +36,8 @@ tts:
   piper:
     piper_length_scale_diary: 2 # slow the TTS speed for the diary audio files
     piper_length_scale_tprs: 2 # slow the TTS speed for the TPRS audio files
+    # voices are defined at https://github.com/OpenVoiceOS/ovos-tts-plugin-piper/blob/9b912603d4de1cca770302815c499501ccd18ada/ovos_tts_plugin_piper/__init__.py#L82
+    # and samples are available at https://rhasspy.github.io/piper-samples/
     voice: "talesyntese-medium"
 
   repeat_sentence_tprs: 2 # how many times each sentence is repeated in the TPRS audio file
