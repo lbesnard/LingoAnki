@@ -88,7 +88,9 @@ class DiaryHandler:
         if os.path.exists(config_path):
             with open(config_path) as f:
                 return yaml.safe_load(f) or {}
-        self.logging.error(f"Please create configuration file {config_path}")
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"Please create configuration file {config_path}")
         raise FileNotFoundError
 
     def setup_output_diary_markdown(self):
@@ -1228,6 +1230,7 @@ class TprsCreation(DiaryHandler):
                 result, date = self.read_tprs_day_block(day_block)
                 if result:
                     self.create_tprs_audio(result, date)
+        self.logging.info("All diary entries converted into TPRS entries")
 
     def openai_tprs(self, study_language_sentence):
         # Define the prompt

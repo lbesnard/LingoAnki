@@ -25,6 +25,8 @@ from flask import (
     session,
     url_for,
 )
+from flask_babel import Babel, gettext as _
+
 
 # from werkzeug.utils import secure_filename
 from lingoanki.diary import APP_NAME, CONFIG_FILE, DiaryHandler, TprsCreation
@@ -59,6 +61,9 @@ thread = Thread(target=log_streamer, daemon=True)
 thread.start()
 
 app = Flask(__name__)
+app.config["BABEL_DEFAULT_LOCALE"] = "en"
+babel = Babel(app)
+
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
 from pathlib import Path
@@ -175,7 +180,7 @@ function copyHelp() {
 
 TEMPLATE += """
             <li>By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.</li>
-            <li>Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced. The next line, which is a translation trial by the user is not compulsory but it will create better tips in the 3rd line. The next two lines are created by OpenAI.</li>
+            <li>Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced. The next line, which is a translation trial by the user is not compulsory but it will create better tips on the 3rd line. The next two lines are created by OpenAI.</li>
         </ul>
     </p>
     <form method="POST">
@@ -604,6 +609,12 @@ def download_zip():
                     rel_path = os.path.relpath(full_path, OUTPUT_FOLDER)
                     zipf.write(full_path, arcname=rel_path)
     return send_file(zip_path, as_attachment=True)
+
+
+@babel.localeselector
+def get_locale():
+    # Automatically select the user's preferred language (e.g., from request headers)
+    return request.accept_languages.best_match(["en", "es", "fr"])
 
 
 def main():
