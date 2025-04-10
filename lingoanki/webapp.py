@@ -146,12 +146,40 @@ def login():
     # If it's a GET request, display the login form
     return render_template_string(
         """
+  <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <style>
+            button {
+                margin-top: 0.5em;
+                padding: 0.6em 1.2em;
+                border-radius: 4px;
+                border: none;
+                background-color: #007bff;
+                color: white;
+                cursor: pointer;
+            }
+            button:hover {
+                background-color: #0056b3;
+            }
+            @media (min-width: 600px) {
+                .entry {
+                flex-direction: row;
+                align-items: center;
+            }
+
+            .entry input[type="text"] {
+            width: 300px;
+            margin-left: 10px;
+            }
+        </style>
         <form method="post">
             Username: <input name="username" required><br>
             Password: <input name="password" type="password" required><br>
-            <input type="submit" value="Login">
+            <button type="submit">Login</button>
         </form>
-    """
+  </head>
+        """
     )
 
 
