@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from queue import Queue
 from threading import Thread
+from datetime import datetime
 
 import bcrypt
 import markdown
@@ -64,14 +65,14 @@ thread = Thread(target=log_streamer, daemon=True)
 thread.start()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
+
+# babel setup
 app.config["BABEL_DEFAULT_LOCALE"] = "en"
 app.jinja_env.autoescape = True
 app.jinja_env.globals.update(_=_)
 app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
-
 babel = Babel(app)
-
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
 
 USER_CONFIG_FILE = "users.json"
@@ -82,8 +83,6 @@ CONFIG_ROOT = os.getenv(
     "CONFIG_ROOT", os.path.expanduser(Path(user_config_dir(APP_NAME)))
 )
 
-#
-#
 # Update the template to include the edit functionality
 diary_entries = []
 selected_date = None
@@ -128,9 +127,14 @@ def login():
             session["diary_file"] = diary_instance.config["markdown_diary_path"]
             session["tprs_file"] = diary_instance.config["markdown_tprs_path"]
             session["output_folder"] = diary_instance.config["output_dir"]
-            session["log_File"] = os.path.join(
+            session["log_file"] = os.path.join(
                 diary_instance.config["output_dir"], "output.log"
             )
+            session["template_help_text"] = diary_instance.template_help()
+            diary_instance.stop()
+
+            time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session["output_zip"] = f"TPRS_{session['username']}_{time_now_str}.zip"
             os.makedirs(session["output_folder"], exist_ok=True)
 
             return redirect("/")  # Redirect to the home page or the main page
@@ -165,7 +169,7 @@ def edit_diary():
         return redirect("/login")
 
     username = session["username"]
-    user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
+    user_config_path = session["user_config_path"]
     if not os.path.exists(user_config_path):  # Check if config exists
         session.clear()  # Clear the session (log out)
         flash(
@@ -178,26 +182,26 @@ def edit_diary():
     with open(user_config_path) as f:
         user_config = yaml.safe_load(f)
 
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    DIARY_FILE = diary_instance.config["markdown_diary_path"]
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
+    # diary_instance = DiaryHandler(config_path=user_config_path)
+    diary_file = session["diary_file"]
+    output_folder = session["output_folder"]
     if request.method == "POST":
-        with open(DIARY_FILE, "w") as f:
+        with open(diary_file, "w") as f:
             f.write(request.form["content"])
 
     content = ""
-    if os.path.exists(DIARY_FILE):
-        with open(DIARY_FILE) as f:
+    if os.path.exists(diary_file):
+        with open(diary_file) as f:
             content = f.read()
 
     files = [
         f
-        for f in os.listdir(OUTPUT_FOLDER)
-        if not f.startswith(".") and f != "output.zip"
+        for f in os.listdir(output_folder)
+        if not f.startswith(".") and f != session["output_zip"]
     ]
 
-    template_help_text = diary_instance.template_help()
+    # template_help_text = diary_instance.template_help()
+    template_help_text = session["template_help_text"]
 
     return render_template(
         "diary.html",
@@ -215,19 +219,17 @@ def edit_diary():
 def diary_html():
     content = ""
 
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    DIARY_FILE = diary_instance.config["markdown_diary_path"]
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
-    if os.path.exists(DIARY_FILE):
-        with open(DIARY_FILE) as f:
+    diary_file = session["diary_file"]
+    output_foldeR = session["output_folder"]
+    if os.path.exists(diary_file):
+        with open(diary_file) as f:
             content = markdown.markdown(
                 f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
             )
     files = [
         f
-        for f in os.listdir(OUTPUT_FOLDER)
-        if not f.startswith(".") and f != "output.zip"
+        for f in os.listdir(output_foldeR)
+        if not f.startswith(".") and f != session["output_zip"]
     ]
     return render_template(
         "diary_html.html", content=content, tab="diary_html", files=files
@@ -236,24 +238,24 @@ def diary_html():
 
 @app.route("/tprs", methods=["GET", "POST"])
 def view_tprs():
-    global tprs_content
+    # global tprs_content
 
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    TPRS_FILE = diary_instance.config["markdown_tprs_path"]
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
+    tprs_file = session["tprs_file"]
+    output_folder = session["output_folder"]
     if request.method == "POST":
         pass
-    if os.path.exists(TPRS_FILE):
-        with open(TPRS_FILE) as f:
+    if os.path.exists(tprs_file):
+        with open(tprs_file) as f:
             tprs_content = markdown.markdown(
                 f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
             )
+    else:
+        tprs_content = None
 
     files = [
         f
-        for f in os.listdir(OUTPUT_FOLDER)
-        if not f.startswith(".") and f != "output.zip"
+        for f in os.listdir(output_folder)
+        if not f.startswith(".") and f != session["output_zip"]
     ]
     return render_template(
         "diary_tprs.html", tprs_content=tprs_content, tab="tprs", files=files
@@ -262,6 +264,7 @@ def view_tprs():
 
 @app.route("/generate_lessons", methods=["GET", "POST"])
 def generate_lessons():
+    output_folder = session["output_folder"]
     if request.method == "POST":
         app.config["PROPAGATE_EXCEPTIONS"] = True
 
@@ -272,18 +275,18 @@ def generate_lessons():
         # Call the standalone script
         try:
             user_config_path = session["user_config_path"]
-            diary_instance = DiaryHandler(config_path=user_config_path)
-            OUTPUT_FOLDER = diary_instance.config["output_dir"]
 
             # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
             diary_instance = DiaryHandler(config_path=user_config_path)
             diary_instance.diary_complete_translations()
             diary_instance.convert_diary_entries_to_ankideck()
+            diary_instance.stop()
 
             tprs_instance = TprsCreation(config_path=user_config_path)
             tprs_instance.check_missing_sentences_from_existing_tprs()
             tprs_instance.add_missing_tprs()
             tprs_instance.convert_tts_tprs_entries()
+            tprs_instance.stop()
 
             app.logger.debug(f"generated_tprs.py output")
         except subprocess.CalledProcessError as e:
@@ -294,12 +297,10 @@ def generate_lessons():
         app.logger.debug("Completed TPRS creation process.")
 
     user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
     files = [
         f
-        for f in os.listdir(OUTPUT_FOLDER)
-        if not f.startswith(".") and f != "output.zip"
+        for f in os.listdir(output_folder)
+        if not f.startswith(".") and f != session["output_zip"]
     ]
     return render_template(
         "diary_generate_lessons.html", tab="generate_lessons", files=files
@@ -318,13 +319,11 @@ def stream_logs():
 
 @app.route("/output")
 def view_output():
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
+    output_folder = session["output_folder"]
     files = [
         f
-        for f in os.listdir(OUTPUT_FOLDER)
-        if not f.startswith(".") and f != "output.zip"
+        for f in os.listdir(output_folder)
+        if not f.startswith(".") and f != session["output_zip"]
     ]
     return render_template("diary_output.html", content="", tab="output", files=files)
 
@@ -366,11 +365,8 @@ def save_diary_entry():
 
 @app.route("/get_log")
 def get_log():
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    LOG_FILE = os.path.join(diary_instance.config["output_dir"], "output.log")
+    log_file = session["log_file"]
 
-    log_file = LOG_FILE
     try:
         with open(log_file, "r") as f:
             log_lines = f.readlines()[
@@ -392,29 +388,29 @@ def add_sentence():
 
 @app.route("/download/<filename>")
 def download_file(filename):
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
+    output_folder = session["output_folder"]
 
     return send_file(
         # os.path.join(OUTPUT_FOLDER, secure_filename(filename)), as_attachment=True
-        os.path.join(OUTPUT_FOLDER, filename),
+        os.path.join(output_folder, filename),
         as_attachment=True,
     )
 
 
 @app.route("/download_zip")
 def download_zip():
-    user_config_path = session["user_config_path"]
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    OUTPUT_FOLDER = diary_instance.config["output_dir"]
-    zip_path = os.path.join(OUTPUT_FOLDER, "output.zip")
+    output_folder = session["output_folder"]
+    zip_path = os.path.join(output_folder, session["output_zip"])
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(OUTPUT_FOLDER):
+        for root, _, files in os.walk(output_folder):
             for file in files:
-                if not file.startswith(".") and file != "output.zip":
+                if (
+                    not file.startswith(".")
+                    and file != session["output_zip"]
+                    and not file.endswith("zip")
+                ):
                     full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, OUTPUT_FOLDER)
+                    rel_path = os.path.relpath(full_path, output_folder)
                     zipf.write(full_path, arcname=rel_path)
     return send_file(zip_path, as_attachment=True)
 

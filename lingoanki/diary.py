@@ -178,6 +178,17 @@ class DiaryHandler:
 
         self.logging = logger
 
+    def close_logging(self):
+        if hasattr(self, "logging"):
+            logger = self.logging
+            handlers = logger.handlers[:]
+            for handler in handlers:
+                handler.close()
+                logger.removeHandler(handler)
+
+    def stop(self):
+        self.close_logging()
+
     def validate_arguments(self):
         """
         Validate the input arguments.
@@ -1497,11 +1508,13 @@ def main():
     diary_instance.prompt_new_diary_entry()
     diary_instance.diary_complete_translations()
     diary_instance.convert_diary_entries_to_ankideck()
+    diary_instance.stop()
 
     tprs_instance = TprsCreation()
     tprs_instance.check_missing_sentences_from_existing_tprs()
     tprs_instance.add_missing_tprs()
     tprs_instance.convert_tts_tprs_entries()
+    tprs_instance.stop()
 
 
 if __name__ == "__main__":
