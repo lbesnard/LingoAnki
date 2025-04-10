@@ -1,0 +1,7 @@
+{% extends "diary.html" %} {% block content %}
+<h2>{{ _('TPRS Markdown') }}</h2>
+<div>{{ tprs_content|safe }}</div>
+<form method="POST" action="/refresh_tprs">
+  <button type="submit">{{ _('Refresh TPRS') }}</button>
+</form>
+{% endblock %}

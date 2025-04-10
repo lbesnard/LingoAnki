@@ -1,0 +1,28 @@
+{% extends "diary.html" %} {% block content %}
+<h2>{{ _('Generate Lessons') }}</h2>
+<form method="POST" action="/generate_lessons">
+  <button type="submit">{{ _('Generate') }}</button>
+</form>
+<p>{{ _('TODO: Define function to generate lessons here.') }}</p>
+
+<div
+  id="log-container"
+  style="height: 300px; overflow-y: auto; border: 1px solid #ccc"
+>
+  <pre id="log-content"></pre>
+</div>
+
+<script>
+  function fetchLog() {
+    fetch("/get_log")
+      .then((response) => response.json())
+      .then((data) => {
+        const logContent = document.getElementById("log-content");
+        logContent.textContent = data.log;
+        logContent.scrollTop = logContent.scrollHeight;
+      })
+      .catch((error) => console.error("Error fetching log:", error));
+  }
+  setInterval(fetchLog, 200);
+</script>
+{% endblock %}

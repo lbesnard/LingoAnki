@@ -4,29 +4,32 @@ import json
 import logging
 import os
 import subprocess
-import yaml
 import time
 import zipfile
+from pathlib import Path
 from queue import Queue
 from threading import Thread
 
 import bcrypt
 import markdown
+import yaml
 from flask import (
     Flask,
     Response,
     flash,
-    jsonify,
     get_flashed_messages,
+    jsonify,
     redirect,
+    render_template,
     render_template_string,
     request,
     send_file,
     session,
     url_for,
 )
-from flask_babel import Babel, gettext as _
-
+from flask_babel import Babel
+from flask_babel import gettext as _
+from platformdirs import user_config_dir
 
 # from werkzeug.utils import secure_filename
 from lingoanki.diary import APP_NAME, CONFIG_FILE, DiaryHandler, TprsCreation
@@ -62,13 +65,14 @@ thread.start()
 
 app = Flask(__name__)
 app.config["BABEL_DEFAULT_LOCALE"] = "en"
+app.jinja_env.autoescape = True
+app.jinja_env.globals.update(_=_)
+app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
+
 babel = Babel(app)
 
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
-from pathlib import Path
-
-from platformdirs import user_config_dir
 
 USER_CONFIG_FILE = "users.json"
 user_config_path = Path(user_config_dir(APP_NAME)) / USER_CONFIG_FILE
@@ -79,206 +83,8 @@ CONFIG_ROOT = os.getenv(
 )
 
 #
-# diary_instance = DiaryHandler()
-# DIARY_FILE = diary_instance.config["markdown_diary_path"]
-# TPRS_FILE = diary_instance.config["markdown_tprs_path"]
-# OUTPUT_FOLDER = diary_instance.config["output_dir"]
-# LOG_FILE = os.path.join(diary_instance.config["output_dir"], "output.log")
-# os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 #
 # Update the template to include the edit functionality
-TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Markdown WebApp</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 2em; }
-        nav a { margin-right: 2em; text-decoration: none; }
-        textarea { width: 100%; height: 300px; }
-        .output-list { margin-top: 2em; }
-        .entry { display: flex; align-items: center; }
-        .entry input { margin-left: 10px; width: 300px; }
-
-                body { font-family: Arial, sans-serif; margin: 2em; }
-        nav a { margin-right: 2em; text-decoration: none; }
-        textarea { width: 100%; height: 300px; }
-        .output-list { margin-top: 2em; }
-        .entry { display: flex; align-items: center; }
-        .entry input { margin-left: 10px; width: 300px; }
-        .banner { padding: 10px; background-color: #f4f4f4; text-align: right; }
-        .banner button { padding: 5px 15px; background-color: #ff4d4d; border: none; color: white; cursor: pointer; }
-        .banner button:hover { background-color: #ff1a1a; }
-        .flash-message {
-            padding: 10px;
-            margin-bottom: 20px;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        .flash-error {
-            background-color: #f8d7da;
-            color: #721c24;
-        }
-        .flash-success {
-            background-color: #d4edda;
-            color: #155724;
-        }
-    </style>
-</head>
-<body>
-    <!-- Banner with logout button -->
-    <div class="banner">
-        {% if session.get('username') %}
-            <span>Logged in as {{ session['username'] }}</span>
-            <form action="/logout" method="POST" style="display:inline;">
-                <button type="submit">Logout</button>
-            </form>
-        {% endif %}
-    </div>
-
-
-    <nav>
-        <a href="/">Step 1: Edit Diary</a>
-        <a href="/diary_html">View Diary HTML</a>
-        <a href="/tprs">View TPRS</a>
-        <a href="/generate_lessons">Step 2: Generate Lessons</a>
-        <a href="/output">Step 3: Output Files</a>
-    </nav>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div id="flash-messages">
-                {% for category, message in messages %}
-                    <div class="alert {{ category }}">
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-
-    {% if tab == 'edit' %}
-    <h2>Edit Diary</h2>
-    <p>
-        You can edit the diary in two ways:
-        <ul>
-            <li>By adding sentences directly in the text box below with the following template and clicking "Save".</li>
-"""
-
-TEMPLATE += """
-<button onclick="copyHelp()">Copy</button>
-<script>
-function copyHelp() {
-    const textarea = document.querySelector('#help-template');
-    textarea.select();
-    document.execCommand('copy');
-}
-</script>
-<textarea id="help-template" readonly style="width: 100%; height: 200px;">{{ template_help }}</textarea>
-
-"""
-
-TEMPLATE += """
-            <li>By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.</li>
-            <li>Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced. The next line, which is a translation trial by the user is not compulsory but it will create better tips on the 3rd line. The next two lines are created by OpenAI.</li>
-        </ul>
-    </p>
-    <form method="POST">
-        <textarea name="content">{{ content }}</textarea><br>
-        <button type="submit">Save</button>
-    </form>
-
-    <h3>Add Sentence for Specific Date</h3>
-    <form method="POST" action="/edit_entry">
-        <label for="date_input">Select a date:</label>
-        <input type="date" id="date_input" name="date_input"><br>
-        <button type="submit">Set Date</button>
-    </form>
-
-    {% if selected_date %}
-    <h3>Sentence for {{ selected_date }}</h3>
-    <form method="POST" action="/add_sentence">
-        <input type="text" name="sentence" placeholder="Add a new sentence" required>
-        <button type="submit">Add Sentence</button>
-    </form>
-    {% endif %}
-
-    <div id="entries">
-        {% for entry in diary_entries %}
-        <div class="entry">
-            <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
-                <button type="submit">Edit</button>
-            </form>
-            <p>{{ entry.date }}:
-                {% if loop.index0 == selected_edit %}
-                <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
-                    <input type="text" name="sentence" value="{{ entry.sentence }}" required>
-                    <button type="submit">Apply</button>
-                </form>
-                {% else %}
-                    {{ entry.sentence }}
-                {% endif %}
-            </p>
-        </div>
-        {% endfor %}
-    </div>
-
-    <form method="POST" action="/save_diary_entry">
-        <button type="submit" id="save_diary">Save Diary Entry for Date</button>
-    </form>
-
-    {% elif tab == 'diary_html' %}
-    <h2>Diary HTML</h2>
-    <div>{{ content|safe }}</div>
-    {% elif tab == 'tprs' %}
-    <h2>TPRS Markdown</h2>
-    <div>{{ tprs_content|safe }}</div>
-    <form method="POST" action="/refresh_tprs">
-        <button type="submit">Refresh TPRS</button>
-    </form>
-    {% elif tab == 'generate_lessons' %}
-    <h2>Generate Lessons</h2>
-    <form method="POST" action="/generate_lessons">
-        <button type="submit">Generate</button>
-    </form>
-    <p>TODO: Define function to generate lessons here.</p>
-       <div id="log-container" style="height: 300px; overflow-y: auto; border: 1px solid #ccc;">
-        <pre id="log-content"></pre>
-    </div>
-
-    <script>
-        function fetchLog() {
-            fetch('/get_log')
-                .then(response => response.json())
-                .then(data => {
-                    const logContent = document.getElementById("log-content");
-                    logContent.textContent = data.log; // Update the log content with new logs
-                    logContent.scrollTop = logContent.scrollHeight; // Auto-scroll to the latest log
-                })
-                .catch(error => console.error('Error fetching log:', error));
-        }
-
-        // Call fetchLog every 200ms to refresh the content
-        setInterval(fetchLog, 200);
-    </script>
-
-        {% elif tab == 'output' %}
-    <h2>Output Files</h2>
-    <ul>
-        {% for filename in files %}
-        <li><a href="/download/{{ filename }}">{{ filename }}</a></li>
-        {% endfor %}
-    </ul>
-    <form action="/download_zip">
-        <button type="submit">Download All as Zip</button>
-    </form>
-    {% endif %}
-
-</body>
-</html>
-
-"""
-
 diary_entries = []
 selected_date = None
 tprs_content = ""
@@ -393,8 +199,8 @@ def edit_diary():
 
     template_help_text = diary_instance.template_help()
 
-    return render_template_string(
-        TEMPLATE,
+    return render_template(
+        "diary.html",
         content=content,
         tab="edit",
         files=files,
@@ -423,8 +229,8 @@ def diary_html():
         for f in os.listdir(OUTPUT_FOLDER)
         if not f.startswith(".") and f != "output.zip"
     ]
-    return render_template_string(
-        TEMPLATE, content=content, tab="diary_html", files=files
+    return render_template(
+        "diary_html.html", content=content, tab="diary_html", files=files
     )
 
 
@@ -449,8 +255,8 @@ def view_tprs():
         for f in os.listdir(OUTPUT_FOLDER)
         if not f.startswith(".") and f != "output.zip"
     ]
-    return render_template_string(
-        TEMPLATE, tprs_content=tprs_content, tab="tprs", files=files
+    return render_template(
+        "diary_tprs.html", tprs_content=tprs_content, tab="tprs", files=files
     )
 
 
@@ -495,7 +301,9 @@ def generate_lessons():
         for f in os.listdir(OUTPUT_FOLDER)
         if not f.startswith(".") and f != "output.zip"
     ]
-    return render_template_string(TEMPLATE, tab="generate_lessons", files=files)
+    return render_template(
+        "diary_generate_lessons.html", tab="generate_lessons", files=files
+    )
 
 
 @app.route("/stream_logs")
@@ -518,7 +326,7 @@ def view_output():
         for f in os.listdir(OUTPUT_FOLDER)
         if not f.startswith(".") and f != "output.zip"
     ]
-    return render_template_string(TEMPLATE, content="", tab="output", files=files)
+    return render_template("diary_output.html", content="", tab="output", files=files)
 
 
 @app.route("/edit_entry", methods=["POST"])
@@ -538,8 +346,8 @@ def edit_sentence(index):
         if new_sentence:
             diary_entries[index]["sentence"] = new_sentence
         return redirect(url_for("edit_diary"))
-    return render_template_string(
-        TEMPLATE,
+    return render_template(
+        "diary_edit.html",
         diary_entries=diary_entries,
         selected_date=selected_date,
         tab="edit",
@@ -611,10 +419,24 @@ def download_zip():
     return send_file(zip_path, as_attachment=True)
 
 
-@babel.localeselector
+app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
+
+
 def get_locale():
-    # Automatically select the user's preferred language (e.g., from request headers)
-    return request.accept_languages.best_match(["en", "es", "fr"])
+    # Check if the user has selected a language in the session
+    return session.get(
+        "lang", request.accept_languages.best_match(app.config["LANGUAGES"])
+    )
+
+
+babel.init_app(app, locale_selector=get_locale)
+
+
+@app.route("/set_language/<lang>")
+def set_language(lang):
+    if lang in app.config["LANGUAGES"]:
+        session["lang"] = lang  # Store the language choice in the session
+    return redirect(request.referrer)  # Redirect back to the page the user was on
 
 
 def main():

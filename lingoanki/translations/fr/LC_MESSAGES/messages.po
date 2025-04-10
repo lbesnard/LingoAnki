@@ -1,0 +1,159 @@
+# French translations for PROJECT.
+# Copyright (C) 2025 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2025-04-10 12:32+0000\n"
+"PO-Revision-Date: 2025-04-10 12:33+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: fr\n"
+"Language-Team: fr <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.17.0\n"
+
+#: lingoanki/templates/diary.html:4
+msgid "Markdown WebApp"
+msgstr "Application Web Markdown"
+
+#: lingoanki/templates/diary.html:88
+msgid "Logged in as"
+msgstr "Connecté en tant que"
+
+#: lingoanki/templates/diary.html:90
+msgid "Logout"
+msgstr "Déconnexion"
+
+#: lingoanki/templates/diary.html:96
+msgid "Step 1: Edit Diary"
+msgstr "Étape 1 : Modifier le journal"
+
+#: lingoanki/templates/diary.html:97
+msgid "View Diary HTML"
+msgstr "Voir le journal en HTML"
+
+#: lingoanki/templates/diary.html:98
+msgid "View TPRS"
+msgstr "Voir TPRS"
+
+#: lingoanki/templates/diary.html:99
+msgid "Step 2: Generate Lessons"
+msgstr "Étape 2 : Générer des leçons"
+
+#: lingoanki/templates/diary.html:100
+msgid "Step 3: Output Files"
+msgstr "Étape 3 : Fichiers de sortie"
+
+#: lingoanki/templates/diary_edit.html:1
+msgid "Edit Diary"
+msgstr "Modifier le journal"
+
+#: lingoanki/templates/diary_edit.html:2
+msgid "You can edit the diary in two ways:"
+msgstr "Vous pouvez modifier le journal de deux manières :"
+
+#: lingoanki/templates/diary_edit.html:4
+msgid ""
+"By adding sentences directly in the text box below with the following "
+"template and clicking \"Save\"."
+msgstr ""
+"En ajoutant des phrases directement dans la zone de texte ci-dessous avec le modèle suivant "
+"et en cliquant sur \"Sauvegarder\"."
+
+#: lingoanki/templates/diary_edit.html:7
+msgid "Copy"
+msgstr "Copier"
+
+#: lingoanki/templates/diary_edit.html:18
+msgid ""
+"By selecting a specific date from the calendar widget below (or entering "
+"the date manually), then adding sentences for that day."
+msgstr ""
+"En sélectionnant une date spécifique dans le widget calendrier ci-dessous (ou en entrant "
+"la date manuellement), puis en ajoutant des phrases pour ce jour-là."
+
+#: lingoanki/templates/diary_edit.html:19
+msgid ""
+"Please note that Only the sentence in between the 2 asterixes ** ... ** "
+"needs to be replaced..."
+msgstr ""
+"Veuillez noter que seule la phrase entre les 2 astérisques ** ... ** "
+"doit être remplacée..."
+
+#: lingoanki/templates/diary_edit.html:24
+msgid "Save"
+msgstr "Sauvegarder"
+
+#: lingoanki/templates/diary_edit.html:27
+msgid "Add Sentence for Specific Date"
+msgstr "Ajouter une phrase pour une date spécifique"
+
+#: lingoanki/templates/diary_edit.html:29
+msgid "Select a date:"
+msgstr "Sélectionnez une date :"
+
+#: lingoanki/templates/diary_edit.html:31
+msgid "Set Date"
+msgstr "Définir la date"
+
+#: lingoanki/templates/diary_edit.html:35
+msgid "Sentence for"
+msgstr "Phrase pour"
+
+#: lingoanki/templates/diary_edit.html:37
+msgid "Add a new sentence"
+msgstr "Ajouter une nouvelle phrase"
+
+#: lingoanki/templates/diary_edit.html:38
+msgid "Add Sentence"
+msgstr "Ajouter une phrase"
+
+#: lingoanki/templates/diary_edit.html:46
+msgid "Edit"
+msgstr "Modifier"
+
+#: lingoanki/templates/diary_edit.html:52
+msgid "Apply"
+msgstr "Appliquer"
+
+#: lingoanki/templates/diary_edit.html:63
+msgid "Save Diary Entry for Date"
+msgstr "Sauvegarder l'entrée du journal pour la date"
+
+#: lingoanki/templates/diary_generate_lessons.html:1
+msgid "Generate Lessons"
+msgstr "Générer des leçons"
+
+#: lingoanki/templates/diary_generate_lessons.html:3
+msgid "Generate"
+msgstr "Générer"
+
+#: lingoanki/templates/diary_generate_lessons.html:5
+msgid "TODO: Define function to generate lessons here."
+msgstr "TODO : Définir la fonction pour générer des leçons ici."
+
+#: lingoanki/templates/diary_html.html:1
+msgid "Diary HTML"
+msgstr "Journal HTML"
+
+#: lingoanki/templates/diary_output.html:1
+msgid "Output Files"
+msgstr "Fichiers de sortie"
+
+#: lingoanki/templates/diary_output.html:8
+msgid "Download All as Zip"
+msgstr "Télécharger tout en tant que fichier Zip"
+
+#: lingoanki/templates/diary_tprs.html:1
+msgid "TPRS Markdown"
+msgstr "TPRS Markdown"
+
+#: lingoanki/templates/diary_tprs.html:4
+msgid "Refresh TPRS"
+msgstr "Rafraîchir TPRS"

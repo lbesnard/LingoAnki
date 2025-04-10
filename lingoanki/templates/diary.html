@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+  <head>
+    <title>{{ _('Markdown WebApp') }}</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 2em;
+      }
+      nav a {
+        margin-right: 2em;
+        text-decoration: none;
+      }
+      textarea {
+        width: 100%;
+        height: 300px;
+      }
+      .output-list {
+        margin-top: 2em;
+      }
+      .entry {
+        display: flex;
+        align-items: center;
+      }
+      .entry input {
+        margin-left: 10px;
+        width: 300px;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        margin: 2em;
+      }
+      nav a {
+        margin-right: 2em;
+        text-decoration: none;
+      }
+      textarea {
+        width: 100%;
+        height: 300px;
+      }
+      .output-list {
+        margin-top: 2em;
+      }
+      .entry {
+        display: flex;
+        align-items: center;
+      }
+      .entry input {
+        margin-left: 10px;
+        width: 300px;
+      }
+      .banner {
+        padding: 10px;
+        background-color: #f4f4f4;
+        text-align: right;
+      }
+      .banner button {
+        padding: 5px 15px;
+        background-color: #ff4d4d;
+        border: none;
+        color: white;
+        cursor: pointer;
+      }
+      .banner button:hover {
+        background-color: #ff1a1a;
+      }
+      .flash-message {
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+        font-size: 14px;
+      }
+      .flash-error {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .flash-success {
+        background-color: #d4edda;
+        color: #155724;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Banner with logout button -->
+    <div class="banner">
+      {% if session.get('username') %}
+      <span>{{ _('Logged in as') }} {{ session['username'] }}</span>
+      <form action="/logout" method="POST" style="display: inline">
+        <button type="submit">{{ _('Logout') }}</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <nav>
+      <a href="/">{{ _('Step 1: Edit Diary') }}</a>
+      <a href="/diary_html">{{ _('View Diary HTML') }}</a>
+      <a href="/tprs">{{ _('View TPRS') }}</a>
+      <a href="/generate_lessons">{{ _('Step 2: Generate Lessons') }}</a>
+      <a href="/output">{{ _('Step 3: Output Files') }}</a>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %} {% if
+    messages %}
+    <div id="flash-messages">
+      {% for category, message in messages %}
+      <div class="alert {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+
+    {% endif %} {% endwith %} {% block content %}
+    <!-- Default content or empty block -->
+<h2>{{ _('Edit Diary') }}</h2>
+<p>{{ _('You can edit the diary in two ways:') }}</p>
+<ul>
+    <li>{{ _('By adding sentences directly in the text box below with the following template and clicking "Save".') }}</li>
+</ul>
+
+<button onclick="copyHelp()">{{ _('Copy') }}</button>
+<script>
+function copyHelp() {
+    const textarea = document.querySelector('#help-template');
+    textarea.select();
+    document.execCommand('copy');
+}
+</script>
+<textarea id="help-template" readonly style="width: 100%; height: 200px;">{{ template_help }}</textarea>
+
+<ul>
+    <li>{{ _('By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.') }}</li>
+    <li>{{ _('Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced...') }}</li>
+</ul>
+
+<form method="POST">
+    <textarea name="content">{{ content }}</textarea><br>
+    <button type="submit">{{ _('Save') }}</button>
+</form>
+
+<h3>{{ _('Add Sentence for Specific Date') }}</h3>
+<form method="POST" action="/edit_entry">
+    <label for="date_input">{{ _('Select a date:') }}</label>
+    <input type="date" id="date_input" name="date_input"><br>
+    <button type="submit">{{ _('Set Date') }}</button>
+</form>
+
+{% if selected_date %}
+    <h3>{{ _('Sentence for') }} {{ selected_date }}</h3>
+    <form method="POST" action="/add_sentence">
+        <input type="text" name="sentence" placeholder="{{ _('Add a new sentence') }}" required>
+        <button type="submit">{{ _('Add Sentence') }}</button>
+    </form>
+{% endif %}
+
+<div id="entries">
+    {% for entry in diary_entries %}
+        <div class="entry">
+            <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
+                <button type="submit">{{ _('Edit') }}</button>
+            </form>
+            <p>{{ entry.date }}:
+                {% if loop.index0 == selected_edit %}
+                    <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
+                        <input type="text" name="sentence" value="{{ entry.sentence }}" required>
+                        <button type="submit">{{ _('Apply') }}</button>
+                    </form>
+                {% else %}
+                    {{ entry.sentence }}
+                {% endif %}
+            </p>
+        </div>
+    {% endfor %}
+</div>
+
+<form method="POST" action="/save_diary_entry">
+    <button type="submit" id="save_diary">{{ _('Save Diary Entry for Date') }}</button>
+</form>
+
+    {% endblock %}
+
+  </body>
+</html>

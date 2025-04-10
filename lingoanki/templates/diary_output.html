@@ -1,0 +1,12 @@
+{% extends "diary.html" %} {% block content %}
+<h2>{{ _('Output Files') }}</h2>
+<ul>
+  {% for filename in files %}
+  <li><a href="/download/{{ filename }}">{{ filename }}</a></li>
+  {% endfor %}
+</ul>
+<form action="/download_zip">
+  <button type="submit">{{ _('Download All as Zip') }}</button>
+</form>
+
+{% endblock %}

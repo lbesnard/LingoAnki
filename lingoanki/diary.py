@@ -148,25 +148,33 @@ class DiaryHandler:
             self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
-        log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-        # Create file handler to log into output.log
-        #
-        os.makedirs(self.output_dir, exist_ok=True)
-        file_handler = logging.FileHandler(
-            os.path.join(self.config["output_dir"], "output.log")
-        )
-        file_handler.setFormatter(log_formatter)
-
-        # Create stream handler for console output
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(log_formatter)
-
-        # Get logger and set level to INFO
+        # Check if logger is already set up to avoid duplicate handlers
         logger = logging.getLogger(__name__)
-        logger.setLevel(logging.INFO)  # You can change this to DEBUG for more verbosity
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
+
+        if not any(
+            isinstance(handler, logging.FileHandler) for handler in logger.handlers
+        ):
+            log_formatter = logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(message)s"
+            )
+
+            # Create file handler to log into output.log
+            os.makedirs(self.output_dir, exist_ok=True)
+            file_handler = logging.FileHandler(
+                os.path.join(self.config["output_dir"], "output.log")
+            )
+            file_handler.setFormatter(log_formatter)
+
+            # Create stream handler for console output
+            stream_handler = logging.StreamHandler()
+            stream_handler.setFormatter(log_formatter)
+
+            # Set logger level to INFO
+            logger.setLevel(
+                logging.INFO
+            )  # You can change this to DEBUG for more verbosity
+            logger.addHandler(file_handler)
+            logger.addHandler(stream_handler)
 
         self.logging = logger
 
