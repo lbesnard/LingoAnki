@@ -184,6 +184,7 @@ class DiaryHandler:
             self.logging.warning(
                 f"Markdown file not found: {self.markdown_diary_path} - will start with an empty file"
             )
+            os.makedirs(os.path.dirname(self.markdown_diary_path), exist_ok=True)
             with open(self.markdown_diary_path, "w"):
                 pass
             self.new_diary = True
@@ -203,22 +204,22 @@ class DiaryHandler:
         multiline = textwrap.dedent(
             f"""\
             ## YYYY/MM/DD\n
-            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
-              {self.config["template_diary"]["trial"]}
-              {self.config["template_diary"]["answer"]}
-              {self.config["template_diary"]["tips"]}
+            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
+              {self.config["template_diary"]["trial"]}\x20
+              {self.config["template_diary"]["answer"]}\x20
+              {self.config["template_diary"]["tips"]}\x20
 
-            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
-              {self.config["template_diary"]["trial"]}
-              {self.config["template_diary"]["answer"]}
-              {self.config["template_diary"]["tips"]}
+            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
+              {self.config["template_diary"]["trial"]}\x20
+              {self.config["template_diary"]["answer"]}\x20
+              {self.config["template_diary"]["tips"]}\x20
 
-            - **!!! TO REPLACE!!! sentence to translate from {self.config["languages"]["primary_language"]}**
-              {self.config["template_diary"]["trial"]}
-              {self.config["template_diary"]["answer"]}
-              {self.config["template_diary"]["tips"]}
+            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
+              {self.config["template_diary"]["trial"]}\x20
+              {self.config["template_diary"]["answer"]}\x20
+              {self.config["template_diary"]["tips"]}\x20
         """
-        ).strip()
+        )
         return multiline
 
     def prompt_new_diary_entry(self):
@@ -719,7 +720,7 @@ class DiaryHandler:
             {sentences}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["api_key"])
+        client = OpenAI(api_key=self.config["openai"]["key"])
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -729,7 +730,7 @@ class DiaryHandler:
             ],
         )
         # Extract and parse the JSON response
-        output = response["choices"][0]["message"]["content"]
+        output = response.choices[0].message.content
         return output
 
     def openai_translate_sentence(self, sentence_dict):
@@ -743,6 +744,7 @@ class DiaryHandler:
             - the "tips" is some tips to explain the translation. The tips should be written in the studying language.
         - **DO NOT invent extra words or modify the original meaning of the sentence.**
         - If the primary_language_sentence is not grammatically correct, or if there are minor issues, you could fix the grammar and ponctuation only.
+        - if the primary_language_sentence has reference about I, as me, you should know that my gender is {self.config["gender"]} as this will be useful to have the proper grammar and ending on words
 
         Example output format:
 
@@ -760,7 +762,7 @@ class DiaryHandler:
 
         # Make the API call
 
-        client = OpenAI(api_key=self.config["openai"]["api_key"])
+        client = OpenAI(api_key=self.config["openai"]["key"])
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -768,10 +770,11 @@ class DiaryHandler:
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt},
             ],
+            response_format={"type": "json_object"},
         )
 
         # Extract and parse the JSON response
-        output = response["choices"][0]["message"]["content"]
+        output = response.choices[0].message.content
         output = json.loads(output)
         output["sentence"]["study_language_sentence_trial"] = sentence_dict[
             "study_language_sentence_trial"
@@ -796,12 +799,21 @@ class DiaryHandler:
                 if date_diary in diary_dict.keys():
                     title_day = self.get_title_for_date(self.all_diary_text, date_diary)
                     if title_day is None:
-                        title_day = self.openai_create_day_title(
-                            diary_dict[date_diary]["sentences"]
-                        )
-                        self.logging.info(
-                            f"created title with openai for {date_diary} - {title_day}"
-                        )
+                        if not any(
+                            not sentence_info.get("study_language_sentence")
+                            for diary in diary_dict.values()
+                            for sentence_info in diary.get("sentences", {}).values()
+                        ):
+                            title_day = self.openai_create_day_title(
+                                diary_dict[date_diary]["sentences"]
+                            )
+                            self.logging.info(
+                                f"created title with openai for {date_diary} - {title_day}"
+                            )
+                        else:
+                            self.logging.info(
+                                "Title not created as sentences are not created yet"
+                            )
                     titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
@@ -1255,8 +1267,9 @@ class TprsCreation(DiaryHandler):
 
         # Make the API call
 
-        openai.api_key = self.config["openai"]["key"]  # Set the API key
-        response = openai.ChatCompletion.create(
+        client = OpenAI(api_key=self.config["openai"]["key"])
+
+        response = client.chat.completions.create(
             model=self.config["openai"]["model"],
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -1266,7 +1279,7 @@ class TprsCreation(DiaryHandler):
         )
 
         # Extract and parse the JSON response
-        output = response["choices"][0]["message"]["content"]
+        output = response.choices[0].message.content
         qa_dict = json.loads(output)
         return qa_dict
 

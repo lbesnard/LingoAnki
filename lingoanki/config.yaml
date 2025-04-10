@@ -23,6 +23,8 @@ openai:
   key: ""
   model: "gpt-4o-mini" # alternative "gpt-4o"
 
+gender: "male" # for grammar output
+
 languages:
   primary_language: "english"
   primary_language_code: "en"

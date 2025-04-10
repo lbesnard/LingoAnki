@@ -4,15 +4,13 @@ services:
     ports:
       - 8083:8084
     volumes:
-      - ~/.config/lingoDiary/:/root/.config/lingoDiary/ # Mount config file from the host to the container
+      - ~/.config/lingoDiary/:/app/.config/lingoDiary/ # Mount config file to /app inside the container
       - ~/Nextcloud/Norwegian/:/home/lbesnard/Nextcloud/Norwegian/
-      - ~/Nextcloud/French/:/home/lbesnard/Nextcloud/French//
-      - .:/app # mount source code only for development
-
+      - ~/Nextcloud/French/:/home/lbesnard/Nextcloud/French/
+      - ~/Nextcloud/Anglais/:/home/lbesnard/Nextcloud/Anglais/ #make sure the folder exists, otherwise perm will be root
     environment:
-      FLASK_ENV: development
-      FLASK_DEBUG: 1
-      CONFIG_PATH: /root/.config/lingoDiary/config.yaml # Container config path
+      CONFIG_PATH: /app/.config/lingoDiary/config.yaml # Update path to reflect /app location
       SECRET_KEY: "bceac54fc00cbdfee69e3f10905b73ec550eb9bf6779a9476471171170493962" # python -c "import secrets; print(secrets.token_hex(32))"
-      CONFIG_ROOT: /root/.config/lingoDiary
-      USER_DB_FILE: /root/.config/lingoDiary/users.json
+      CONFIG_ROOT: /app/.config/lingoDiary # Update path to reflect /app location
+      USER_DB_FILE: /app/.config/lingoDiary/users.json # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
+    user: "1000:1000" # Run container as non-root user

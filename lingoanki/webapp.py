@@ -174,7 +174,8 @@ function copyHelp() {
 """
 
 TEMPLATE += """
-            <li>By selecting a specific date from the calendar widget or entering the date manually, then adding sentences for that day.</li>
+            <li>By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.</li>
+            <li>Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced. The next line, which is a translation trial by the user is not compulsory but it will create better tips in the 3rd line. The next two lines are created by OpenAI.</li>
         </ul>
     </p>
     <form method="POST">
@@ -337,28 +338,6 @@ def login():
         </form>
     """
     )
-
-
-# @app.route("/login", methods=["GET", "POST"])
-# def login():
-#     if request.method == "POST":
-#         username = request.form["username"]
-#         password = request.form["password"]
-#         with open(USER_DB_FILE) as f:
-#             users = json.load(f)
-#         if username in users and bcrypt.checkpw(
-#             password.encode(), users[username].encode()
-#         ):
-#             session["username"] = username
-#             return redirect("/")
-#         return "Invalid login", 401
-#     return """
-#         <form method="post">
-#             Username: <input name="username"><br>
-#             Password: <input name="password" type="password"><br>
-#             <input type="submit" value="Login">
-#         </form>
-#     """
 
 
 @app.route("/logout", methods=["POST"])
