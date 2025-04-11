@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import io
+import re
+from pathlib import Path
 import json
 import logging
 import os
@@ -25,6 +27,7 @@ from flask import (
     render_template_string,
     request,
     send_file,
+    send_from_directory,
     session,
     url_for,
 )
@@ -73,6 +76,17 @@ app.jinja_env.autoescape = True
 app.jinja_env.globals.update(_=_)
 app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
 babel = Babel(app)
+
+
+SESSION_VERSION = "1.0"  # change this when you update session structure
+
+
+@app.before_request
+def check_session_version():
+    if "username" in session:  # user is "logged in"
+        if session.get("version") != SESSION_VERSION:
+            session.clear()
+            return redirect(url_for("logout"))
 
 
 USER_CONFIG_FILE = "users.json"
@@ -124,9 +138,14 @@ def login():
             )
 
             diary_instance = DiaryHandler(config_path=user_config_path)
+            session["version"] = SESSION_VERSION
             session["diary_file"] = diary_instance.config["markdown_diary_path"]
             session["tprs_file"] = diary_instance.config["markdown_tprs_path"]
             session["output_folder"] = diary_instance.config["output_dir"]
+            session["tprs_folder"] = os.path.join(session["output_folder"], "TPRS")
+            session["daily_audio_folder"] = os.path.join(
+                session["output_folder"], "DAILY_AUDIO"
+            )
             session["log_file"] = os.path.join(
                 diary_instance.config["output_dir"], "output.log"
             )
@@ -248,7 +267,7 @@ def diary_html():
     content = ""
 
     diary_file = session["diary_file"]
-    output_foldeR = session["output_folder"]
+    output_folder = session["output_folder"]
     if os.path.exists(diary_file):
         with open(diary_file) as f:
             content = markdown.markdown(
@@ -256,7 +275,7 @@ def diary_html():
             )
     files = [
         f
-        for f in os.listdir(output_foldeR)
+        for f in os.listdir(output_folder)
         if not f.startswith(".") and f != session["output_zip"]
     ]
     return render_template(
@@ -461,6 +480,85 @@ def set_language(lang):
     if lang in app.config["LANGUAGES"]:
         session["lang"] = lang  # Store the language choice in the session
     return redirect(request.referrer)  # Redirect back to the page the user was on
+
+
+# @app.route("/")
+# def index():
+#     # List all mp3 files in the directory
+#     mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
+#     mp3_files = sorted(set(mp3_files), reverse=True)
+#     print(mp3_files)
+#     return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
+#
+
+
+@app.route("/play/<filename>")
+def play_audio(filename):
+    # Send the mp3 file for playback
+    return send_from_directory(session["tprs_folder"], filename)
+
+
+def extract_date(filename: str) -> str:
+    # Matches YYYY-MM-DD pattern
+    match = re.search(r"\d{4}-\d{2}-\d{2}", filename)
+    if match:
+        return match.group()
+    else:
+        raise ValueError("No date in YYYY-MM-DD format found in the filename.")
+
+
+def find_matching_md_file(date_str: str, search_folder: str) -> Path | None:
+    folder = Path(search_folder)
+    for file in folder.glob(f"*{date_str}*.md"):
+        return file  # Return the first match
+    return None
+
+
+@app.route("/view_markdown/<filename>")
+def view_markdown(filename):
+    md_tprs_filename = filename.replace(".mp3", ".md")
+    md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
+
+    mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
+    mp3_files = sorted(set(mp3_files), reverse=True)
+
+    date = extract_date(md_tprs_filename)
+    match_daily_diary = find_matching_md_file(date, session["daily_audio_folder"])
+    if match_daily_diary:
+        with open(match_daily_diary, "r") as file:
+            content_daily_diary = file.read()
+
+    if os.path.exists(md_tprs_file_path):
+        with open(md_tprs_file_path, "r") as file:
+            content = file.read()
+
+        if match_daily_diary:
+            content += content_daily_diary
+
+        html_content = markdown.markdown(
+            content, extensions=["nl2br", "extra", "codehilite", "tables"]
+        )
+        return render_template(
+            "diary_tprs_play_audio.html",
+            content=html_content,
+            filename=filename,  # <---- pass it in
+            mp3_files=mp3_files,
+        )
+    else:
+        return f"Markdown file for {filename} not found", 404
+
+
+@app.route("/play_audio")
+def play_audio_page():
+    mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
+    mp3_files = sorted(set(mp3_files), reverse=True)
+
+    return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
+
+
+@app.route("/download_markdown/<filename>")
+def download_markdown(filename):
+    return send_from_directory(session["tprs_folder"], filename, as_attachment=True)
 
 
 def main():

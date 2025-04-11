@@ -1,0 +1,63 @@
+<!-- templates/play_audio.html -->
+{% extends "diary.html" %} {% block title %}Audio Player{% endblock %} {% block
+content %}
+<h2>Select an MP3 file to play</h2>
+
+<form id="audioForm" onsubmit="event.preventDefault(); playSelectedFile();">
+  <label for="file_select">Choose an audio file:</label>
+  <select id="file_select" name="file">
+    {% for mp3_file in mp3_files %}
+    <option value="{{ mp3_file }}">{{ mp3_file }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Choose File</button>
+</form>
+
+<script>
+  function playSelectedFile() {
+    const file = document.getElementById("file_select").value;
+    window.location.href = "/view_markdown/" + encodeURIComponent(file);
+  }
+</script>
+
+{% if filename %}
+<h3>Now Playing: {{ filename }}</h3>
+
+<!-- Audio player -->
+<audio controls>
+  <source
+    src="{{ url_for('play_audio', filename=filename) }}"
+    type="audio/mp3"
+  />
+  Your browser does not support the audio element.
+</audio>
+
+<p>
+  <a
+    href="{{ url_for('play_audio', filename=filename) }}"
+    download="{{ filename }}"
+    class="btn btn-primary"
+  >
+    Download this MP3
+  </a>
+</p>
+
+{% if filename %} {% set md_filename = filename.replace('.mp3', '.md') %}
+<p>
+  <a
+    href="{{ url_for('download_markdown', filename=md_filename) }}"
+    download="{{ md_filename }}"
+    class="btn btn-secondary"
+  >
+    Download Markdown
+  </a>
+</p>
+{% endif %}
+
+<!-- Show markdown content if exists -->
+{% if content %}
+<h3>Markdown Content:</h3>
+<div>{{ content|safe }}</div>
+{% else %}
+<p>No markdown content available for this file.</p>
+{% endif %} {% endif %} {% endblock %}

@@ -886,7 +886,7 @@ class DiaryHandler:
                         "sentences"
                     ].items():
                         file.write(
-                            f"- **{sentence_dict['primary_language_sentence']}\n"
+                            f"- **{sentence_dict['primary_language_sentence']}**\n"
                         )
                         file.write(
                             f"  {self.config['template_diary']['trial']} {sentence_dict['study_language_sentence_trial']}\n"
