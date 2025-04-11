@@ -24,6 +24,7 @@ from flask import (
     jsonify,
     redirect,
     render_template,
+    jsonify,
     render_template_string,
     request,
     send_file,
@@ -375,11 +376,21 @@ def view_output():
     return render_template("diary_output.html", content="", tab="output", files=files)
 
 
+# @app.route("/edit_entry", methods=["POST"])
+# def edit_entry():
+#     global selected_date
+#     selected_date = request.form.get("date_input")
+#     return redirect(url_for("edit_diary"))
+#
 @app.route("/edit_entry", methods=["POST"])
 def edit_entry():
     global selected_date
     selected_date = request.form.get("date_input")
-    return redirect(url_for("edit_diary"))
+
+    if selected_date:
+        return jsonify({"success": True, "selected_date": selected_date})
+
+    return jsonify({"success": False, "error": "Invalid date"}), 400
 
 
 @app.route("/edit_sentence/<int:index>", methods=["POST", "GET"])
@@ -403,11 +414,28 @@ def edit_sentence(index):
 
 @app.route("/save_diary_entry", methods=["POST"])
 def save_diary_entry():
-    # Your specific function logic here
-    # For example, saving the diary entry for a selected date
-    print("Saving diary entry...")  # Placeholder for your function
-    # You can also save data to a database or perform any other actions needed
-    return redirect(url_for("edit_diary"))  # Redirect to a page after saving
+    global selected_date, diary_entries
+
+    if not selected_date or not diary_entries:
+        flash("No date or entries to save", "error")
+        return redirect(url_for("edit_diary"))
+
+    diary_dict = {}
+    timestamp_key = f"{selected_date}T00:00:00"
+
+    diary_dict[timestamp_key] = {
+        str(i): {"primary_language_sentence": entry["sentence"]}
+        for i, entry in enumerate(diary_entries)
+    }
+
+    print("📘 Diary data structure ready:")
+    print(diary_dict)
+
+    # TODO: Replace this with your actual save function, like:
+    # DiarySaver().save(diary_dict)
+
+    flash("Diary entry saved (or printed) successfully!", "success")
+    return redirect(url_for("edit_diary"))
 
 
 @app.route("/get_log")
@@ -424,13 +452,30 @@ def get_log():
         return jsonify({"log": "Log file not found."})
 
 
+# @app.route("/add_sentence", methods=["POST"])
+# def add_sentence():
+#     global selected_date
+#     sentence = request.form.get("sentence")
+#     if selected_date and sentence:
+#         diary_entries.append({"date": selected_date, "sentence": sentence})
+#     return redirect(url_for("edit_diary"))
+#
+
+
 @app.route("/add_sentence", methods=["POST"])
 def add_sentence():
-    global selected_date
+    global selected_date, diary_entries
     sentence = request.form.get("sentence")
+
     if selected_date and sentence:
-        diary_entries.append({"date": selected_date, "sentence": sentence})
-    return redirect(url_for("edit_diary"))
+        entry = {"date": selected_date, "sentence": sentence}
+        diary_entries.append(entry)
+        return jsonify({"success": True, "entry": entry})
+
+    return (
+        jsonify({"success": False, "error": "Missing selected_date or sentence"}),
+        400,
+    )
 
 
 @app.route("/download/<filename>")

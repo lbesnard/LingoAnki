@@ -180,18 +180,91 @@ function copyHelp() {
 </form>
 
 <h3>{{ _('Add Sentence for Specific Date') }}</h3>
-<form method="POST" action="/edit_entry">
+<form id="setDateForm">
     <label for="date_input">{{ _('Select a date:') }}</label>
     <input type="date" id="date_input" name="date_input"><br>
     <button type="submit">{{ _('Set Date') }}</button>
 </form>
 
+<script>
+  document.getElementById("setDateForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const dateInput = document.getElementById("date_input").value;
+
+    const formData = new FormData();
+    formData.append("date_input", dateInput);
+
+    const response = await fetch("/edit_entry", {
+      method: "POST",
+      body: formData
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        // Show date, enable add-sentence section
+        document.getElementById("selectedDateLabel").textContent = data.selected_date;
+        document.getElementById("addSentenceSection").style.display = "block";
+      }
+    } else {
+      alert("Failed to set date.");
+    }
+  });
+</script>
+
+
 {% if selected_date %}
     <h3>{{ _('Sentence for') }} {{ selected_date }}</h3>
-    <form method="POST" action="/add_sentence">
-        <input type="text" name="sentence" placeholder="{{ _('Add a new sentence') }}" required>
-        <button type="submit">{{ _('Add Sentence') }}</button>
-    </form>
+<form id="addSentenceForm">
+  <input type="text" id="sentenceInput" placeholder="{{ _('Add a new sentence') }}" required>
+  <button type="submit">{{ _('Add Sentence') }}</button>
+</form>
+
+<div id="entries">
+  {% for entry in diary_entries %}
+    <div class="entry">
+      <p><strong>{{ entry.date }}</strong>: {{ entry.sentence }}</p>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+  document.getElementById("addSentenceForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const sentenceInput = document.getElementById("sentenceInput");
+    const sentence = sentenceInput.value.trim();
+
+    if (!sentence) return;
+
+    const formData = new FormData();
+    formData.append("sentence", sentence);
+
+    const response = await fetch("/add_sentence", {
+      method: "POST",
+      body: formData
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        // Add new sentence to the DOM
+        const newEntry = document.createElement("div");
+        newEntry.classList.add("entry");
+        newEntry.innerHTML = `<p><strong>${data.entry.date}</strong>: ${data.entry.sentence}</p>`;
+
+        document.getElementById("entries").appendChild(newEntry);
+        sentenceInput.value = "";
+      }
+    } else {
+      alert("Failed to add sentence.");
+    }
+  });
+</script>
+
+
+
 {% endif %}
 
 <div id="entries">
