@@ -393,6 +393,14 @@ def edit_entry():
     return jsonify({"success": False, "error": "Invalid date"}), 400
 
 
+@app.route("/clear_selected_date", methods=["POST"])
+def clear_selected_date():
+    global selected_date, diary_entries
+    selected_date = None
+    diary_entries = []
+    return "", 204
+
+
 @app.route("/edit_sentence/<int:index>", methods=["POST", "GET"])
 def edit_sentence(index):
     global diary_entries
