@@ -280,12 +280,42 @@ document.getElementById("addSentenceForm").addEventListener("submit", async func
     {% endfor %}
 </div>
 
-<form method="POST" action="/save_diary_entry">
+<form id="saveDiaryForm">
     <button type="submit" id="save_diary">{{ _('Save Diary Entry for Date') }}</button>
 </form>
+<!-- <form method="POST" action="/save_diary_entry"> -->
+<!--     <button type="submit" id="save_diary">{{ _('Save Diary Entry for Date') }}</button> -->
+<!-- </form> -->
     <form id="clearDateForm">
     <button type="submit" id="clear_date">{{ _('Clear Selected Date and Entries') }}</button>
 </form>
+<script>
+document.getElementById("saveDiaryForm").addEventListener("submit", async function (e) {
+  e.preventDefault();  // Prevent the default form submission
+
+  const response = await fetch("/save_diary_entry", {
+    method: "POST"
+  });
+
+  if (response.ok) {
+    alert("Diary entry saved.");
+
+    // Clear the form fields and reset the state
+    document.getElementById("addSentenceSection").style.display = "none";
+    document.getElementById("selectedDateTitle").textContent = "";
+    document.getElementById("sentenceInput").value = "";
+    document.getElementById("entries").innerHTML = "";
+
+    // Trigger the backend clear logic
+    await fetch("/clear_selected_date", { method: "POST" });
+
+    // Finally, reload the page to reflect the saved state
+    window.location.reload();  // This refreshes the page
+  } else {
+    alert("Failed to save diary entry.");
+  }
+});
+</script>
 
 <script>
 document.getElementById("clearDateForm").addEventListener("submit", function (e) {
