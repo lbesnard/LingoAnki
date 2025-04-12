@@ -2,6 +2,8 @@
 import io
 import re
 from pathlib import Path
+
+from functools import wraps
 import json
 import logging
 import os
@@ -203,6 +205,17 @@ def login():
     )
 
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "username" not in session:
+            flash("Please log in to continue.", "error")
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
@@ -210,6 +223,7 @@ def logout():
 
 
 @app.route("/", methods=["GET", "POST"])
+@login_required
 def edit_diary():
     global selected_date
 
@@ -263,6 +277,7 @@ def edit_diary():
 
 
 @app.route("/diary_html")
+@login_required
 def diary_html():
     content = ""
 
@@ -310,6 +325,7 @@ def view_tprs():
 
 
 @app.route("/generate_lessons", methods=["GET", "POST"])
+@login_required
 def generate_lessons():
     output_folder = session["output_folder"]
     if request.method == "POST":
@@ -355,6 +371,7 @@ def generate_lessons():
 
 
 @app.route("/stream_logs")
+@login_required
 def stream_logs():
     def generate():
         while True:
@@ -365,6 +382,7 @@ def stream_logs():
 
 
 @app.route("/output")
+@login_required
 def view_output():
     output_folder = session["output_folder"]
     files = [
@@ -376,6 +394,7 @@ def view_output():
 
 
 @app.route("/edit_entry", methods=["POST"])
+@login_required
 def edit_entry():
     global selected_date
     selected_date = request.form.get("date_input")
@@ -388,6 +407,7 @@ def edit_entry():
 
 
 @app.route("/clear_selected_date", methods=["POST"])
+@login_required
 def clear_selected_date():
     global selected_date, diary_entries
     selected_date = None
@@ -396,6 +416,7 @@ def clear_selected_date():
 
 
 @app.route("/edit_sentence/<int:index>", methods=["POST", "GET"])
+@login_required
 def edit_sentence(index):
     global diary_entries
     sentence = diary_entries[index]["sentence"]
@@ -415,6 +436,7 @@ def edit_sentence(index):
 
 
 @app.route("/save_diary_entry", methods=["POST"])
+@login_required
 def save_diary_entry():
     global selected_date, diary_entries
 
@@ -453,6 +475,7 @@ def save_diary_entry():
 
 
 @app.route("/get_log")
+@login_required
 def get_log():
     log_file = session["log_file"]
 
@@ -467,6 +490,7 @@ def get_log():
 
 
 @app.route("/add_sentence", methods=["POST"])
+@login_required
 def add_sentence():
     global selected_date, diary_entries
     sentence = request.form.get("sentence")
@@ -483,6 +507,7 @@ def add_sentence():
 
 
 @app.route("/download/<filename>")
+@login_required
 def download_file(filename):
     output_folder = session["output_folder"]
 
@@ -494,6 +519,7 @@ def download_file(filename):
 
 
 @app.route("/download_zip")
+@login_required
 def download_zip():
     output_folder = session["output_folder"]
     zip_path = os.path.join(output_folder, session["output_zip"])
@@ -526,6 +552,7 @@ babel.init_app(app, locale_selector=get_locale)
 
 
 @app.route("/set_language/<lang>")
+@login_required
 def set_language(lang):
     if lang in app.config["LANGUAGES"]:
         session["lang"] = lang  # Store the language choice in the session
@@ -543,6 +570,7 @@ def set_language(lang):
 
 
 @app.route("/play/<filename>")
+@login_required
 def play_audio(filename):
     # Send the mp3 file for playback
     return send_from_directory(session["tprs_folder"], filename)
@@ -565,6 +593,7 @@ def find_matching_md_file(date_str: str, search_folder: str) -> Path | None:
 
 
 @app.route("/view_markdown/<filename>")
+@login_required
 def view_markdown(filename):
     md_tprs_filename = filename.replace(".mp3", ".md")
     md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
@@ -599,6 +628,7 @@ def view_markdown(filename):
 
 
 @app.route("/play_audio")
+@login_required
 def play_audio_page():
     mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
     mp3_files = sorted(set(mp3_files), reverse=True)
@@ -607,6 +637,7 @@ def play_audio_page():
 
 
 @app.route("/download_markdown/<filename>")
+@login_required
 def download_markdown(filename):
     return send_from_directory(session["tprs_folder"], filename, as_attachment=True)
 
