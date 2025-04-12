@@ -91,9 +91,9 @@ def check_session_version():
 
 
 USER_CONFIG_FILE = "users.json"
-user_config_path = Path(user_config_dir(APP_NAME)) / USER_CONFIG_FILE
+users_config_path = Path(user_config_dir(APP_NAME)) / USER_CONFIG_FILE
 
-USER_DB_FILE = os.getenv("USER_DB_FILE", user_config_path)
+USER_DB_FILE = os.getenv("USER_DB_FILE", users_config_path)
 CONFIG_ROOT = os.getenv(
     "CONFIG_ROOT", os.path.expanduser(Path(user_config_dir(APP_NAME)))
 )
@@ -230,7 +230,6 @@ def edit_diary():
     with open(user_config_path) as f:
         user_config = yaml.safe_load(f)
 
-    # diary_instance = DiaryHandler(config_path=user_config_path)
     diary_file = session["diary_file"]
     output_folder = session["output_folder"]
     if request.method == "POST":
@@ -376,16 +375,11 @@ def view_output():
     return render_template("diary_output.html", content="", tab="output", files=files)
 
 
-# @app.route("/edit_entry", methods=["POST"])
-# def edit_entry():
-#     global selected_date
-#     selected_date = request.form.get("date_input")
-#     return redirect(url_for("edit_diary"))
-#
 @app.route("/edit_entry", methods=["POST"])
 def edit_entry():
     global selected_date
     selected_date = request.form.get("date_input")
+    print("Selected date:", selected_date)  # Debug print
 
     if selected_date:
         return jsonify({"success": True, "selected_date": selected_date})
@@ -428,19 +422,31 @@ def save_diary_entry():
         flash("No date or entries to save", "error")
         return redirect(url_for("edit_diary"))
 
-    diary_dict = {}
-    timestamp_key = f"{selected_date}T00:00:00"
+    user_input_diary_dict = {}
+    timestamp_key = datetime.strptime(selected_date, "%Y-%m-%d")
 
-    diary_dict[timestamp_key] = {
-        str(i): {"primary_language_sentence": entry["sentence"]}
-        for i, entry in enumerate(diary_entries)
+    user_input_diary_dict[timestamp_key] = {
+        "title": "",
+        "sentences": {
+            str(i): {
+                "primary_language_sentence": entry["sentence"],
+                "study_language_sentence": "",
+                "study_language_sentence_trial": "",
+                "tips": "",
+            }
+            for i, entry in enumerate(diary_entries)
+        },
     }
 
     print("📘 Diary data structure ready:")
-    print(diary_dict)
+    print(user_input_diary_dict)
 
-    # TODO: Replace this with your actual save function, like:
-    # DiarySaver().save(diary_dict)
+    username = session["username"]
+    user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
+    diary_instance = DiaryHandler(config_path=user_config_path)
+    org_diary_dict = diary_instance.markdown_diary_to_dict()  # to init some variables
+    new_diary_dict = user_input_diary_dict | org_diary_dict  # keep the org values
+    diary_instance.write_diary(new_diary_dict)
 
     flash("Diary entry saved (or printed) successfully!", "success")
     return redirect(url_for("edit_diary"))
@@ -458,16 +464,6 @@ def get_log():
         return jsonify({"log": "".join(log_lines)})
     except FileNotFoundError:
         return jsonify({"log": "Log file not found."})
-
-
-# @app.route("/add_sentence", methods=["POST"])
-# def add_sentence():
-#     global selected_date
-#     sentence = request.form.get("sentence")
-#     if selected_date and sentence:
-#         diary_entries.append({"date": selected_date, "sentence": sentence})
-#     return redirect(url_for("edit_diary"))
-#
 
 
 @app.route("/add_sentence", methods=["POST"])
