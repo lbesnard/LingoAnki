@@ -439,14 +439,14 @@ def save_diary_entry():
     }
 
     print("📘 Diary data structure ready:")
-    print(user_input_diary_dict)
 
     username = session["username"]
     user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
     diary_instance = DiaryHandler(config_path=user_config_path)
     org_diary_dict = diary_instance.markdown_diary_to_dict()  # to init some variables
-    new_diary_dict = user_input_diary_dict | org_diary_dict  # keep the org values
-    diary_instance.write_diary(new_diary_dict)
+    updated_diary_dict = user_input_diary_dict | org_diary_dict  # keep the org values
+    diary_instance.write_diary(updated_diary_dict)
+    diary_instance.stop()
 
     flash("Diary entry saved (or printed) successfully!", "success")
     return redirect(url_for("edit_diary"))
@@ -504,6 +504,7 @@ def download_zip():
                     not file.startswith(".")
                     and file != session["output_zip"]
                     and not file.endswith("zip")
+                    and not file.endswith("log")
                 ):
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, output_folder)

@@ -153,13 +153,29 @@
 
     {% endif %} {% endwith %} {% block content %}
     <!-- Default content or empty block -->
-<h2>{{ _('Edit Diary') }}</h2>
+<h2>{{ _('How To Edit Diary') }}</h2>
 <p>{{ _('You can edit the diary in two ways:') }}</p>
 <ul>
     <li>{{ _('By adding sentences directly in the text box below with the following template and clicking "Save".') }}</li>
 </ul>
+<ul>
+    <li>{{ _('By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.') }}</li>
+    <li>{{ _('Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced...') }}</li>
+</ul>
 
-<button onclick="copyHelp()">{{ _('Copy') }}</button>
+<h2>{{ _('Edit Diary') }}</h2>
+<li>{{ _('Careful not to break the template') }}</li>
+<form method="POST">
+    <textarea name="content">{{ content }}</textarea><br>
+    <button type="submit">{{ _('Save') }}</button>
+</form>
+
+
+<h3>{{ _('Option 1') }}</h3>
+<li>{{ _('Copy template below to the top of the diary and add as many new sentences as desired') }}</li>
+<li>{{ _('This tempalte has only 3 sentences, but you can add more') }}</li>
+<button onclick="copyHelp()">{{ _('Copy Template') }}</button>
+
 <script>
 function copyHelp() {
     const textarea = document.querySelector('#help-template');
@@ -169,21 +185,15 @@ function copyHelp() {
 </script>
 <textarea id="help-template" readonly style="width: 100%; height: 200px;">{{ template_help }}</textarea>
 
-<ul>
-    <li>{{ _('By selecting a specific date from the calendar widget below (or entering the date manually), then adding sentences for that day.') }}</li>
-    <li>{{ _('Please note that Only the sentence in between the 2 asterixes ** ... ** needs to be replaced...') }}</li>
-</ul>
 
-<form method="POST">
-    <textarea name="content">{{ content }}</textarea><br>
-    <button type="submit">{{ _('Save') }}</button>
-</form>
 
-<h3>{{ _('Add Sentence for Specific Date') }}</h3>
+<h3>{{ _('Option 2') }}</h3>
+<li>{{ _('Select and set a date.') }}</li>
+<li>{{ _('Add as many sentences as wanted and click save') }}</li>
 <form id="setDateForm">
     <label for="date_input">{{ _('Select a date:') }}</label>
     <input type="date" id="date_input" name="date_input"><br>
-    <button type="submit">{{ _('Set Date') }}</button>
+    <button type="submit">{{ _('1) Set Date (click me)') }}</button>
 </form>
 
 <!-- Always include this section in the DOM -->
@@ -191,7 +201,7 @@ function copyHelp() {
   <h3 id="selectedDateTitle"></h3>
   <form id="addSentenceForm">
     <input type="text" id="sentenceInput" placeholder="{{ _('Add a new sentence') }}" required>
-    <button type="submit">{{ _('Add Sentence') }}</button>
+    <button type="submit">{{ _('2) Add Sentence') }}</button>
   </form>
 </div>
 <script>
@@ -246,7 +256,6 @@ document.getElementById("addSentenceForm").addEventListener("submit", async func
       entryDiv.className = "entry";
       entryDiv.innerHTML = `
         <form method="POST" action="/edit_sentence/${document.querySelectorAll('.entry').length}">
-            <button type="submit">{{ _('Edit') }}</button>
         </form>
         <p>${data.entry.date}: ${data.entry.sentence}</p>
       `;
@@ -263,9 +272,6 @@ document.getElementById("addSentenceForm").addEventListener("submit", async func
 <div id="entries">
     {% for entry in diary_entries %}
         <div class="entry">
-            <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
-                <button type="submit">{{ _('Edit') }}</button>
-            </form>
             <p>{{ entry.date }}:
                 {% if loop.index0 == selected_edit %}
                     <form method="POST" action="/edit_sentence/{{ loop.index0 }}">
@@ -281,24 +287,26 @@ document.getElementById("addSentenceForm").addEventListener("submit", async func
 </div>
 
 <form id="saveDiaryForm">
-    <button type="submit" id="save_diary">{{ _('Save Diary Entry for Date') }}</button>
+    <button type="submit" id="save_diary">{{ _('3) Save Diary Entry for Date') }}</button>
 </form>
-<!-- <form method="POST" action="/save_diary_entry"> -->
-<!--     <button type="submit" id="save_diary">{{ _('Save Diary Entry for Date') }}</button> -->
-<!-- </form> -->
     <form id="clearDateForm">
-    <button type="submit" id="clear_date">{{ _('Clear Selected Date and Entries') }}</button>
+    <button type="submit" id="clear_date">{{ _('Cancel - Clear Selected Date and Entries') }}</button>
 </form>
 <script>
 document.getElementById("saveDiaryForm").addEventListener("submit", async function (e) {
   e.preventDefault();  // Prevent the default form submission
+
+  const saveButton = document.getElementById("save_diary");
+  saveButton.disabled = true;
+  saveButton.textContent = "Saving...";
+
 
   const response = await fetch("/save_diary_entry", {
     method: "POST"
   });
 
   if (response.ok) {
-    alert("Diary entry saved.");
+    alert("Diary entry saved. Proceed to Step 2 to generate the lessons.");
 
     // Clear the form fields and reset the state
     document.getElementById("addSentenceSection").style.display = "none";
@@ -310,7 +318,10 @@ document.getElementById("saveDiaryForm").addEventListener("submit", async functi
     await fetch("/clear_selected_date", { method: "POST" });
 
     // Finally, reload the page to reflect the saved state
-    window.location.reload();  // This refreshes the page
+    // window.location.reload();  // This refreshes the page
+    // location.href = location.href;
+    window.location.href = "/";
+
   } else {
     alert("Failed to save diary entry.");
   }

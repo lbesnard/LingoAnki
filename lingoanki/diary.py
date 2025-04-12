@@ -860,16 +860,18 @@ class DiaryHandler:
         self.logging.info(
             f"Writing diary to {self.markdown_script_generated_diary_path}"
         )
+        self.logging.info(diary_dict)
         with open(
             self.markdown_script_generated_diary_path, "w", encoding="utf-8"
         ) as file:
             for date_diary in diary_dict:
-                if self.titles_dict[date_diary] == "None":
-                    self.titles_dict[date_diary] = None
+                if self.titles_dict[date_diary] == "":
+                    file.write(f"## {date_diary.strftime('%Y/%m/%d')} \n")
 
-                file.write(
-                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
-                )
+                else:
+                    file.write(
+                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]} \n"
+                    )
                 for sentence_no, sentence_dict in diary_dict[date_diary][
                     "sentences"
                 ].items():
@@ -891,6 +893,9 @@ class DiaryHandler:
                     "DAILY_AUDIO",
                     f"{self.deck_name.replace(':', '')}_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
                 )
+
+                if self.titles_dict[date_diary] == "":
+                    continue
 
                 os.makedirs(os.path.join(self.output_dir, "DAILY_AUDIO"), exist_ok=True)
                 if self.titles_dict[date_diary] is None:
