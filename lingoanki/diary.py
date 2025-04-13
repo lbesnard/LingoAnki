@@ -69,7 +69,7 @@ class DiaryHandler:
         self.config = self.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
         self.deck_name = self.config["anki_deck_name"]
-        self.output_dir = os.path.dirname(self.config["output_dir"])
+        self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
         self.diary_new_entries_day = None
