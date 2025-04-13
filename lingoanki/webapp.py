@@ -538,9 +538,7 @@ app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
 def get_locale():
     if "lang" in session:
         return session["lang"]
-    return request.accept_languages.best_match(
-        app.config.get("BABEL_SUPPORTED_LOCALES", ["en"])
-    )
+    return request.accept_languages.best_match(app.config["LANGUAGES"])
 
 
 babel = Babel(app, locale_selector=get_locale)
