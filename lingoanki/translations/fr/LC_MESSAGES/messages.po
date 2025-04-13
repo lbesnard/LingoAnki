@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-04-10 12:32+0000\n"
-"PO-Revision-Date: 2025-04-10 12:33+0000\n"
+"POT-Creation-Date: 2025-04-13 00:03+0000\n"
+"PO-Revision-Date: 2025-04-13 00:03+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: fr\n"
 "Language-Team: fr <LL@li.org>\n"
@@ -18,142 +18,194 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
 
-#: lingoanki/templates/diary.html:4
-msgid "Markdown WebApp"
-msgstr "Application Web Markdown"
+#: lingoanki/templates/diary.html:6
+msgid "LingoDiary WebApp"
+msgstr "Application Web LingoDiary"
 
-#: lingoanki/templates/diary.html:88
+#: lingoanki/templates/diary.html:130
 msgid "Logged in as"
 msgstr "Connecté en tant que"
 
-#: lingoanki/templates/diary.html:90
+#: lingoanki/templates/diary.html:132
 msgid "Logout"
-msgstr "Déconnexion"
+msgstr "Se déconnecter"
 
-#: lingoanki/templates/diary.html:96
+#: lingoanki/templates/diary.html:138
 msgid "Step 1: Edit Diary"
 msgstr "Étape 1 : Modifier le journal"
 
-#: lingoanki/templates/diary.html:97
+#: lingoanki/templates/diary.html:139
 msgid "View Diary HTML"
-msgstr "Voir le journal en HTML"
+msgstr "Voir le HTML du journal"
 
-#: lingoanki/templates/diary.html:98
+#: lingoanki/templates/diary.html:140
 msgid "View TPRS"
 msgstr "Voir TPRS"
 
-#: lingoanki/templates/diary.html:99
+#: lingoanki/templates/diary.html:141
 msgid "Step 2: Generate Lessons"
-msgstr "Étape 2 : Générer des leçons"
+msgstr "Étape 2 : Générer les leçons"
 
-#: lingoanki/templates/diary.html:100
-msgid "Step 3: Output Files"
-msgstr "Étape 3 : Fichiers de sortie"
+#: lingoanki/templates/diary.html:142
+msgid "Step 3: Listen to Lessons"
+msgstr "Étape 3 : Écouter les leçons"
 
-#: lingoanki/templates/diary_edit.html:1
-msgid "Edit Diary"
-msgstr "Modifier le journal"
+#: lingoanki/templates/diary.html:143
+msgid "Step 4: Download Output Files"
+msgstr "Étape 4 : Télécharger les fichiers de sortie"
 
-#: lingoanki/templates/diary_edit.html:2
+#: lingoanki/templates/diary.html:156
+msgid "How To Edit Diary"
+msgstr "Comment modifier le journal"
+
+#: lingoanki/templates/diary.html:157
 msgid "You can edit the diary in two ways:"
 msgstr "Vous pouvez modifier le journal de deux manières :"
 
-#: lingoanki/templates/diary_edit.html:4
+#: lingoanki/templates/diary.html:159
 msgid ""
-"By adding sentences directly in the text box below with the following "
-"template and clicking \"Save\"."
-msgstr ""
-"En ajoutant des phrases directement dans la zone de texte ci-dessous avec le modèle suivant "
-"et en cliquant sur \"Sauvegarder\"."
+"Option 1: By adding sentences directly in the text box below with the "
+"following template and clicking \"Save\"."
+msgstr "Option 1 : En ajoutant des phrases directement dans la zone de texte ci-dessous avec le modèle suivant et en cliquant sur « Enregistrer »."
 
-#: lingoanki/templates/diary_edit.html:7
-msgid "Copy"
-msgstr "Copier"
-
-#: lingoanki/templates/diary_edit.html:18
-msgid ""
-"By selecting a specific date from the calendar widget below (or entering "
-"the date manually), then adding sentences for that day."
-msgstr ""
-"En sélectionnant une date spécifique dans le widget calendrier ci-dessous (ou en entrant "
-"la date manuellement), puis en ajoutant des phrases pour ce jour-là."
-
-#: lingoanki/templates/diary_edit.html:19
+#: lingoanki/templates/diary.html:160
 msgid ""
 "Please note that Only the sentence in between the 2 asterixes ** ... ** "
 "needs to be replaced..."
-msgstr ""
-"Veuillez noter que seule la phrase entre les 2 astérisques ** ... ** "
-"doit être remplacée..."
+msgstr "Veuillez noter que seule la phrase entre les deux astérisques ** ... ** doit être remplacée..."
 
-#: lingoanki/templates/diary_edit.html:24
+#: lingoanki/templates/diary.html:163
+msgid ""
+"Option 2: By selecting a specific date from the calendar widget below (or"
+" entering the date manually), then adding sentences for that day."
+msgstr "Option 2 : En sélectionnant une date spécifique dans le calendrier ci-dessous (ou en entrant la date manuellement), puis en ajoutant des phrases pour ce jour-là."
+
+#: lingoanki/templates/diary.html:166
+msgid "Edit Diary"
+msgstr "Modifier le journal"
+
+#: lingoanki/templates/diary.html:167
+msgid "Careful not to break the template"
+msgstr "Attention à ne pas casser le modèle"
+
+#: lingoanki/templates/diary.html:170
 msgid "Save"
-msgstr "Sauvegarder"
+msgstr "Enregistrer"
 
-#: lingoanki/templates/diary_edit.html:27
-msgid "Add Sentence for Specific Date"
-msgstr "Ajouter une phrase pour une date spécifique"
+#: lingoanki/templates/diary.html:174
+msgid "Option 1"
+msgstr "Option 1"
 
-#: lingoanki/templates/diary_edit.html:29
+#: lingoanki/templates/diary.html:175
+msgid ""
+"Copy template below to the top of the diary and add as many new sentences"
+" as desired"
+msgstr "Copiez le modèle ci-dessous en haut du journal et ajoutez autant de nouvelles phrases que souhaité"
+
+#: lingoanki/templates/diary.html:176
+msgid "This template has only 3 sentences, but you can add more"
+msgstr "Ce modèle contient seulement 3 phrases, mais vous pouvez en ajouter davantage"
+
+#: lingoanki/templates/diary.html:177
+msgid "Copy Template"
+msgstr "Copier le modèle"
+
+#: lingoanki/templates/diary.html:190
+msgid "Option 2"
+msgstr "Option 2"
+
+#: lingoanki/templates/diary.html:191
+msgid "Select and set a date."
+msgstr "Sélectionnez et définissez une date."
+
+#: lingoanki/templates/diary.html:192
+msgid "Add as many sentences as wanted and click save"
+msgstr "Ajoutez autant de phrases que vous le souhaitez et cliquez sur enregistrer"
+
+#: lingoanki/templates/diary.html:194
 msgid "Select a date:"
-msgstr "Sélectionnez une date :"
+msgstr "Sélectionner une date :"
 
-#: lingoanki/templates/diary_edit.html:31
-msgid "Set Date"
-msgstr "Définir la date"
+#: lingoanki/templates/diary.html:196
+msgid "1) Set Date (click me)"
+msgstr "1) Définir la date (cliquez ici)"
 
-#: lingoanki/templates/diary_edit.html:35
-msgid "Sentence for"
-msgstr "Phrase pour"
-
-#: lingoanki/templates/diary_edit.html:37
+#: lingoanki/templates/diary.html:203
 msgid "Add a new sentence"
 msgstr "Ajouter une nouvelle phrase"
 
-#: lingoanki/templates/diary_edit.html:38
-msgid "Add Sentence"
-msgstr "Ajouter une phrase"
+#: lingoanki/templates/diary.html:204
+msgid "2) Add Sentence"
+msgstr "2) Ajouter une phrase"
 
-#: lingoanki/templates/diary_edit.html:46
-msgid "Edit"
-msgstr "Modifier"
+#: lingoanki/templates/diary.html:226
+msgid "Sentence for"
+msgstr "Phrase pour"
 
-#: lingoanki/templates/diary_edit.html:52
+#: lingoanki/templates/diary.html:279
 msgid "Apply"
 msgstr "Appliquer"
 
-#: lingoanki/templates/diary_edit.html:63
-msgid "Save Diary Entry for Date"
-msgstr "Sauvegarder l'entrée du journal pour la date"
+#: lingoanki/templates/diary.html:290
+msgid "3) Save Diary Entry for Date"
+msgstr "3) Enregistrer l'entrée du journal pour la date"
 
-#: lingoanki/templates/diary_generate_lessons.html:1
+#: lingoanki/templates/diary.html:293
+msgid "Cancel - Clear Selected Date and Entries"
+msgstr "Annuler - Effacer la date et les entrées sélectionnées"
+
+#: lingoanki/templates/diary_generate_lessons.html:2
 msgid "Generate Lessons"
-msgstr "Générer des leçons"
+msgstr "Générer les leçons"
 
-#: lingoanki/templates/diary_generate_lessons.html:3
+#: lingoanki/templates/diary_generate_lessons.html:4
 msgid "Generate"
 msgstr "Générer"
 
-#: lingoanki/templates/diary_generate_lessons.html:5
-msgid "TODO: Define function to generate lessons here."
-msgstr "TODO : Définir la fonction pour générer des leçons ici."
-
-#: lingoanki/templates/diary_html.html:1
+#: lingoanki/templates/diary_html.html:2
 msgid "Diary HTML"
-msgstr "Journal HTML"
+msgstr "HTML du journal"
 
-#: lingoanki/templates/diary_output.html:1
+#: lingoanki/templates/diary_output.html:2
 msgid "Output Files"
 msgstr "Fichiers de sortie"
 
-#: lingoanki/templates/diary_output.html:8
+#: lingoanki/templates/diary_output.html:9
 msgid "Download All as Zip"
-msgstr "Télécharger tout en tant que fichier Zip"
+msgstr "Tout télécharger au format Zip"
 
-#: lingoanki/templates/diary_tprs.html:1
+#: lingoanki/templates/diary_tprs.html:2
 msgid "TPRS Markdown"
-msgstr "TPRS Markdown"
+msgstr "Markdown TPRS"
 
-#: lingoanki/templates/diary_tprs.html:4
+#: lingoanki/templates/diary_tprs.html:5
 msgid "Refresh TPRS"
 msgstr "Rafraîchir TPRS"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:5
+msgid "Select an MP3 file to play"
+msgstr "Sélectionnez un fichier MP3 à lire"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:8
+msgid "Choose an audio file"
+msgstr "Choisissez un fichier audio"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:14
+msgid "Choose File"
+msgstr "Choisir un fichier"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:25
+msgid "Now Playing"
+msgstr "Lecture en cours"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:42
+msgid "Download this MP3"
+msgstr "Télécharger ce MP3"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:53
+msgid "Download Markdown"
+msgstr "Télécharger le Markdown"
+
+#: lingoanki/templates/diary_tprs_play_audio.html:60
+msgid "Markdown Content"
+msgstr "Contenu Markdown"

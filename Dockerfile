@@ -40,7 +40,6 @@ COPY README.md /app/
 ENV XDG_DATA_HOME=/app/.local
 RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 
-
 EXPOSE 8084
 
 CMD [ "poetry", "run", "lingoWebapp"]

@@ -12,5 +12,5 @@ services:
       CONFIG_PATH: /app/.config/lingoDiary/config.yaml # Update path to reflect /app location
       SECRET_KEY: "bceac54fc00cbdfee69e3f10905b73ec550eb9bf6779a9476471171170493962" # python -c "import secrets; print(secrets.token_hex(32))"
       CONFIG_ROOT: /app/.config/lingoDiary # Update path to reflect /app location
-      USER_DB_FILE: /app/.config/lingoDiary/users.json # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
+      USER_DB_FILE: /app/.config/lingoDiary/users.yaml # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
     user: "1000:1000" # Run container as non-root user

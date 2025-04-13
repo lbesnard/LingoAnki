@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 import io
-import re
-from pathlib import Path
-
-from functools import wraps
-import json
 import logging
 import os
+import re
 import subprocess
 import time
 import zipfile
+from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from queue import Queue
 from threading import Thread
-from datetime import datetime
 
 import bcrypt
 import markdown
@@ -22,11 +19,9 @@ from flask import (
     Flask,
     Response,
     flash,
-    get_flashed_messages,
     jsonify,
     redirect,
     render_template,
-    jsonify,
     render_template_string,
     request,
     send_file,
@@ -38,8 +33,7 @@ from flask_babel import Babel
 from flask_babel import gettext as _
 from platformdirs import user_config_dir
 
-# from werkzeug.utils import secure_filename
-from lingoanki.diary import APP_NAME, CONFIG_FILE, DiaryHandler, TprsCreation
+from lingoanki.diary import APP_NAME, DiaryHandler, TprsCreation
 
 # Create an in-memory buffer to capture logs
 log_stream = io.StringIO()
@@ -75,6 +69,8 @@ app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
 # babel setup
 app.config["BABEL_DEFAULT_LOCALE"] = "en"
+app.config["BABEL_SUPPORTED_LOCALES"] = ["en", "fr"]  # Add more as needed
+
 app.jinja_env.autoescape = True
 app.jinja_env.globals.update(_=_)
 app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
@@ -92,7 +88,7 @@ def check_session_version():
             return redirect(url_for("logout"))
 
 
-USER_CONFIG_FILE = "users.json"
+USER_CONFIG_FILE = "users.yaml"
 users_config_path = Path(user_config_dir(APP_NAME)) / USER_CONFIG_FILE
 
 USER_DB_FILE = os.getenv("USER_DB_FILE", users_config_path)
@@ -114,10 +110,10 @@ def login():
 
         # Check if the user exists in the user database
         with open(USER_DB_FILE) as f:
-            users = json.load(f)
+            users = yaml.safe_load(f)
 
-        if username in users and bcrypt.checkpw(
-            password.encode(), users[username].encode()
+        if username in users["users"] and bcrypt.checkpw(
+            password.encode(), users["users"][username]["password"].encode()
         ):
             # Check if the user has a valid config
             user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
@@ -128,10 +124,10 @@ def login():
                     f"No config found for user '{username}'. Please log in again.",
                     "error",
                 )
-                print(
-                    f"Flash messages: {get_flashed_messages(with_categories=True)}"
-                )  # Debugging line
-
+                # print(
+                #     f"Flash messages: {get_flashed_messages(with_categories=True)}"
+                # )  # Debugging line
+                #
                 return redirect(url_for("login"))  # Redirect to login page
 
             # If login is successful and config exists, store the username in the session
@@ -139,6 +135,12 @@ def login():
             session["user_config_path"] = os.path.join(
                 CONFIG_ROOT, username, "config.yaml"
             )
+
+            # Get the user's preferred language and store it in the session
+            user_language = users["users"][username].get(
+                "language", "en"
+            )  # Default to "en" if not set
+            session["lang"] = user_language
 
             diary_instance = DiaryHandler(config_path=user_config_path)
             session["version"] = SESSION_VERSION
@@ -240,10 +242,6 @@ def edit_diary():
         )
         return redirect(url_for("login"))
 
-    # Optional: load the user's config here if needed
-    with open(user_config_path) as f:
-        user_config = yaml.safe_load(f)
-
     diary_file = session["diary_file"]
     output_folder = session["output_folder"]
     if request.method == "POST":
@@ -261,7 +259,6 @@ def edit_diary():
         if not f.startswith(".") and f != session["output_zip"]
     ]
 
-    # template_help_text = diary_instance.template_help()
     template_help_text = session["template_help_text"]
 
     return render_template(
@@ -300,8 +297,6 @@ def diary_html():
 
 @app.route("/tprs", methods=["GET", "POST"])
 def view_tprs():
-    # global tprs_content
-
     tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
     if request.method == "POST":
@@ -351,7 +346,6 @@ def generate_lessons():
             tprs_instance.convert_tts_tprs_entries()
             tprs_instance.stop()
 
-            app.logger.debug(f"generated_tprs.py output")
         except subprocess.CalledProcessError as e:
             app.logger.error("generate_tprs.py failed")
 
@@ -542,31 +536,21 @@ app.config["LANGUAGES"] = ["en", "fr"]  # Supported languages
 
 
 def get_locale():
-    # Check if the user has selected a language in the session
-    return session.get(
-        "lang", request.accept_languages.best_match(app.config["LANGUAGES"])
+    if "lang" in session:
+        return session["lang"]
+    return request.accept_languages.best_match(
+        app.config.get("BABEL_SUPPORTED_LOCALES", ["en"])
     )
 
 
-babel.init_app(app, locale_selector=get_locale)
+babel = Babel(app, locale_selector=get_locale)
 
 
-@app.route("/set_language/<lang>")
+@app.route("/set_language/<lang_code>")
 @login_required
-def set_language(lang):
-    if lang in app.config["LANGUAGES"]:
-        session["lang"] = lang  # Store the language choice in the session
-    return redirect(request.referrer)  # Redirect back to the page the user was on
-
-
-# @app.route("/")
-# def index():
-#     # List all mp3 files in the directory
-#     mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
-#     mp3_files = sorted(set(mp3_files), reverse=True)
-#     print(mp3_files)
-#     return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
-#
+def set_language(lang_code):
+    session["lang"] = lang_code
+    return redirect(request.referrer or url_for("edit_diary"))
 
 
 @app.route("/play/<filename>")

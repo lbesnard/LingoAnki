@@ -866,7 +866,9 @@ class DiaryHandler:
         ) as file:
             for date_diary in diary_dict:
                 if self.titles_dict[date_diary] == "":
-                    file.write(f"## {date_diary.strftime('%Y/%m/%d')} \n")
+                    file.write(
+                        f"## {date_diary.strftime('%Y/%m/%d')} \n"
+                    )  # to respect regexp and look for title
 
                 else:
                     file.write(

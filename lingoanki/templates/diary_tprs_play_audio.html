@@ -1,16 +1,17 @@
 <!-- templates/play_audio.html -->
 {% extends "diary.html" %} {% block title %}Audio Player{% endblock %} {% block
 content %}
-<h2>Select an MP3 file to play</h2>
+
+    <h2>{{ _('Select an MP3 file to play') }}</h2>
 
 <form id="audioForm" onsubmit="event.preventDefault(); playSelectedFile();">
-  <label for="file_select">Choose an audio file:</label>
+  <label for="file_select">{{ _('Choose an audio file') }}:</label>
   <select id="file_select" name="file">
     {% for mp3_file in mp3_files %}
     <option value="{{ mp3_file }}">{{ mp3_file }}</option>
     {% endfor %}
   </select>
-  <button type="submit">Choose File</button>
+  <button type="submit">{{ _('Choose File') }}</button>
 </form>
 
 <script>
@@ -21,7 +22,7 @@ content %}
 </script>
 
 {% if filename %}
-<h3>Now Playing: {{ filename }}</h3>
+<h3>{{ _('Now Playing') }}: {{ filename }}</h3>
 
 <!-- Audio player -->
 <audio controls>
@@ -38,7 +39,7 @@ content %}
     download="{{ filename }}"
     class="btn btn-primary"
   >
-    Download this MP3
+  {{ _('Download this MP3') }}
   </a>
 </p>
 
@@ -49,14 +50,14 @@ content %}
     download="{{ md_filename }}"
     class="btn btn-secondary"
   >
-    Download Markdown
+  {{ _('Download Markdown') }}
   </a>
 </p>
 {% endif %}
 
 <!-- Show markdown content if exists -->
 {% if content %}
-<h3>Markdown Content:</h3>
+<h3>{{ _('Markdown Content') }}:</h3>
 <div>{{ content|safe }}</div>
 {% else %}
 <p>No markdown content available for this file.</p>
