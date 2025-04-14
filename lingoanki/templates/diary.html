@@ -32,6 +32,11 @@
     display: inline-block;
   }
 
+  nav a.active-tab {
+  background-color: #b0b0b0; /* Darker grey */
+  font-weight: bold;
+  }
+
   textarea {
     width: 100%;
     height: 300px;
@@ -137,12 +142,12 @@
     </div>
 
     <nav>
-      <a href="/">{{ _('Step 1: Edit Diary') }}</a>
-      <a href="/diary_html">{{ _('View Diary HTML') }}</a>
-      <a href="/tprs">{{ _('View TPRS') }}</a>
-      <a href="/generate_lessons">{{ _('Step 2: Generate Lessons') }}</a>
-      <a href="/play_audio">{{ _('Step 3: Listen to Lessons') }}</a>  <!-- 👈 New link -->
-      <a href="/output">{{ _('Step 4: Download Output Files') }}</a>
+      <a href="/" class="{{ 'active-tab' if request.path == '/' else '' }}">{{ _('Step 1: Edit Diary') }}</a>
+      <a href="/diary_html" class="{{ 'active-tab' if request.path == '/diary_html' else '' }}">{{ _('View Diary HTML') }}</a>
+      <a href="/tprs" class="{{ 'active-tab' if request.path == '/tprs' else '' }}">{{ _('View TPRS') }}</a>
+      <a href="/generate_lessons" class="{{ 'active-tab' if request.path == '/generate_lessons' else '' }}">{{ _('Step 2: Generate Lessons') }}</a>
+      <a href="/play_audio" class="{{ 'active-tab' if request.path == '/play_audio' else '' }}">{{ _('Step 3: Listen to Lessons') }}</a>
+      <a href="/output" class="{{ 'active-tab' if request.path == '/output' else '' }}">{{ _('Step 4: Download Output Files') }}</a>
     </nav>
 
     {% with messages = get_flashed_messages(with_categories=true) %} {% if

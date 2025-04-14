@@ -1,37 +1,136 @@
 <!-- templates/play_audio.html -->
-{% extends "diary.html" %} {% block title %}Audio Player{% endblock %} {% block
+{% extends "diary.html" %} {% block title %}audio player{% endblock %} {% block
 content %}
 
-    <h2>{{ _('Select an MP3 file to play') }}</h2>
+    <h2>{{ _('select an mp3 file to play') }}</h2>
 
-<form id="audioForm" onsubmit="event.preventDefault(); playSelectedFile();">
-  <label for="file_select">{{ _('Choose an audio file') }}:</label>
+<form id="audioform">
+  <label for="file_select">{{ _('choose an audio file') }}:</label>
   <select id="file_select" name="file">
     {% for mp3_file in mp3_files %}
     <option value="{{ mp3_file }}">{{ mp3_file }}</option>
     {% endfor %}
   </select>
-  <button type="submit">{{ _('Choose File') }}</button>
+  <button type="submit">{{ _('choose file') }}</button>
 </form>
 
 <script>
-  function playSelectedFile() {
+  document.getElementById("audioform").addEventListener("submit", function(event) {
+    event.preventDefault();
     const file = document.getElementById("file_select").value;
-    window.location.href = "/view_markdown/" + encodeURIComponent(file);
+    if (file) {
+      window.location.href = "/view_markdown/" + encodeURIComponent(file);
+    }
+  });
+</script>
+<script>
+  function playselectedfile() {
+    const file = document.getelementbyid("file_select").value;
+    window.location.href = "/view_markdown/" + encodeuricomponent(file);
   }
 </script>
 
 {% if filename %}
-<h3>{{ _('Now Playing') }}: {{ filename }}</h3>
+<h3>{{ _('now playing') }}: {{ filename }}</h3>
 
-<!-- Audio player -->
-<audio controls>
-  <source
-    src="{{ url_for('play_audio', filename=filename) }}"
-    type="audio/mp3"
-  />
-  Your browser does not support the audio element.
-</audio>
+<!-- Custom Audio Player -->
+<div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; max-width: 400px; margin: auto;">
+  <audio id="audio" preload="metadata">
+    <source src="{{ url_for('play_audio', filename=filename) }}" type="audio/mp3">
+    Your browser does not support the audio element.
+  </audio>
+
+  <!-- Time Display -->
+  <div id="time-display" style="font-family: monospace;">00:00 / 00:00</div>
+
+  <!-- Controls -->
+  <div style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
+    <button onclick="seek(-5)">⏪ 5s</button>
+    <input type="range" id="seekbar" value="0" step="0.1" min="0" max="100" style="flex: 1;">
+    <button onclick="seek(5)">5s ⏩</button>
+  </div>
+
+  <!-- Play / Pause -->
+  <button onclick="togglePlay()" id="playpause" style="font-size: 1.5rem;">▶️</button>
+</div>
+
+
+<script>
+  const audio = document.getElementById('audio');
+  const seekbar = document.getElementById('seekbar');
+  const playpause = document.getElementById('playpause');
+  const timeDisplay = document.getElementById('time-display');
+
+  function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  audio.addEventListener('loadedmetadata', () => {
+    timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`;
+  });
+
+  audio.addEventListener('timeupdate', () => {
+    seekbar.value = (audio.currentTime / audio.duration) * 100;
+    timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+  });
+
+  seekbar.addEventListener('input', () => {
+    audio.currentTime = (seekbar.value / 100) * audio.duration;
+  });
+
+  function seek(seconds) {
+    audio.currentTime = Math.min(Math.max(audio.currentTime + seconds, 0), audio.duration);
+  }
+
+  function togglePlay() {
+    if (audio.paused) {
+      audio.play();
+      playpause.textContent = '⏸️';
+    } else {
+      audio.pause();
+      playpause.textContent = '▶️';
+    }
+  }
+
+  // Reset play button on end
+  audio.addEventListener('ended', () => {
+    playpause.textContent = '▶️';
+  });
+
+  if ('mediaSession' in navigator) {
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: "{{ filename }}",
+    artist: "LingoDiary",
+    album: "Audio Player",
+    artwork: [
+      { src: "/static/icon.ico", sizes: "192x192", type: "image/x-icon" },
+      { src: "/static/icon.ico", sizes: "512x512", type: "image/x-icon" }
+    ]
+  });
+
+  navigator.mediaSession.setActionHandler('play', () => {
+    audio.play();
+    playpause.textContent = '⏸️';
+  });
+
+  navigator.mediaSession.setActionHandler('pause', () => {
+    audio.pause();
+    playpause.textContent = '▶️';
+  });
+
+  navigator.mediaSession.setActionHandler('seekbackward', () => {
+    seek(-5);
+  });
+
+  navigator.mediaSession.setActionHandler('seekforward', () => {
+    seek(5);
+  });
+}
+
+
+</script>
 
 <p>
   <a
@@ -39,7 +138,7 @@ content %}
     download="{{ filename }}"
     class="btn btn-primary"
   >
-  {{ _('Download this MP3') }}
+  {{ _('download this mp3') }}
   </a>
 </p>
 
@@ -50,15 +149,15 @@ content %}
     download="{{ md_filename }}"
     class="btn btn-secondary"
   >
-  {{ _('Download Markdown') }}
+  {{ _('download markdown') }}
   </a>
 </p>
 {% endif %}
 
-<!-- Show markdown content if exists -->
+<!-- show markdown content if exists -->
 {% if content %}
-<h3>{{ _('Markdown Content') }}:</h3>
+<h3>{{ _('markdown content') }}:</h3>
 <div>{{ content|safe }}</div>
 {% else %}
-<p>No markdown content available for this file.</p>
+<p>no markdown content available for this file.</p>
 {% endif %} {% endif %} {% endblock %}

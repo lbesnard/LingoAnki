@@ -6,7 +6,7 @@ import re
 import subprocess
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from queue import Queue
@@ -19,6 +19,7 @@ from flask import (
     Flask,
     Response,
     flash,
+    g,
     jsonify,
     redirect,
     render_template,
@@ -88,6 +89,14 @@ def check_session_version():
             return redirect(url_for("logout"))
 
 
+app.permanent_session_lifetime = timedelta(days=7)
+
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
+
 USER_CONFIG_FILE = "users.yaml"
 users_config_path = Path(user_config_dir(APP_NAME)) / USER_CONFIG_FILE
 
@@ -95,11 +104,6 @@ USER_DB_FILE = os.getenv("USER_DB_FILE", users_config_path)
 CONFIG_ROOT = os.getenv(
     "CONFIG_ROOT", os.path.expanduser(Path(user_config_dir(APP_NAME)))
 )
-
-# Update the template to include the edit functionality
-diary_entries = []
-selected_date = None
-tprs_content = ""
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -157,7 +161,7 @@ def login():
             session["template_help_text"] = diary_instance.template_help()
             diary_instance.stop()
 
-            time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            time_now_str = datetime.now().strftime("%Y%m%dT%H%M%S")
             session["output_zip"] = f"TPRS_{session['username']}_{time_now_str}.zip"
             os.makedirs(session["output_folder"], exist_ok=True)
 
@@ -227,7 +231,8 @@ def logout():
 @app.route("/", methods=["GET", "POST"])
 @login_required
 def edit_diary():
-    global selected_date
+    diary_entries = session.get("diary_entries", [])
+    selected_date = session.get("selected_date", [])
 
     if "username" not in session:
         return redirect("/login")
@@ -256,7 +261,10 @@ def edit_diary():
     files = [
         f
         for f in os.listdir(output_folder)
-        if not f.startswith(".") and f != session["output_zip"]
+        if not f.startswith(".")
+        and f != session["output_zip"]
+        and not f.endswith("zip")
+        and not f.endswith("log")
     ]
 
     template_help_text = session["template_help_text"]
@@ -288,7 +296,10 @@ def diary_html():
     files = [
         f
         for f in os.listdir(output_folder)
-        if not f.startswith(".") and f != session["output_zip"]
+        if not f.startswith(".")
+        and f != session["output_zip"]
+        and not f.endswith("zip")
+        and not f.endswith("log")
     ]
     return render_template(
         "diary_html.html", content=content, tab="diary_html", files=files
@@ -296,6 +307,7 @@ def diary_html():
 
 
 @app.route("/tprs", methods=["GET", "POST"])
+@login_required
 def view_tprs():
     tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
@@ -312,7 +324,10 @@ def view_tprs():
     files = [
         f
         for f in os.listdir(output_folder)
-        if not f.startswith(".") and f != session["output_zip"]
+        if not f.startswith(".")
+        and f != session["output_zip"]
+        and not f.endswith("zip")
+        and not f.endswith("log")
     ]
     return render_template(
         "diary_tprs.html", tprs_content=tprs_content, tab="tprs", files=files
@@ -357,7 +372,10 @@ def generate_lessons():
     files = [
         f
         for f in os.listdir(output_folder)
-        if not f.startswith(".") and f != session["output_zip"]
+        if not f.startswith(".")
+        and f != session["output_zip"]
+        and not f.endswith("zip")
+        and not f.endswith("log")
     ]
     return render_template(
         "diary_generate_lessons.html", tab="generate_lessons", files=files
@@ -382,7 +400,10 @@ def view_output():
     files = [
         f
         for f in os.listdir(output_folder)
-        if not f.startswith(".") and f != session["output_zip"]
+        if not f.startswith(".")
+        and f != session["output_zip"]
+        and not f.endswith("zip")
+        and not f.endswith("log")
     ]
     return render_template("diary_output.html", content="", tab="output", files=files)
 
@@ -390,8 +411,8 @@ def view_output():
 @app.route("/edit_entry", methods=["POST"])
 @login_required
 def edit_entry():
-    global selected_date
     selected_date = request.form.get("date_input")
+    session["selected_date"] = selected_date
     print("Selected date:", selected_date)  # Debug print
 
     if selected_date:
@@ -403,16 +424,17 @@ def edit_entry():
 @app.route("/clear_selected_date", methods=["POST"])
 @login_required
 def clear_selected_date():
-    global selected_date, diary_entries
-    selected_date = None
-    diary_entries = []
+    session["selected_date"] = None
+    session["diary_entries"] = []
+
     return "", 204
 
 
 @app.route("/edit_sentence/<int:index>", methods=["POST", "GET"])
 @login_required
 def edit_sentence(index):
-    global diary_entries
+    diary_entries = session["diary_entries"]
+    selected_date = session["selected_date"]
     sentence = diary_entries[index]["sentence"]
     if request.method == "POST":
         new_sentence = request.form.get("sentence")
@@ -432,7 +454,8 @@ def edit_sentence(index):
 @app.route("/save_diary_entry", methods=["POST"])
 @login_required
 def save_diary_entry():
-    global selected_date, diary_entries
+    diary_entries = session["diary_entries"]
+    selected_date = session["selected_date"]
 
     if not selected_date or not diary_entries:
         flash("No date or entries to save", "error")
@@ -486,12 +509,15 @@ def get_log():
 @app.route("/add_sentence", methods=["POST"])
 @login_required
 def add_sentence():
-    global selected_date, diary_entries
+    selected_date = session["selected_date"]
     sentence = request.form.get("sentence")
+
+    diary_entries = session.get("diary_entries", [])
 
     if selected_date and sentence:
         entry = {"date": selected_date, "sentence": sentence}
         diary_entries.append(entry)
+        session["diary_entries"] = diary_entries
         return jsonify({"success": True, "entry": entry})
 
     return (
