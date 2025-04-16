@@ -770,7 +770,7 @@ class DiaryHandler:
         - Under "sentence" is another dictionnary with 3 keys:
             - the "primary_language_sentence" to translate.
             - the "study_language_sentences" is the translation you need to create
-            - the "tips" is some tips to explain the translation. The tips should be written in the studying language.
+            - the "tips" is some tips to explain the translation. The tips should be written in {self.config["languages"]["primary_language"]}.
         - **DO NOT invent extra words or modify the original meaning of the sentence.**
         - If the primary_language_sentence is not grammatically correct, or if there are minor issues, you could fix the grammar and ponctuation only.
         - if the primary_language_sentence has reference about I, as me, you should know that my gender is {self.config["gender"]} as this will be useful to have the proper grammar and ending on words
