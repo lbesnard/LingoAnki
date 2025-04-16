@@ -638,8 +638,13 @@ def view_markdown(filename):
 @app.route("/play_audio")
 @login_required
 def play_audio_page():
-    mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
-    mp3_files = sorted(set(mp3_files), reverse=True)
+    if not os.path.exists(session["tprs_folder"]):
+        mp3_files = []
+    else:
+        mp3_files = [
+            f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")
+        ]
+        mp3_files = sorted(set(mp3_files), reverse=True)
 
     return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
 

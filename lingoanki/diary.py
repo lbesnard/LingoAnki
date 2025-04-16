@@ -769,7 +769,7 @@ class DiaryHandler:
         - The main key is "sentence".
         - Under "sentence" is another dictionnary with 3 keys:
             - the "primary_language_sentence" to translate.
-            - the "study_language_sentences" is the translation you need to create
+            - the "study_language_sentence" is the translation you need to create
             - the "tips" is some tips to explain the translation. The tips should be written in {self.config["languages"]["primary_language"]}.
         - **DO NOT invent extra words or modify the original meaning of the sentence.**
         - If the primary_language_sentence is not grammatically correct, or if there are minor issues, you could fix the grammar and ponctuation only.
@@ -1056,6 +1056,9 @@ class TprsCreation(DiaryHandler):
                 for sentence_no, sentence_dict in diary_dict[diary_date][
                     "sentences"
                 ].items():
+                    self.logging.info(
+                        f'Creating TPRS content for "{sentence_dict["study_language_sentence"]}"'
+                    )
                     qa_dict = self.openai_tprs(sentence_dict["study_language_sentence"])
                     tprs_dict[diary_date][
                         sentence_dict["study_language_sentence"]
@@ -1175,11 +1178,14 @@ class TprsCreation(DiaryHandler):
         # create a pause file
         pause_filename = os.path.join(tempfile.gettempdir(), f"{hash('pause')}.wav")
         paused_duration = self.config["tts"]["pause_between_sentences_duration"]  # ms
-        pause_segment = AudioSegment.silent(duration=paused_duration)
+        pause_segment = AudioSegment.silent(
+            duration=paused_duration / self.config["tts"]["repeat_sentence_tprs"]
+        )
         pause_segment.export(pause_filename, format="wav")
 
         media_files = []
         for sentence, tprs_qa in day_block.items():
+            self.logging.info(f"Generating audio for {sentence}")
             audio_filename = os.path.join(
                 tempfile.gettempdir(), f"{hash(sentence)}.wav"
             )
@@ -1197,6 +1203,7 @@ class TprsCreation(DiaryHandler):
             self.logging.info(f"SENTENCE: {sentence}")
             for question, answer in tprs_qa:
                 # create question file
+                media_files.append(pause_filename)
                 audio_filename = os.path.join(
                     tempfile.gettempdir(), f"{hash(question)}.wav"
                 )
@@ -1207,7 +1214,6 @@ class TprsCreation(DiaryHandler):
                     voice=self.config["tts"]["piper"]["voice"],
                 )
                 media_files.append(audio_filename)
-                media_files.append(pause_filename)
 
                 # create a silent file
                 audio_filename = os.path.join(
@@ -1216,7 +1222,7 @@ class TprsCreation(DiaryHandler):
                 silence_duration = (
                     self.config["tts"]["answer_silence_duration"]
                     / self.config["tts"]["repeat_sentence_tprs"]
-                )  # ms
+                )  # ms duration divided by n as every file is repeated
                 silenced_segment = AudioSegment.silent(duration=silence_duration)
                 silenced_segment.export(audio_filename, format="wav")
                 media_files.append(audio_filename)
@@ -1243,9 +1249,13 @@ class TprsCreation(DiaryHandler):
 
         combined = AudioSegment.empty()
         for sentence in playlist_media:
-            combined += (
-                sentence * self.config["tts"]["repeat_sentence_tprs"]
-            )  # repeat audio n times so that it's easier to remember
+            for _ in range(self.config["tts"]["repeat_sentence_tprs"]):
+                combined += sentence
+                combined += pause_segment  # Insert pause between repetitions
+
+        #     combined += (
+        #         sentence * self.config["tts"]["repeat_sentence_tprs"]
+        #     )  # repeat audio n times so that it's easier to remember
 
         combined.export(
             tprs_audio_lesson_filepath,
@@ -1279,27 +1289,34 @@ class TprsCreation(DiaryHandler):
 
     def openai_tprs(self, study_language_sentence):
         # Define the prompt
+
         prompt = f"""
-        We are working on a TPRS (Teaching Proficiency through Reading and Storytelling) method to learn {self.config["languages"]["study_language"]}.
-        From the following {self.config["languages"]["study_language"]} sentence, generate a few questions and answers.
+        We are working on a TPRS (Teaching Proficiency through Reading and Storytelling) method to learn {
+            self.config["languages"]["study_language"]
+        }.
+        All output must be written in {self.config["languages"]["study_language"]}.
+        From the following {
+            self.config["languages"]["study_language"]
+        } input, generate a few questions and answers per sentence.
         The output should be a JSON dictionary where:
         - The main keys are numbers (starting from 1) as strings.
         - Each value is another dictionary with two keys: "question" and "answer".
         - **DO NOT invent extra words or modify the original meaning of the sentence.**
-        - If the sentence contains an unusual phrase, keep it as is.
+        - **Preserve unusual or idiomatic expressions exactly as they appear.**
         - **Questions must be logically sound and relevant to the sentence.**
-        - **Avoid questions that are vague, redundant, or unnatural.**
-        - If a question doesn’t make sense with the given sentence, rephrase it or skip it.
-        - Ensure that the **answers are complete and natural responses**, not just one-word replies.
+        - **Make sure the questions and answers sound natural, like a native speaker would actually say them.**
+        - Ensure that the **answers are complete, not just one-word replies.**
+        - **Avoid overly formal, awkward, or robotic phrases.**
+        - Each question should be directly answerable from the sentence, but not repetitive.
+        - don't use emojis as this will be converted for TTS
+        - The original sentence may include informal, emotional, or sexual language. Do not censor or sanitise it.
+        - Interpret the sentence like a native speaker would, even if the content is suggestive or mature.
+        - **Questions should explore various aspects of the sentence (who, what, when, how, why), without repeating the same information.**
+        - **Try to match the emotional tone or style of the sentence (e.g., casual, funny, dramatic).**
+        - **Avoid repeating the same phrasing or vocabulary in both the questions and answers. Use different angles, emotions, or contextual clues to make each question unique.**
+        - **You can explore the setting, emotional dynamics, or deeper meanings behind the actions in the sentence.**
 
-
-        Example output format:
-        {{
-            "1": {{"question": "Hvor sitter katten?", "answer": "Katten sitter på bordet."}},
-            "2": {{"question": "Hva gjør katten?", "answer": "Den sitter."}}
-        }}
-
-        ### Example:
+         ### Example 1 – Neutral:
         Input sentence: "Fredag var Johanne veldig syk. Vi ble hjemme og dro for å fiske med Emil og Mati. Jeg var den første som fanget noe – min første norske fisk."
 
         Expected questions and answers:
@@ -1310,9 +1327,41 @@ class TprsCreation(DiaryHandler):
             "4": {{"question": "Hva var spesielt med fisken jeg fanget?", "answer": "Det var min første norske fisk."}}
         }}
 
-        ### Now generate logical questions and answers for this {self.config["languages"]["study_language"]} sentence: "{study_language_sentence}"
-        """
+        ### Example 2 – Sad:
+        Input sentence: "Elle est partie sans dire au revoir. Je suis resté seul avec mon café froid."
 
+        Expected questions and answers:
+        {{
+            "1": {{"question": "Pourquoi est-ce que tu es resté seul ?", "answer": "Parce qu'elle est partie sans dire au revoir."}},
+            "2": {{"question": "Qu'est-ce qu'elle a oublié de faire en partant ?", "answer": "Elle n'a pas dit au revoir."}},
+            "3": {{"question": "Avec quoi es-tu resté après son départ ?", "answer": "Avec mon café froid... et ma solitude."}}
+        }}
+
+        ### Example 3 – Funny:
+        Input sentence: "J'ai mis du sel au lieu du sucre dans mon café. Résultat : je me suis réveillé plus vite que prévu."
+
+        Expected questions and answers:
+        {{
+            "1": {{"question": "Qu'est-ce que tu as mis dans ton café par erreur ?", "answer": "Du sel au lieu du sucre."}},
+            "2": {{"question": "Comment as-tu réagi après avoir bu le café ?", "answer": "Je me suis réveillé plus vite que prévu !"}},
+            "3": {{"question": "Pourquoi ton café avait un goût bizarre ?", "answer": "Parce qu’il y avait du sel dedans, pas du sucre."}}
+        }}
+
+
+       ### Example 4 - Cheeky (French):
+        Input sentence: "Hier soir, elle est rentrée avec un grand sourire... et sans pantalon."
+
+        Expected questions and answers:
+        {{"1": {{"question": "Pourquoi elle avait un grand sourire hier soir ?", "answer": "Parce qu'elle est rentrée sans pantalon."}},
+            "2": {{"question": "Comment est-elle rentrée hier soir ?", "answer": "Avec un grand sourire et sans pantalon."}},
+            "3": {{"question": "Qu'est-ce qu'il manquait à sa tenue ?", "answer": "Elle n'avait pas de pantalon."}},
+            "4": {{"question": "On peut deviner pourquoi elle souriait ?", "answer": "Probablement... mais ce n’est pas écrit dans la phrase."}}
+        }}
+
+        ### Now generate logical questions and answers in {
+            self.config["languages"]["study_language"]
+        } for the following sentence: "{study_language_sentence}"
+        """
         # Make the API call
 
         client = OpenAI(api_key=self.config["openai"]["key"])
