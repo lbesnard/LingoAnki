@@ -2,6 +2,25 @@
 {% extends "diary.html" %} {% block title %}audio player{% endblock %} {% block
 content %}
 
+<style>
+.audio-player {
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 1000;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  max-width: 400px;
+  margin: auto;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* subtle shadow */
+  transition: all 0.3s ease; /* smooth transition */
+}
+</style>
+
+
     <h2>{{ _('select an mp3 file to play') }}</h2>
 
 <form id="audioform">
@@ -34,7 +53,20 @@ content %}
 <h3>{{ _('now playing') }}: {{ filename }}</h3>
 
 <!-- Custom Audio Player -->
-<div style="display: flex; flex-direction: column; align-items: center; gap: 1rem; max-width: 400px; margin: auto;">
+<script>
+document.addEventListener('scroll', function() {
+  const player = document.querySelector('.audio-player');
+  if (window.scrollY > 50) { // when scrolled 50px down
+    player.style.transform = 'scale(0.95)';
+    player.style.opacity = '0.9';
+  } else {
+    player.style.transform = 'scale(1)';
+    player.style.opacity = '1';
+  }
+});
+</script>
+
+<div class="audio-player">
   <audio id="audio" preload="metadata">
     <source src="{{ url_for('play_audio', filename=filename) }}" type="audio/mp3">
     Your browser does not support the audio element.
