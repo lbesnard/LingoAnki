@@ -15,8 +15,23 @@ content %}
   gap: 1rem;
   max-width: 400px;
   margin: auto;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* subtle shadow */
-  transition: all 0.3s ease; /* smooth transition */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+}
+
+/* On small screens, override to fixed */
+@media (max-width: 768px) {
+  .audio-player {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0.5rem;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
 }
 </style>
 
