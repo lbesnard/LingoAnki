@@ -774,6 +774,8 @@ class DiaryHandler:
         - **DO NOT invent extra words or modify the original meaning of the sentence.**
         - If the primary_language_sentence is not grammatically correct, or if there are minor issues, you could fix the grammar and ponctuation only.
         - if the primary_language_sentence has reference about I, as me, you should know that my gender is {self.config["gender"]} as this will be useful to have the proper grammar and ending on words
+        - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {self.config["languages"]["study_language"]}.
+        - In addition, when generating text for non-English languages, expand non-spoken abbreviations according to natural usage in that language (e.g., in French, 'km/h' ➔ 'kilomètres par heure').
 
         Example output format:
 
@@ -1315,6 +1317,8 @@ class TprsCreation(DiaryHandler):
         - **Try to match the emotional tone or style of the sentence (e.g., casual, funny, dramatic).**
         - **Avoid repeating the same phrasing or vocabulary in both the questions and answers. Use different angles, emotions, or contextual clues to make each question unique.**
         - **You can explore the setting, emotional dynamics, or deeper meanings behind the actions in the sentence.**
+        - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {self.config["languages"]["study_language"]}.
+        - In addition, when generating text for non-English languages, expand non-spoken abbreviations according to natural usage in that language (e.g., in French, 'km/h' ➔ 'kilomètres par heure').
 
          ### Example 1 – Neutral:
         Input sentence: "Fredag var Johanne veldig syk. Vi ble hjemme og dro for å fiske med Emil og Mati. Jeg var den første som fanget noe – min første norske fisk."
