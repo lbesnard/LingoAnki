@@ -40,6 +40,7 @@ import hashlib
 import json
 import logging
 import os
+import pprint
 import re
 import shutil
 import tempfile
@@ -48,12 +49,13 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from sre_compile import REPEAT_ONE
+from typing import Callable
 
 import numpy as np
-from openai import OpenAI
 import yaml
 from genanki import Deck, Model, Note, Package
 from gtts import gTTS
+from openai import OpenAI
 from ovos_plugin_manager.tts import load_tts_plugin
 from ovos_tts_plugin_piper import PiperTTSPlugin
 from piper import PiperVoice
@@ -1003,6 +1005,12 @@ class TprsCreation(DiaryHandler):
         self.markdown_tprs_enhanced_path = self.markdown_tprs_path.replace(
             ".md", "_Enhanced.md"
         )
+        self.markdown_tprs_future_path = self.markdown_tprs_path.replace(
+            ".md", "_Future.md"
+        )
+        self.markdown_tprs_present_path = self.markdown_tprs_path.replace(
+            ".md", "_Present.md"
+        )
 
         self.setup_output_tprs_markdown()
         if not os.path.exists(self.markdown_tprs_path):
@@ -1011,130 +1019,161 @@ class TprsCreation(DiaryHandler):
         if not os.path.exists(self.markdown_tprs_enhanced_path):
             self.create_first_tprs_enhanced_md_file()
 
+        if not os.path.exists(self.markdown_tprs_future_path):
+            self.create_first_tprs_future_md_file()
+
+        if not os.path.exists(self.markdown_tprs_present_path):
+            self.create_first_tprs_present_md_file()
+
         os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
         self.get_all_tprs_titles()
         self.get_all_diary_titles()
 
     def setup_output_tprs_markdown(self):
-        time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if self.config["overwrite_tprs_markdown"]:
-            # backing up original file, and add bak.timestamp
-            if os.path.exists(self.markdown_tprs_path):
-                shutil.copy(
-                    self.markdown_tprs_path,
-                    self.markdown_tprs_path.replace(
-                        ".md",
-                        f".md.bak_{time_now_str}",
-                    ).replace(
-                        os.path.basename(self.markdown_tprs_path),
-                        "." + os.path.basename(self.markdown_tprs_path),
-                    ),
-                )
-                self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
-            else:
-                self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
+        time_now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")  # filename-safe
 
-            # same logic but for the enhanced version
-            if os.path.exists(self.markdown_tprs_enhanced_path):
-                shutil.copy(
-                    self.markdown_tprs_enhanced_path,
-                    self.markdown_tprs_enhanced_path.replace(
-                        ".md",
-                        f".md.bak_{time_now_str}",
-                    ).replace(
-                        os.path.basename(self.markdown_tprs_enhanced_path),
-                        "." + os.path.basename(self.markdown_tprs_enhanced_path),
-                    ),
+        def backup_if_exists(src_path):
+            if os.path.exists(src_path):
+                bak_path = src_path.replace(".md", f".md.bak_{time_now_str}").replace(
+                    os.path.basename(src_path),
+                    "." + os.path.basename(src_path),
                 )
-                self.markdown_script_generated_tprs_enhanced_all_path = (
-                    self.markdown_tprs_enhanced_path
-                )
-            else:
-                self.markdown_script_generated_tprs_enhanced_all_path = (
-                    self.markdown_tprs_enhanced_path
-                )
+                shutil.copy(src_path, bak_path)
+            return src_path
+
+        if self.config["overwrite_tprs_markdown"]:
+            self.markdown_script_generated_tprs_all_path = backup_if_exists(
+                self.markdown_tprs_path
+            )
+            self.markdown_script_generated_tprs_enhanced_all_path = backup_if_exists(
+                self.markdown_tprs_enhanced_path
+            )
+            self.markdown_script_generated_tprs_future_all_path = backup_if_exists(
+                self.markdown_tprs_future_path
+            )
+            self.markdown_script_generated_tprs_present_all_path = backup_if_exists(
+                self.markdown_tprs_present_path
+            )
 
         else:
-            # if overwrite is False, we need to replace the output_dir
+            # Always set default values first
             org_dir_path = os.path.dirname(self.markdown_tprs_path)
             self.markdown_script_generated_tprs_all_path = self.markdown_tprs_path
             self.markdown_script_generated_tprs_enhanced_all_path = (
                 self.markdown_tprs_enhanced_path
             )
+            self.markdown_script_generated_tprs_future_all_path = (
+                self.markdown_tprs_future_path
+            )
+            self.markdown_script_generated_tprs_present_all_path = (
+                self.markdown_tprs_present_path
+            )
+
             if org_dir_path == self.output_dir:
-                # same dir, modify filename
+                # same dir, modify filenames with timestamp
                 self.markdown_script_generated_tprs_all_path = (
                     self.markdown_script_generated_tprs_all_path.replace(
                         ".md", f"_{time_now_str}.md"
                     )
                 )
-
                 self.markdown_script_generated_tprs_enhanced_all_path = (
                     self.markdown_script_generated_tprs_enhanced_all_path.replace(
                         ".md", f"_{time_now_str}.md"
                     )
                 )
-
+                self.markdown_script_generated_tprs_future_all_path = (
+                    self.markdown_script_generated_tprs_future_all_path.replace(
+                        ".md", f"_{time_now_str}.md"
+                    )
+                )
+                self.markdown_script_generated_tprs_present_all_path = (
+                    self.markdown_script_generated_tprs_present_all_path.replace(
+                        ".md", f"_{time_now_str}.md"
+                    )
+                )
             else:
-                # different dir, filename stays the same
+                # different dir, replace dir part only
                 self.markdown_script_generated_tprs_all_path = (
                     self.markdown_script_generated_tprs_all_path.replace(
                         org_dir_path, self.output_dir
                     )
                 )
-
                 self.markdown_script_generated_tprs_enhanced_all_path = (
                     self.markdown_script_generated_tprs_enhanced_all_path.replace(
                         org_dir_path, self.output_dir
                     )
                 )
+                self.markdown_script_generated_tprs_future_all_path = (
+                    self.markdown_script_generated_tprs_future_all_path.replace(
+                        org_dir_path, self.output_dir
+                    )
+                )
+                self.markdown_script_generated_tprs_present_all_path = (
+                    self.markdown_script_generated_tprs_present_all_path.replace(
+                        org_dir_path, self.output_dir
+                    )
+                )
+
+    def _generate_tprs_md_file(
+        self,
+        tprs_generator_fn,
+        write_fn,
+        needs_existing_tprs=False,
+        log_prefix="Creating TPRS content for",
+    ):
+        diary_dict = self.markdown_diary_to_dict()
+        output_dict = {}
+        existing_tprs = self.read_tprs_to_dict() if needs_existing_tprs else {}
+
+        for diary_date, date_entry in diary_dict.items():
+            output_dict[diary_date] = {}
+
+            for sentence_no, sentence_dict in date_entry["sentences"].items():
+                sentence = sentence_dict["study_language_sentence"]
+                self.logging.info(f'{log_prefix} "{sentence}"')
+
+                if needs_existing_tprs:
+                    existing_qa = existing_tprs[diary_date][sentence]
+                    qa_dict = tprs_generator_fn(sentence, existing_qa)
+                    output_dict[diary_date].update(qa_dict)
+                else:
+                    qa_dict = tprs_generator_fn(sentence)
+                    output_dict[diary_date][sentence] = qa_dict
+
+                self.logging.info(json.dumps(qa_dict, indent=2, ensure_ascii=False))
+
+            write_fn(output_dict)
 
     def create_first_tprs_md_file(self):
-        diary_dict = self.markdown_diary_to_dict()
-        tprs_dict = {}
-        for diary_date in diary_dict:
-            tprs_dict[diary_date] = dict()
-
-            for sentences in diary_dict[diary_date]["sentences"].items():
-                for sentence_no, sentence_dict in diary_dict[diary_date][
-                    "sentences"
-                ].items():
-                    self.logging.info(
-                        f'Creating TPRS content for "{sentence_dict["study_language_sentence"]}"'
-                    )
-                    qa_dict = self.openai_tprs(sentence_dict["study_language_sentence"])
-                    tprs_dict[diary_date][
-                        sentence_dict["study_language_sentence"]
-                    ] = qa_dict
-
-        self.write_tprs_dict_to_md(tprs_dict)
+        self._generate_tprs_md_file(
+            tprs_generator_fn=self.openai_tprs,
+            write_fn=self.write_tprs_dict_to_md,
+            log_prefix="Creating TPRS content for",
+        )
 
     def create_first_tprs_enhanced_md_file(self):
-        diary_dict = self.markdown_diary_to_dict()
-        tprs_enhanced_dict = {}
-        tprs_dict = self.read_tprs_to_dict()
-        for diary_date in diary_dict:
-            tprs_enhanced_dict[diary_date] = dict()
+        self._generate_tprs_md_file(
+            tprs_generator_fn=self.openai_tprs_enhanced,
+            write_fn=self.write_tprs_enhanced_dict_to_md,
+            needs_existing_tprs=True,
+            log_prefix="Creating a TPRS alternative version content for",
+        )
 
-            for sentences in diary_dict[diary_date]["sentences"].items():
-                for sentence_no, sentence_dict in diary_dict[diary_date][
-                    "sentences"
-                ].items():
-                    self.logging.info(
-                        f'Creating TPRS content for "{sentence_dict["study_language_sentence"]}"'
-                    )
-                    study_language_sentence = sentence_dict["study_language_sentence"]
-                    qa_dict = self.openai_tprs_enhanced(
-                        study_language_sentence,
-                        tprs_dict[diary_date][study_language_sentence],
-                    )
+    def create_first_tprs_future_md_file(self):
+        self._generate_tprs_md_file(
+            tprs_generator_fn=self.openai_tprs_future,
+            write_fn=self.write_tprs_future_dict_to_md,
+            needs_existing_tprs=True,
+            log_prefix="Creating TPRS in the Future version content for",
+        )
 
-                    tprs_enhanced_dict[diary_date] = {
-                        **tprs_enhanced_dict[diary_date],
-                        **qa_dict,
-                    }
-
-        self.write_tprs_enhanced_dict_to_md(tprs_enhanced_dict)
+    def create_first_tprs_present_md_file(self):
+        self._generate_tprs_md_file(
+            tprs_generator_fn=self.openai_tprs_present,
+            write_fn=self.write_tprs_present_dict_to_md,
+            needs_existing_tprs=True,
+            log_prefix="Creating TPRS in the Present version content for",
+        )
 
     def get_all_tprs_titles(self):
         self.titles_dict = {}
@@ -1224,14 +1263,13 @@ class TprsCreation(DiaryHandler):
 
         return result, date
 
-    def create_tprs_audio(self, day_block, date):
+    def _create_tprs_audio_generic(self, day_block, date, suffix=""):
         tprs_audio_lesson_filepath = os.path.join(
-            f"{self.output_dir}",
+            self.output_dir,
             "TPRS",
-            f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}.mp3",
+            f"{self.config['tprs_lesson_name']}_TPRS_{date.replace('/', '-')}_{self.titles_dict[datetime.strptime(date, '%Y/%m/%d')]}{suffix}.mp3",
         )
 
-        # reprocessing existing audio file depending on config
         if (
             os.path.exists(tprs_audio_lesson_filepath)
             and not self.config["overwrite_tprs_audio"]
@@ -1240,14 +1278,11 @@ class TprsCreation(DiaryHandler):
             return
 
         self.logging.info(f"Generating TPRS file for {date}")
-
         e = PiperTTSPlugin()
-
         e.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
 
-        # create a pause file
         pause_filename = os.path.join(tempfile.gettempdir(), f"{hash('pause')}.wav")
-        paused_duration = self.config["tts"]["pause_between_sentences_duration"]  # ms
+        paused_duration = self.config["tts"]["pause_between_sentences_duration"]
         pause_segment = AudioSegment.silent(
             duration=paused_duration / self.config["tts"]["repeat_sentence_tprs"]
         )
@@ -1259,8 +1294,6 @@ class TprsCreation(DiaryHandler):
             audio_filename = os.path.join(
                 tempfile.gettempdir(), f"{hash(sentence)}.wav"
             )
-
-            # add main sentence
             e.get_tts(
                 sentence,
                 audio_filename,
@@ -1270,92 +1303,148 @@ class TprsCreation(DiaryHandler):
             media_files.append(audio_filename)
             media_files.append(pause_filename)
 
-            self.logging.info(f"SENTENCE: {sentence}")
             for question, answer in tprs_qa:
-                # create question file
                 media_files.append(pause_filename)
-                audio_filename = os.path.join(
+
+                question_audio = os.path.join(
                     tempfile.gettempdir(), f"{hash(question)}.wav"
                 )
                 e.get_tts(
                     question,
-                    audio_filename,
+                    question_audio,
                     lang=self.config["languages"]["study_language_code"],
                     voice=self.config["tts"]["piper"]["voice"],
                 )
-                media_files.append(audio_filename)
+                media_files.append(question_audio)
 
-                # create a silent file
-                audio_filename = os.path.join(
+                silence_file = os.path.join(
                     tempfile.gettempdir(), f"{hash('silence')}.wav"
                 )
                 silence_duration = (
                     self.config["tts"]["answer_silence_duration"]
                     / self.config["tts"]["repeat_sentence_tprs"]
-                )  # ms duration divided by n as every file is repeated
-                silenced_segment = AudioSegment.silent(duration=silence_duration)
-                silenced_segment.export(audio_filename, format="wav")
-                media_files.append(audio_filename)
+                )
+                AudioSegment.silent(duration=silence_duration).export(
+                    silence_file, format="wav"
+                )
+                media_files.append(silence_file)
 
-                # create answer file
-                audio_filename = os.path.join(
+                answer_audio = os.path.join(
                     tempfile.gettempdir(), f"{hash(answer)}.wav"
                 )
                 e.get_tts(
                     answer,
-                    audio_filename,
+                    answer_audio,
                     lang=self.config["languages"]["study_language_code"],
                     voice=self.config["tts"]["piper"]["voice"],
                 )
-                media_files.append(audio_filename)
+                media_files.append(answer_audio)
                 media_files.append(pause_filename)
 
                 self.logging.info(f"  QUESTION: {question}")
                 self.logging.info(f"  ANSWER: {answer}")
 
         e.stop()
-        # create a mp3 per day of all the notes to be listened with an audio player
+
         playlist_media = [AudioSegment.from_mp3(mp3_file) for mp3_file in media_files]
-
         combined = AudioSegment.empty()
-        for sentence in playlist_media:
+        for segment in playlist_media:
             for _ in range(self.config["tts"]["repeat_sentence_tprs"]):
-                combined += sentence
-                combined += pause_segment  # Insert pause between repetitions
+                combined += segment
+                combined += pause_segment
 
-        #     combined += (
-        #         sentence * self.config["tts"]["repeat_sentence_tprs"]
-        #     )  # repeat audio n times so that it's easier to remember
+        combined.export(tprs_audio_lesson_filepath, format="mp3")
 
-        combined.export(
-            tprs_audio_lesson_filepath,
-            format="mp3",
-        )
-
-        # cleaning
         for f in np.unique(media_files):
             os.remove(f)
-        return
 
-    def convert_tts_tprs_entries(self):
+    def create_tprs_audio(self, day_block, date):
+        self._create_tprs_audio_generic(day_block, date)
+
+    def create_tprs_enhanced_audio(self, day_block, date):
+        self._create_tprs_audio_generic(day_block, date, suffix="_enhanced")
+
+    def create_tprs_future_audio(self, day_block, date):
+        self._create_tprs_audio_generic(day_block, date, suffix="_future")
+
+    def create_tprs_present_audio(self, day_block, date):
+        self._create_tprs_audio_generic(day_block, date, suffix="_present")
+
+    def _convert_tts_tprs_entries(
+        self,
+        markdown_path_candidates: list[str],
+        parse_func: Callable,
+        create_func: Callable,
+        label: str = "",
+    ):
+        """Internal method to convert diary entries to TPRS audio entries."""
         self.validate_arguments()
 
-        # using the newly generated file by default!
-        if os.path.exists(self.markdown_script_generated_tprs_all_path):
-            content = self.read_markdown_file(
-                self.markdown_script_generated_tprs_all_path
-            )
-        else:
-            content = self.read_markdown_file(self.markdown_tprs_path)
+        # Select the first existing path from candidates
+        markdown_path = next(
+            (p for p in markdown_path_candidates if os.path.exists(p)), None
+        )
+        if not markdown_path:
+            raise FileNotFoundError("No valid markdown path found for TPRS conversion.")
 
+        content = self.read_markdown_file(markdown_path)
         days = re.split(r"^##\s+", content, flags=re.MULTILINE)
 
         for day_block in days:
             if day_block.strip():
-                result, date = self.read_tprs_day_block(day_block)
+                result, date = parse_func(day_block)
                 if result:
-                    self.create_tprs_audio(result, date)
-        self.logging.info("All diary entries converted into TPRS entries")
+                    create_func(result, date)
+
+        self.logging.info(f"All diary entries converted into {label}TPRS entries")
+
+    def convert_tts_tprs_entries(self):
+        """Convert diary entries into standard TPRS audio entries."""
+        self._convert_tts_tprs_entries(
+            markdown_path_candidates=[
+                self.markdown_script_generated_tprs_all_path,
+                self.markdown_tprs_path,
+            ],
+            parse_func=self.read_tprs_day_block,
+            create_func=self.create_tprs_audio,
+            label="",
+        )
+
+    def convert_tts_tprs_enhanced_entries(self):
+        """Convert diary entries into enhanced TPRS audio entries."""
+        self._convert_tts_tprs_entries(
+            markdown_path_candidates=[
+                self.markdown_script_generated_tprs_enhanced_all_path,
+                self.markdown_tprs_enhanced_path,
+            ],
+            parse_func=self.read_tprs_day_block,
+            create_func=self.create_tprs_enhanced_audio,
+            label="enhanced ",
+        )
+
+    def convert_tts_tprs_future_entries(self):
+        """Convert diary entries into future-tense TPRS audio entries."""
+        self._convert_tts_tprs_entries(
+            markdown_path_candidates=[
+                self.markdown_script_generated_tprs_future_all_path,
+                self.markdown_tprs_future_path,
+            ],
+            parse_func=self.read_tprs_day_block,
+            create_func=self.create_tprs_future_audio,
+            label="future ",
+        )
+
+    def convert_tts_tprs_present_entries(self):
+        """Convert diary entries into present-tense TPRS audio entries."""
+        self._convert_tts_tprs_entries(
+            markdown_path_candidates=[
+                self.markdown_script_generated_tprs_present_all_path,
+                self.markdown_tprs_present_path,
+            ],
+            parse_func=self.read_tprs_day_block,
+            create_func=self.create_tprs_present_audio,
+            label="present ",
+        )
 
     def openai_tprs_enhanced(self, study_language_sentence, qa_org_dict):
         # study_language_sentence = next(iter(qa_org_dict))
@@ -1419,6 +1508,128 @@ class TprsCreation(DiaryHandler):
         )
 
         # Extract and parse the JSON response
+        output = response.choices[0].message.content
+        qa_dict = json.loads(output)
+        return qa_dict
+
+    def openai_tprs_future(self, study_language_sentence, qa_org_dict):
+        prompt = f"""
+        You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
+
+        Your task is to rewrite a {self.config["languages"]["study_language"]} teaching block using the TPRS method, transforming it into the **future tense** for clarity and spoken fluency with Text-to-Speech (TTS).
+
+        I will give you a teaching block in {self.config["languages"]["study_language"]} that contains:
+        - the main key is one or more narrative sentences,
+        - containing a sub-json dictionary: a set of comprehension questions and answers, formatted as a Python dictionary like this:
+        {{
+            "1": {{"question": "Hva skjedde med Johanne på fredag?", "answer": "Johanne var veldig syk."}},
+            "2": {{"question": "Hva gjorde vi etter at Johanne var syk?", "answer": "Vi ble hjemme og senere dro vi for å fiske med Emil og Mati."}}
+        }}
+
+        Follow these guidelines:
+        - Convert the input sentence "{study_language_sentence}" to future tense, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
+        - Vary the wording slightly to ensure fluency and naturalness.
+        - After revising the sentence, generate circling-style questions (yes/no, either/or, open-ended) that reflect the new future-oriented sentence.
+        - Use beginner-friendly vocabulary and phrasing.
+        - Add brief synonym explanations or rewordings only when helpful for comprehension.
+        - Do not omit any factual content. Expand abbreviations into full, natural spoken forms suitable for TTS.
+        - Output in {self.config["languages"]["study_language"]} only.
+        - Ensure the final output is a single valid JSON object.
+        - The **key** must be the revised sentence in future tense, as a natural sentence in {self.config["languages"]["study_language"]}.
+        - The **value** must be a dictionary of circling-style questions and answers, with string keys starting from "1".
+
+        For example:
+
+        {{
+        "Neste søndag morgen vil havet være helt stille – det vil glitre som et speil, og det vil være lave skyer over det.": {{
+            "1": {{"question": "Vil havet være stille eller stormfullt?", "answer": "Havet vil være stille."}},
+            "2": {{"question": "Hvordan vil havet se ut?", "answer": "Det vil glitre som et speil."}}
+        }}
+        }}
+
+        Do **not** use keys like "key" or "value". Only use the revised sentence itself as the top-level key.
+
+        Do **not** use placeholder strings like "REVISED SENTENCE".
+
+        Now generate logical **future tense** questions and answers in {self.config["languages"]["study_language"]} for the following sentence:
+        - "{study_language_sentence}"
+
+        Here is the existing Question and Answer block:
+        {qa_org_dict}
+        """
+
+        client = OpenAI(api_key=self.config["openai"]["key"])
+
+        response = client.chat.completions.create(
+            model=self.config["openai"]["model"],
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        output = response.choices[0].message.content
+        qa_dict = json.loads(output)
+        return qa_dict
+
+    def openai_tprs_present(self, study_language_sentence, qa_org_dict):
+        prompt = f"""
+        You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
+
+        Your task is to rewrite a {self.config["languages"]["study_language"]} teaching block using the TPRS method, transforming it into the **present tense** for clarity and spoken fluency with Text-to-Speech (TTS).
+
+        I will give you a teaching block in {self.config["languages"]["study_language"]} that contains:
+        - the main key is one or more narrative sentences,
+        - containing a sub-json dictionary: a set of comprehension questions and answers, formatted as a Python dictionary like this:
+        {{
+            "1": {{"question": "Hva skjer med Johanne på fredag?", "answer": "Johanne er veldig syk."}},
+            "2": {{"question": "Hva gjør vi etter at Johanne er syk?", "answer": "Vi blir hjemme og senere drar vi for å fiske med Emil og Mati."}}
+        }}
+
+        Follow these guidelines:
+        - Convert the input sentence "{study_language_sentence}" to **present tense**, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
+        - Vary the wording slightly to ensure fluency and naturalness.
+        - After revising the sentence, generate circling-style questions (yes/no, either/or, open-ended) that reflect the new **present-tense** sentence.
+        - Use beginner-friendly vocabulary and phrasing.
+        - Add brief synonym explanations or rewordings only when helpful for comprehension.
+        - Do not omit any factual content. Expand abbreviations into full, natural spoken forms suitable for TTS.
+        - Output in {self.config["languages"]["study_language"]} only.
+        - Ensure the final output is a single valid JSON object.
+        - The **key** must be the revised sentence in present tense, as a natural sentence in {self.config["languages"]["study_language"]}.
+        - The **value** must be a dictionary of circling-style questions and answers, with string keys starting from "1".
+
+        For example:
+
+        {{
+        "Nå på søndag morgen er havet helt stille – det glitrer som et speil, og det er lave skyer over det.": {{
+            "1": {{"question": "Er havet stille eller stormfullt?", "answer": "Havet er stille."}},
+            "2": {{"question": "Hvordan ser havet ut?", "answer": "Det glitrer som et speil."}}
+        }}
+        }}
+
+        Do **not** use keys like "key" or "value". Only use the revised sentence itself as the top-level key.
+
+        Do **not** use placeholder strings like "REVISED SENTENCE".
+
+        Now generate logical **present tense** questions and answers in {self.config["languages"]["study_language"]} for the following sentence:
+        - "{study_language_sentence}"
+
+        Here is the existing Question and Answer block:
+        {qa_org_dict}
+        """
+
+        client = OpenAI(api_key=self.config["openai"]["key"])
+
+        response = client.chat.completions.create(
+            model=self.config["openai"]["model"],
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
         return qa_dict
@@ -1534,6 +1745,20 @@ class TprsCreation(DiaryHandler):
 
         return multiline_text
 
+    def create_tprs_other_version_block_day(self, qa_tprs_day_dict):
+        multiline_text = ""
+        for study_language_sentence, qa_dict in qa_tprs_day_dict.items():
+
+            multiline_text += f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"  # Add each item with a newline
+
+            for id, item in qa_dict.items():
+                multiline_text += f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"  # Add each item with a newline
+                multiline_text += f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"  # Add each item with a newline
+
+            multiline_text += "\n"
+
+        return multiline_text
+
     def read_tprs_to_dict(self):
         if os.path.exists(self.markdown_script_generated_tprs_all_path):
             content = self.read_markdown_file(
@@ -1598,243 +1823,389 @@ class TprsCreation(DiaryHandler):
         self.write_tprs_dict_to_md(new_tprs_dict)
         return new_tprs_dict
 
+    def _write_tprs_dict_to_md_generic(self, tprs_dict, all_path, file_suffix=""):
+        with open(all_path, "w", encoding="utf-8") as file:
+            for date_diary, sentence_dict in tprs_dict.items():
+                file.write(
+                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                )
+                for sentence, qa_dict in sentence_dict.items():
+                    file.write(
+                        f"{self.config['template_tprs']['sentence']} {sentence.strip()}\n"
+                    )
+                    for item in qa_dict.values():
+                        file.write(
+                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
+                        )
+                        file.write(
+                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
+                        )
+                    file.write("\n")
+
+        # Write individual markdown files per day
+        tprs_dir = os.path.join(self.output_dir, "TPRS")
+        os.makedirs(tprs_dir, exist_ok=True)
+
+        for date_diary, sentence_dict in tprs_dict.items():
+            day_filename = (
+                f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_"
+                f"{self.titles_dict[date_diary]}{file_suffix}.md"
+            )
+            full_day_path = os.path.join(tprs_dir, day_filename)
+            with open(full_day_path, "w", encoding="utf-8") as file:
+                file.write(
+                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                )
+                for sentence, qa_dict in sentence_dict.items():
+                    file.write(
+                        f"{self.config['template_tprs']['sentence']} {sentence.strip()}\n"
+                    )
+                    for item in qa_dict.values():
+                        file.write(
+                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
+                        )
+                        file.write(
+                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
+                        )
+                    file.write("\n")
+
     def write_tprs_dict_to_md(self, tprs_dict):
-        with open(
-            self.markdown_script_generated_tprs_all_path, "w", encoding="utf-8"
-        ) as file:
-            # multiline_text = ""
-
-            for date_diary in tprs_dict.keys():
-                file.write(
-                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                )
-                for study_language_sentence in tprs_dict[date_diary].keys():
-                    qa_dict = tprs_dict[date_diary][study_language_sentence]
-                    file.write(
-                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
-                    )  # Add each item with a newline
-
-                    for id, item in qa_dict.items():
-                        file.write(
-                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
-                        )  # Add each item with a newline
-                        file.write(
-                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
-                        )  # Add each item with a newline
-
-                    file.write("\n")
-
-        # create a markdown tprs file per day for convenience
-        for date_diary in tprs_dict.keys():
-            tprs_day_txt_filename = os.path.join(
-                self.output_dir,
-                "TPRS",
-                f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
-            )
-
-            os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
-            with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
-                file.write(
-                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                )
-
-                for study_language_sentence in tprs_dict[date_diary].keys():
-                    qa_dict = tprs_dict[date_diary][study_language_sentence]
-                    file.write(
-                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
-                    )  # Add each item with a newline
-
-                    for id, item in qa_dict.items():
-                        file.write(
-                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
-                        )  # Add each item with a newline
-                        file.write(
-                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
-                        )  # Add each item with a newline
-
-                    file.write("\n")
-
-    def write_tprs_enhanced_dict_to_md(self, tprs_dict):
-        with open(
-            self.markdown_script_generated_tprs_enhanced_all_path, "w", encoding="utf-8"
-        ) as file:
-            # multiline_text = ""
-
-            for date_diary in tprs_dict.keys():
-                file.write(
-                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                )
-                for study_language_sentence in tprs_dict[date_diary].keys():
-                    qa_dict = tprs_dict[date_diary][study_language_sentence]
-                    file.write(
-                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
-                    )  # Add each item with a newline
-
-                    for id, item in qa_dict.items():
-                        file.write(
-                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
-                        )  # Add each item with a newline
-                        file.write(
-                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
-                        )  # Add each item with a newline
-
-                    file.write("\n")
-
-        # create a markdown tprs file per day for convenience
-        for date_diary in tprs_dict.keys():
-            tprs_day_txt_filename = os.path.join(
-                self.output_dir,
-                "TPRS",
-                f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}_enhanced.md",
-            )
-
-            os.makedirs(os.path.join(f"{self.output_dir}", "TPRS"), exist_ok=True)
-            with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
-                file.write(
-                    f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                )
-
-                for study_language_sentence in tprs_dict[date_diary].keys():
-                    qa_dict = tprs_dict[date_diary][study_language_sentence]
-                    file.write(
-                        f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"
-                    )  # Add each item with a newline
-
-                    for id, item in qa_dict.items():
-                        file.write(
-                            f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"
-                        )  # Add each item with a newline
-                        file.write(
-                            f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"
-                        )  # Add each item with a newline
-
-                    file.write("\n")
-
-    def add_missing_tprs(self):
-        dates_tprs = self.extract_dates_from_md(self.markdown_tprs_path)
-
-        # if the diary markdown file generated by the script exists, we privilege it as it has the most up to date
-        diary_path = self.markdown_script_generated_diary_path
-
-        dates_diary = self.extract_dates_from_md(diary_path)
-        missing_dates_tprs = list(set(dates_diary) - set(dates_tprs))
-        missing_dates_tprs.sort()
-
-        all_diary_text = self.read_markdown_file(diary_path)
-        all_tprs_text = self.read_markdown_file(self.markdown_tprs_path)
-
-        tprs_dict = {}
-        for dt in dates_tprs:
-            tprs_dict[dt] = self.get_text_for_date(all_tprs_text, dt)
-
-        for missing_date_tprs in missing_dates_tprs:
-            self.logging.info(f"Missing TPRS entries for {missing_date_tprs.date()}")
-            day_block_text = self.get_text_for_date(all_diary_text, missing_date_tprs)
-            study_language_sentences = self.get_sentences_from_diary(day_block_text)
-
-            if study_language_sentences:
-                tprs_block_day_text = self.create_tprs_block_day(
-                    study_language_sentences
-                )
-
-                tprs_dict[missing_date_tprs] = tprs_block_day_text
-
-        # add missing titles from diary to tprs
-        for date_diary in dates_diary:
-            if date_diary not in self.titles_dict.keys():
-                self.titles_dict[date_diary] = self.titles_diary_dict[date_diary]
-
-        # append tprs_block_day_text to top of markdown_tprs_path
-        with open(
-            self.markdown_script_generated_tprs_all_path, "w", encoding="utf-8"
-        ) as file:
-            for date_diary in dates_diary:
-                if date_diary in tprs_dict.keys():
-                    file.write(
-                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                    )
-                    file.write(tprs_dict[date_diary])
-                    file.write("\n\n")
-
-        # create a markdown tprs file per day for convenience
-        for date_diary in dates_diary:
-            if date_diary in tprs_dict.keys():
-                tprs_day_txt_filename = os.path.join(
-                    self.output_dir,
-                    "TPRS",
-                    f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
-                )
-                with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
-                    file.write(
-                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
-                    )
-                    file.write(tprs_dict[date_diary])
-                    file.write("\n\n")
-
-    def add_missing_tprs_enhanced(self):
-        dates_tprs_enhanced = self.extract_dates_from_md(
-            self.markdown_tprs_enhanced_path
+        self._write_tprs_dict_to_md_generic(
+            tprs_dict,
+            all_path=self.markdown_script_generated_tprs_all_path,
+            file_suffix="",
         )
 
-        # if the diary markdown file generated by the script exists, we privilege it as it has the most up to date
+    def write_tprs_enhanced_dict_to_md(self, tprs_dict):
+        self._write_tprs_dict_to_md_generic(
+            tprs_dict,
+            all_path=self.markdown_script_generated_tprs_enhanced_all_path,
+            file_suffix="_enhanced",
+        )
+
+    def write_tprs_future_dict_to_md(self, tprs_dict):
+        self._write_tprs_dict_to_md_generic(
+            tprs_dict,
+            all_path=self.markdown_script_generated_tprs_future_all_path,
+            file_suffix="_future",
+        )
+
+    def write_tprs_present_dict_to_md(self, tprs_dict):
+        self._write_tprs_dict_to_md_generic(
+            tprs_dict,
+            all_path=self.markdown_script_generated_tprs_present_all_path,
+            file_suffix="_present",
+        )
+
+    #
+    # def add_missing_tprs(self):
+    #     dates_tprs = self.extract_dates_from_md(self.markdown_tprs_path)
+    #
+    #     # if the diary markdown file generated by the script exists, we privilege it as it has the most up to date
+    #     diary_path = self.markdown_script_generated_diary_path
+    #
+    #     dates_diary = self.extract_dates_from_md(diary_path)
+    #     missing_dates_tprs = list(set(dates_diary) - set(dates_tprs))
+    #     missing_dates_tprs.sort()
+    #
+    #     all_diary_text = self.read_markdown_file(diary_path)
+    #     all_tprs_text = self.read_markdown_file(self.markdown_tprs_path)
+    #
+    #     tprs_dict = {}
+    #     for dt in dates_tprs:
+    #         tprs_dict[dt] = self.get_text_for_date(all_tprs_text, dt)
+    #
+    #     for missing_date_tprs in missing_dates_tprs:
+    #         self.logging.info(f"Missing TPRS entries for {missing_date_tprs.date()}")
+    #         day_block_text = self.get_text_for_date(all_diary_text, missing_date_tprs)
+    #         study_language_sentences = self.get_sentences_from_diary(day_block_text)
+    #
+    #         if study_language_sentences:
+    #             tprs_block_day_text = self.create_tprs_block_day(
+    #                 study_language_sentences
+    #             )
+    #
+    #             tprs_dict[missing_date_tprs] = tprs_block_day_text
+    #
+    #     # add missing titles from diary to tprs
+    #     for date_diary in dates_diary:
+    #         if date_diary not in self.titles_dict.keys():
+    #             self.titles_dict[date_diary] = self.titles_diary_dict[date_diary]
+    #
+    #     # append tprs_block_day_text to top of markdown_tprs_path
+    #     with open(
+    #         self.markdown_script_generated_tprs_all_path, "w", encoding="utf-8"
+    #     ) as file:
+    #         for date_diary in dates_diary:
+    #             if date_diary in tprs_dict.keys():
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    #     # create a markdown tprs file per day for convenience
+    #     for date_diary in dates_diary:
+    #         if date_diary in tprs_dict.keys():
+    #             tprs_day_txt_filename = os.path.join(
+    #                 self.output_dir,
+    #                 "TPRS",
+    #                 f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
+    #             )
+    #             with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    # def add_missing_tprs_enhanced(self):
+    #     dates_tprs_enhanced = self.extract_dates_from_md(
+    #         self.markdown_tprs_enhanced_path
+    #     )
+    #
+    #     # if the diary markdown file generated by the script exists, we privilege it as it has the most up to date
+    #     diary_path = self.markdown_script_generated_diary_path
+    #
+    #     dates_diary = self.extract_dates_from_md(diary_path)
+    #     missing_dates_tprs_enhanced = list(set(dates_diary) - set(dates_tprs_enhanced))
+    #     missing_dates_tprs_enhanced.sort()
+    #
+    #     all_tprs_enhanced_text = self.read_markdown_file(
+    #         self.markdown_tprs_enhanced_path
+    #     )
+    #
+    #     tprs_enhanced_dict = {}
+    #     for dt in dates_tprs_enhanced:
+    #         tprs_enhanced_dict[dt] = self.get_text_for_date(all_tprs_enhanced_text, dt)
+    #
+    #     existing_tprs = self.read_tprs_to_dict()
+    #
+    #     for missing_date_tprs_enhanced in missing_dates_tprs_enhanced:
+    #         self.logging.info(
+    #             f"Missing TPRS enhanced entries for {missing_date_tprs_enhanced.date()}"
+    #         )
+    #         qa_dict_day = {}
+    #         for sentence, sentence_dict in existing_tprs[
+    #             missing_date_tprs_enhanced
+    #         ].items():
+    #             # for sentence_no, sentence_dict in date_entry["sentences"].items():
+    #
+    #             # existing_qa = existing_tprs[missing_date_tprs_enhanced][sentence]
+    #             qa_dict = self.openai_tprs_enhanced(sentence, sentence_dict)
+    #             qa_dict_day = {**qa_dict_day, **qa_dict}
+    #             self.logging.info(json.dumps(qa_dict, indent=2, ensure_ascii=False))
+    #
+    #         tprs_enhanced_block_day_text = self.create_tprs_other_version_block_day(
+    #             qa_dict_day
+    #         )
+    #
+    #         tprs_enhanced_dict[
+    #             missing_date_tprs_enhanced
+    #         ] = tprs_enhanced_block_day_text
+    #
+    #     # add missing titles from diary to tprs
+    #     for date_diary in dates_diary:
+    #         if date_diary not in self.titles_dict.keys():
+    #             self.titles_dict[date_diary] = self.titles_diary_dict[date_diary]
+    #
+    #     # append tprs_block_day_text to top of markdown_tprs_path
+    #     with open(
+    #         self.markdown_script_generated_tprs_enhanced_all_path, "w", encoding="utf-8"
+    #     ) as file:
+    #         for date_diary in dates_diary:
+    #             if date_diary in tprs_enhanced_dict.keys():
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_enhanced_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    #     # create a markdown tprs file per day for convenience
+    #     for date_diary in dates_diary:
+    #         if date_diary in tprs_enhanced_dict.keys():
+    #             tprs_day_txt_filename = os.path.join(
+    #                 self.output_dir,
+    #                 "TPRS",
+    #                 f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}_enhanced.md",
+    #             )
+    #             with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_enhanced_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    # def add_missing_tprs_future(self):
+    #     dates_tprs_future = self.extract_dates_from_md(self.markdown_tprs_future_path)
+    #
+    #     # if the diary markdown file generated by the script exists, we privilege it as it has the most up to date
+    #     diary_path = self.markdown_script_generated_diary_path
+    #
+    #     dates_diary = self.extract_dates_from_md(diary_path)
+    #     missing_dates_tprs_future = list(set(dates_diary) - set(dates_tprs_future))
+    #     missing_dates_tprs_future.sort()
+    #
+    #     all_tprs_future_text = self.read_markdown_file(self.markdown_tprs_future_path)
+    #
+    #     tprs_future_dict = {}
+    #     for dt in dates_tprs_future:
+    #         tprs_future_dict[dt] = self.get_text_for_date(all_tprs_future_text, dt)
+    #
+    #     existing_tprs = self.read_tprs_to_dict()
+    #
+    #     for missing_date_tprs_future in missing_dates_tprs_future:
+    #         self.logging.info(
+    #             f"Missing TPRS future entries for {missing_date_tprs_future.date()}"
+    #         )
+    #         qa_dict_day = {}
+    #         for sentence, sentence_dict in existing_tprs[
+    #             missing_date_tprs_future
+    #         ].items():
+    #             # for sentence_no, sentence_dict in date_entry["sentences"].items():
+    #
+    #             # existing_qa = existing_tprs[missing_date_tprs_enhanced][sentence]
+    #             qa_dict = self.openai_tprs_future(sentence, sentence_dict)
+    #             qa_dict_day = {**qa_dict_day, **qa_dict}
+    #             self.logging.info(json.dumps(qa_dict, indent=2, ensure_ascii=False))
+    #
+    #         tprs_future_block_day_text = self.create_tprs_other_version_block_day(
+    #             qa_dict_day
+    #         )
+    #
+    #         tprs_future_dict[missing_date_tprs_future] = tprs_future_block_day_text
+    #
+    #     # add missing titles from diary to tprs
+    #     for date_diary in dates_diary:
+    #         if date_diary not in self.titles_dict.keys():
+    #             self.titles_dict[date_diary] = self.titles_diary_dict[date_diary]
+    #
+    #     # append tprs_block_day_text to top of markdown_tprs_path
+    #     with open(
+    #         self.markdown_script_generated_tprs_future_all_path, "w", encoding="utf-8"
+    #     ) as file:
+    #         for date_diary in dates_diary:
+    #             if date_diary in tprs_future_dict.keys():
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_future_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    #     # create a markdown tprs file per day for convenience
+    #     for date_diary in dates_diary:
+    #         if date_diary in tprs_future_dict.keys():
+    #             tprs_day_txt_filename = os.path.join(
+    #                 self.output_dir,
+    #                 "TPRS",
+    #                 f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}_future.md",
+    #             )
+    #             with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+    #                 file.write(
+    #                     f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+    #                 )
+    #                 file.write(tprs_future_dict[date_diary])
+    #                 file.write("\n\n")
+    #
+    def _add_missing_tprs_generic(
+        self,
+        tprs_path,
+        tprs_all_path,
+        version_suffix,
+        get_tprs_block_day_text_fn,
+    ):
+        dates_tprs = self.extract_dates_from_md(tprs_path)
         diary_path = self.markdown_script_generated_diary_path
-
         dates_diary = self.extract_dates_from_md(diary_path)
-        missing_dates_tprs = list(set(dates_diary) - set(dates_tprs_enhanced))
-        missing_dates_tprs.sort()
 
-        all_diary_text = self.read_markdown_file(diary_path)
-        all_tprs_text = self.read_markdown_file(self.markdown_tprs_enhanced_path)
+        missing_dates = sorted(set(dates_diary) - set(dates_tprs))
+        all_tprs_text = self.read_markdown_file(tprs_path)
 
-        tprs_dict = {}
-        for dt in dates_tprs_enhanced:
-            tprs_dict[dt] = self.get_text_for_date(all_tprs_text, dt)
+        tprs_dict = {dt: self.get_text_for_date(all_tprs_text, dt) for dt in dates_tprs}
 
-        for missing_date_tprs in missing_dates_tprs:
-            self.logging.info(
-                f"Missing TPRS enhanced entries for {missing_date_tprs.date()}"
-            )
-            day_block_text = self.get_text_for_date(all_diary_text, missing_date_tprs)
-            study_language_sentences = self.get_sentences_from_diary(day_block_text)
-
-            if study_language_sentences:
-                tprs_block_day_text = self.create_tprs_block_day(
-                    study_language_sentences
+        if get_tprs_block_day_text_fn.__name__ == "create_tprs_block_day":
+            all_diary_text = self.read_markdown_file(diary_path)
+            for dt in missing_dates:
+                self.logging.info(f"Missing TPRS entries for {dt.date()}")
+                diary_text = self.get_text_for_date(all_diary_text, dt)
+                sentences = self.get_sentences_from_diary(diary_text)
+                if sentences:
+                    tprs_dict[dt] = get_tprs_block_day_text_fn(sentences)
+        else:
+            existing_tprs = self.read_tprs_to_dict()
+            for dt in missing_dates:
+                self.logging.info(
+                    f"Missing TPRS {version_suffix or 'base'} entries for {dt.date()}"
                 )
+                qa_dict_day = {}
+                for sentence, sentence_dict in existing_tprs[dt].items():
+                    qa_dict = get_tprs_block_day_text_fn(sentence, sentence_dict)
+                    qa_dict_day.update(qa_dict)
+                    self.logging.info(json.dumps(qa_dict, indent=2, ensure_ascii=False))
+                tprs_dict[dt] = self.create_tprs_other_version_block_day(qa_dict_day)
 
-                tprs_dict[missing_date_tprs] = tprs_block_day_text
+        # Update missing titles
+        for dt in dates_diary:
+            if dt not in self.titles_dict:
+                self.titles_dict[dt] = self.titles_diary_dict[dt]
 
-        # add missing titles from diary to tprs
-        for date_diary in dates_diary:
-            if date_diary not in self.titles_dict.keys():
-                self.titles_dict[date_diary] = self.titles_diary_dict[date_diary]
-
-        # append tprs_block_day_text to top of markdown_tprs_path
-        with open(
-            self.markdown_script_generated_tprs_enhanced_all_path, "w", encoding="utf-8"
-        ) as file:
-            for date_diary in dates_diary:
-                if date_diary in tprs_dict.keys():
+        # Write combined TPRS file
+        with open(tprs_all_path, "w", encoding="utf-8") as file:
+            for dt in dates_diary:
+                if dt in tprs_dict:
                     file.write(
-                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                        f"## {dt.strftime('%Y/%m/%d')}: {self.titles_dict[dt]}\n"
                     )
-                    file.write(tprs_dict[date_diary])
+                    file.write(tprs_dict[dt])
                     file.write("\n\n")
 
-        # create a markdown tprs file per day for convenience
-        for date_diary in dates_diary:
-            if date_diary in tprs_dict.keys():
-                tprs_day_txt_filename = os.path.join(
+        # Write per-day TPRS markdown files
+        for dt in dates_diary:
+            if dt in tprs_dict:
+                suffix = f"_{version_suffix}" if version_suffix else ""
+                filename = os.path.join(
                     self.output_dir,
                     "TPRS",
-                    f"{self.config['tprs_lesson_name']}_TPRS_{date_diary.strftime('%Y-%m-%d')}_{self.titles_dict[date_diary]}.md",
+                    f"{self.config['tprs_lesson_name']}_TPRS_{dt.strftime('%Y-%m-%d')}_{self.titles_dict[dt]}{suffix}.md",
                 )
-                with open(tprs_day_txt_filename, "w", encoding="utf-8") as file:
+                with open(filename, "w", encoding="utf-8") as file:
                     file.write(
-                        f"## {date_diary.strftime('%Y/%m/%d')}: {self.titles_dict[date_diary]}\n"
+                        f"## {dt.strftime('%Y/%m/%d')}: {self.titles_dict[dt]}\n"
                     )
-                    file.write(tprs_dict[date_diary])
+                    file.write(tprs_dict[dt])
                     file.write("\n\n")
+
+    def add_missing_tprs(self):
+        self._add_missing_tprs_generic(
+            tprs_path=self.markdown_tprs_path,
+            tprs_all_path=self.markdown_script_generated_tprs_all_path,
+            version_suffix="",
+            get_tprs_block_day_text_fn=self.create_tprs_block_day,
+        )
+
+    def add_missing_tprs_enhanced(self):
+        self._add_missing_tprs_generic(
+            tprs_path=self.markdown_tprs_enhanced_path,
+            tprs_all_path=self.markdown_script_generated_tprs_enhanced_all_path,
+            version_suffix="enhanced",
+            get_tprs_block_day_text_fn=self.openai_tprs_enhanced,
+        )
+
+    def add_missing_tprs_future(self):
+        self._add_missing_tprs_generic(
+            tprs_path=self.markdown_tprs_future_path,
+            tprs_all_path=self.markdown_script_generated_tprs_future_all_path,
+            version_suffix="future",
+            get_tprs_block_day_text_fn=self.openai_tprs_future,
+        )
+
+    def add_missing_tprs_present(self):
+        self._add_missing_tprs_generic(
+            tprs_path=self.markdown_tprs_present_path,
+            tprs_all_path=self.markdown_script_generated_tprs_present_all_path,
+            version_suffix="present",
+            get_tprs_block_day_text_fn=self.openai_tprs_present,
+        )
 
 
 def main():
@@ -1846,9 +2217,17 @@ def main():
 
     tprs_instance = TprsCreation()
     tprs_instance.check_missing_sentences_from_existing_tprs()
+
     tprs_instance.add_missing_tprs()
+    tprs_instance.add_missing_tprs_enhanced()
+    tprs_instance.add_missing_tprs_future()
+    tprs_instance.add_missing_tprs_present()
+
     tprs_instance.convert_tts_tprs_entries()
-    # tprs_instance.add_missing_tprs_enhanced()
+    tprs_instance.convert_tts_tprs_enhanced_entries()
+    tprs_instance.convert_tts_tprs_future_entries()
+    tprs_instance.convert_tts_tprs_present_entries()
+
     tprs_instance.stop()
 
 

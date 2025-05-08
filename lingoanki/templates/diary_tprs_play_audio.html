@@ -27,19 +27,59 @@ content %}
 }
 </style>
 
+<h2>{{ _('select a lesson and variant to play') }}</h2>
 
-    <h2>{{ _('select an mp3 file to play') }}</h2>
-
-<form id="audioform" style="display: flex; flex-wrap: wrap; gap: 0.5rem; max-width: 100%;">
-  <label for="file_select" style="flex: 1 1 100%;">{{ _('choose an audio file') }}:</label>
-  <select id="file_select" name="file" style="flex: 1 1 250px; max-width: 100%;">
-    {% for mp3_file in mp3_files %}
-    <option value="{{ mp3_file }}">{{ mp3_file }}</option>
+<form id="audioform" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+  <label for="base_select" style="flex: 1 1 100%;">{{ _('choose a lesson') }}:</label>
+  <select id="base_select" name="base" style="flex: 1 1 250px;">
+    {% for base, display, variants in mp3_variants %}
+    <option value="{{ base }}" {% if base == selected_base %}selected{% endif %}>{{ display }}</option>
     {% endfor %}
   </select>
-  <button type="submit" style="flex: 0 0 auto;">{{ _('choose file') }}</button>
+
+  <label for="variant_select" style="flex: 1 1 100%;">{{ _('choose version') }}:</label>
+  <select id="variant_select" name="variant" style="flex: 1 1 250px;">
+  <option value="original" {% if selected_variant == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
+  <option value="enhanced" {% if selected_variant == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
+  <option value="present" {% if selected_variant == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
+  <option value="future" {% if selected_variant == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
+</select>
+
+  <!--<select id="variant_select" name="variant" style="flex: 1 1 250px;">-->
+  <!--  <option value="original">{{ _('Original') }}</option>-->
+  <!--  <option value="enhanced">{{ _('Enhanced') }}</option>-->
+  <!--  <option value="present">{{ _('Present') }}</option>-->
+  <!--  <option value="future">{{ _('Future') }}</option>-->
+  <!--</select>-->
+  <!---->
+  <!--<button type="submit" style="flex: 0 0 auto;">{{ _('choose lesson') }}</button>-->
 </form>
 
+<script>
+  document.getElementById("variant_select").addEventListener("change", function () {
+    document.getElementById("audioform").requestSubmit();
+  });
+    document.getElementById("base_select").addEventListener("change", function () {
+    document.getElementById("audioform").requestSubmit();
+  });
+</script>
+
+
+<script>
+document.getElementById("audioform").addEventListener("submit", function(event) {
+  event.preventDefault();
+  const base = document.getElementById("base_select").value;
+  const variant = document.getElementById("variant_select").value;
+
+  let filename = base;
+  if (variant !== "original") {
+    filename += "_" + variant;
+  }
+  filename += ".mp3";
+
+  window.location.href = "/view_markdown/" + encodeURIComponent(filename);
+});
+</script>
 
 <script>
   document.getElementById("audioform").addEventListener("submit", function(event) {
