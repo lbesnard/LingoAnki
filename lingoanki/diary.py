@@ -1473,7 +1473,7 @@ class TprsCreation(DiaryHandler):
         - Do not omit any details. Expand abbreviations into natural spoken forms for TTS output in {self.config["languages"]["study_language"]}.
         - Output in {self.config["languages"]["study_language"]} only.
         - Ensure the final output is a single valid JSON object.
-        - The **key** must be the revised sentence as a natural language string in Norwegian.
+        - The **key** must be the revised sentence as a natural language string in {self.config["languages"]["study_language"]}.
         - The **value** must be a dictionary of circling-style questions and answers, where keys are strings of integers starting from "1".
 
         For example:
