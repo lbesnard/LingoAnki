@@ -2417,8 +2417,12 @@ class TprsCreation(DiaryHandler):
         return new_or_updated_tprs_dict_for_standard
 
 
-def main():
+def main(config_path=None):
     """Main function to run the diary and TPRS processing workflow.
+
+    Args:
+        config_path (str, optional): Path to the configuration file.
+                                     Defaults to None, which uses the default user config path.
 
     Initializes DiaryHandler, prompts for new entries, completes translations,
     and converts entries to an Anki deck.
@@ -2426,7 +2430,7 @@ def main():
     adds missing TPRS content for all versions (standard, enhanced, future, present),
     and finally converts all TPRS markdown entries to audio.
     """
-    diary_instance = DiaryHandler()
+    diary_instance = DiaryHandler(config_path=config_path)
     diary_instance.prompt_new_diary_entry()
     diary_instance.diary_complete_translations()
     diary_instance.convert_diary_entries_to_ankideck()
@@ -2436,7 +2440,7 @@ def main():
     # --- TPRS Processing ---
     # TprsCreation __init__ handles initial setup of variant handlers,
     # creation/update of standard TPRS MD, and initial creation of other variant MDs.
-    tprs_instance = TprsCreation() # Uses its own config loading, inherits from DiaryHandler
+    tprs_instance = TprsCreation(config_path=config_path) # Uses its own config loading, inherits from DiaryHandler
     logging.info("TPRS Creation initialized. Variant handlers set up and initial MD files processed.")
 
     # Load the latest diary data (potentially updated by DiaryHandler)
