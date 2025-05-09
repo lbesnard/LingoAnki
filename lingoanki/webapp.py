@@ -631,22 +631,7 @@ def view_markdown(filename):
         selected_variant = "original"
 
     # Gather mp3 variants like in play_audio_page
-    variants_by_base = defaultdict(list)
-    if os.path.exists(session["tprs_folder"]):
-        for f in os.listdir(session["tprs_folder"]):
-            if f.endswith(".mp3"):
-                m = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", f)
-                if m:
-                    base, var = m.groups()
-                    variants_by_base[base].append((var or "original", f))
-
-    display_items = []
-    for base, variants in variants_by_base.items():
-        parts = base.split("_TPRS_")
-        display = parts[1] if len(parts) == 2 else base
-        display_items.append((base, display, dict(variants)))
-
-    display_items.sort(key=lambda x: x[1], reverse=True)
+    display_items = get_mp3_variants(session["tprs_folder"])
 
     # Read content
     date = extract_date(md_tprs_filename)

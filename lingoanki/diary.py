@@ -488,9 +488,8 @@ class DiaryHandler:
         hash_int = int(hash_object.hexdigest(), 16)
 
         # Take a portion of the integer and ensure it's the desired length
-        unique_id = hash_int % (10**length)
-
-        return unique_id
+        unique_id_str = str(hash_int % (10**length))
+        return unique_id_str.zfill(length)
 
     def read_markdown_file(self, markdown_path):
         """Reads the content of the specified markdown file.
@@ -1488,7 +1487,7 @@ class TprsVariantHandler:
         tts_plugin_instance = PiperTTSPlugin()
         tts_plugin_instance.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
 
-        pause_filename = os.path.join(tempfile.gettempdir(), f"{self.generate_unique_id('pause', 5)}.wav")
+        pause_filename = os.path.join(tempfile.gettempdir(), f"{self.tprs_creator.generate_unique_id('pause', 5)}.wav")
         paused_duration = self.config["tts"]["pause_between_sentences_duration"]
         repeat_tprs = self.config["tts"]["repeat_sentence_tprs"] if self.config["tts"]["repeat_sentence_tprs"] > 0 else 1
         
@@ -1503,7 +1502,7 @@ class TprsVariantHandler:
         try:
             for sentence, tprs_qa_list in day_block_data.items():
                 self.logging.info(f"Generating audio for {self.variant_name} sentence: {sentence}")
-                audio_filename = os.path.join(tempfile.gettempdir(), f"{self.generate_unique_id(sentence, 12)}.wav")
+                audio_filename = os.path.join(tempfile.gettempdir(), f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav")
                 temp_files_to_clean.add(audio_filename)
                 tts_plugin_instance.get_tts(
                     sentence,
@@ -1516,7 +1515,7 @@ class TprsVariantHandler:
 
                 for question, answer in tprs_qa_list:
                     media_files.append(pause_filename) # Pause before question
-                    question_audio = os.path.join(tempfile.gettempdir(), f"{self.generate_unique_id(question, 12)}.wav")
+                    question_audio = os.path.join(tempfile.gettempdir(), f"{self.tprs_creator.generate_unique_id(question, 12)}.wav")
                     temp_files_to_clean.add(question_audio)
                     tts_plugin_instance.get_tts(
                         question, question_audio,
@@ -1525,14 +1524,14 @@ class TprsVariantHandler:
                     )
                     media_files.append(question_audio)
 
-                    silence_file = os.path.join(tempfile.gettempdir(), f"{self.generate_unique_id('silence_answer', 5)}.wav")
+                    silence_file = os.path.join(tempfile.gettempdir(), f"{self.tprs_creator.generate_unique_id('silence_answer', 5)}.wav")
                     temp_files_to_clean.add(silence_file)
                     # Ensure silence duration is not negative
                     actual_silence_duration = max(0, self.config["tts"]["answer_silence_duration"] / repeat_tprs)
                     AudioSegment.silent(duration=actual_silence_duration).export(silence_file, format="wav")
                     media_files.append(silence_file) # Silence for user to answer
 
-                    answer_audio = os.path.join(tempfile.gettempdir(), f"{self.generate_unique_id(answer, 12)}.wav")
+                    answer_audio = os.path.join(tempfile.gettempdir(), f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav")
                     temp_files_to_clean.add(answer_audio)
                     tts_plugin_instance.get_tts(
                         answer, answer_audio,
@@ -1567,14 +1566,6 @@ class TprsVariantHandler:
                         os.remove(f_path)
                     except Exception as e_clean:
                         self.logging.warning(f"Could not remove temporary file {f_path}: {e_clean}")
-    
-    def generate_unique_id(self, input_string, length=9): # Helper, could be static or moved
-        """Generates a unique ID based on a hash of the input string."""
-        hash_object = hashlib.sha256(input_string.encode("utf-8"))
-        hash_int = int(hash_object.hexdigest(), 16)
-        unique_id = hash_int % (10**length)
-        return str(unique_id).zfill(length)
-
 
     def _read_variant_tprs_to_dict(self):
         """Reads this variant's TPRS markdown file and parses it into a structured dictionary."""
@@ -2309,44 +2300,6 @@ class TprsCreation(DiaryHandler):
             multiline_text += "\n"
 
         return multiline_text
-
-    def read_tprs_to_dict(self):
-        """Reads the main TPRS markdown file and parses it into a structured dictionary.
-
-        The dictionary is keyed by date (datetime.date objects). Each date entry
-        contains another dictionary where keys are sentences and values are
-        dictionaries of TPRS questions and answers (keyed by number string).
-
-        Returns:
-            dict or None: The parsed TPRS content as a nested dictionary,
-                          or None if the TPRS markdown file does not exist.
-        """
-        if os.path.exists(self.markdown_script_generated_tprs_all_path):
-            content = self.read_markdown_file(
-                self.markdown_script_generated_tprs_all_path
-            )
-        elif os.path.exists(self.markdown_tprs_path):
-            content = self.read_markdown_file(self.markdown_tprs_path)
-        else:
-            return None
-
-        days = re.split(r"^##\s+", content, flags=re.MULTILINE)
-        tprs_dict = {}
-        for day_block in days:
-            if day_block.strip():
-                result, date = self.read_tprs_day_block(day_block)
-                date = datetime.strptime(date, "%Y/%m/%d")
-                tprs_dict[date] = dict()
-                for sentence in result.keys():
-                    qa_dict = {
-                        str(i + 1): {"question": q, "answer": a}
-                        for i, (q, a) in enumerate(result[sentence])
-                    }
-
-                    tprs_dict[date][sentence] = dict()
-                    tprs_dict[date][sentence] = qa_dict
-
-        return tprs_dict
 
     def check_missing_sentences_from_existing_tprs(self):
         """
