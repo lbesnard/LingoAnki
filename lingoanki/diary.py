@@ -67,6 +67,12 @@ CONFIG_FILE = "config.yaml"
 
 class DiaryHandler:
     def __init__(self, config_path=None):
+        """Initializes the DiaryHandler with configuration and sets up necessary attributes.
+
+        Args:
+            config_path (str, optional): Path to the configuration file. 
+                                         Defaults to None, which then uses the default user config path.
+        """
         self.config = self.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
         self.deck_name = self.config["anki_deck_name"]
@@ -83,10 +89,22 @@ class DiaryHandler:
         self.anki_model_def()
 
     def load_config(self, config_path=None):
+        """Loads the YAML configuration file.
+
+        Args:
+            config_path (str, optional): The path to the configuration file. 
+                                         If None, uses the default user config path. 
+                                         Defaults to None.
+
+        Returns:
+            dict: The loaded configuration as a dictionary.
+
+        Raises:
+            FileNotFoundError: If the configuration file is not found.
+        """
         if config_path is None:
             config_path = Path(user_config_dir(APP_NAME)).joinpath(CONFIG_FILE)
 
-        """Load YAML config if it exists."""
         if os.path.exists(config_path):
             with open(config_path) as f:
                 return yaml.safe_load(f) or {}
@@ -96,6 +114,12 @@ class DiaryHandler:
         raise FileNotFoundError
 
     def setup_output_diary_markdown(self):
+        """Sets up the path for the output diary Markdown file.
+
+        Handles backup of the original diary file if overwrite is enabled.
+        Manages naming conventions for the output file based on whether
+        it's being called by DiaryHandler or a subclass (like TprsCreation).
+        """
         # doing it this way, as the TPRS class can inherit this DiaryHandler class
         if self.__class__.__name__ == "DiaryHandler":
             time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -154,6 +178,11 @@ class DiaryHandler:
             self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
+        """Sets up logging for the application.
+
+        Configures a logger with both file and stream handlers if not already set up.
+        Logs are written to 'output.log' in the configured output directory.
+        """
         # Check if logger is already set up to avoid duplicate handlers
         logger = logging.getLogger(__name__)
 
@@ -185,6 +214,7 @@ class DiaryHandler:
         self.logging = logger
 
     def close_logging(self):
+        """Closes all logging handlers associated with this instance's logger."""
         if hasattr(self, "logging"):
             logger = self.logging
             handlers = logger.handlers[:]
@@ -193,19 +223,18 @@ class DiaryHandler:
                 logger.removeHandler(handler)
 
     def stop(self):
+        """Stops the DiaryHandler by closing logging resources."""
         self.close_logging()
 
     def validate_arguments(self):
-        """
-        Validate the input arguments.
+        """Validates the markdown diary path and output directory.
 
-        Args:
-            markdown_path (str): Path to the markdown file.
-            output_dir (str): Path to the output directory.
+        If the markdown diary path does not exist, it creates an empty file.
+        If the output directory does not exist, it attempts to create it.
+        Also creates a backup directory.
 
         Raises:
-            FileNotFoundError: If the markdown path does not exist.
-            ValueError: If the output directory does not exist and cannot be created.
+            ValueError: If the output directory cannot be created.
         """
         if not os.path.exists(self.markdown_diary_path):
             self.logging.warning(
@@ -231,6 +260,11 @@ class DiaryHandler:
             os.makedirs(self.backup_dir, exist_ok=True)
 
     def template_help(self):
+        """Generates a help string showing the template for diary entries.
+
+        Returns:
+            str: A multiline string illustrating the diary entry template.
+        """
         multiline = textwrap.dedent(
             f"""\
             ## YYYY/MM/DD\n
@@ -253,6 +287,12 @@ class DiaryHandler:
         return multiline
 
     def prompt_new_diary_entry(self):
+        """Prompts the user to add new diary entries if configured to do so.
+
+        This method checks the configuration and, if called by DiaryHandler,
+        invokes `_prompt_new_diary_entry` to interact with the user.
+        The result is stored in `self.diary_new_entries_day`.
+        """
         if self.config["diary_entries_prompt_user"]:
             if self.__class__.__name__ == "DiaryHandler":
                 self.diary_new_entries_day = self._prompt_new_diary_entry()
@@ -261,8 +301,16 @@ class DiaryHandler:
             return
 
     def _prompt_new_diary_entry(self):
-        """Prompt user to add new diary entries for today."""
+        """Interactively prompts the user to add new diary entries for the current day.
 
+        Collects sentences in the primary language and optional trial translations
+        in the study language from the user.
+
+        Returns:
+            dict or None: A dictionary containing the new diary entries for today,
+                          structured by date and sentence number. Returns None if
+                          the user chooses not to add entries or adds no sentences.
+        """
         diary = {}
 
         user_input = (
@@ -319,6 +367,13 @@ class DiaryHandler:
                 return diary
 
     def anki_model_def(self):
+        """Defines the Anki card model structure.
+
+        Sets up the fields and templates for the Anki cards that will be generated.
+        The model includes fields for primary language, study language, tips, audio,
+        date, and sentence number. It also defines two card templates: one for
+        primary to study language, and one for study language (audio) to primary.
+        """
         # Define the model for Anki cards
         self.anki_model = Model(
             model_id=3602398329,
@@ -387,12 +442,12 @@ class DiaryHandler:
         )
 
     def generate_unique_id(self, input_string, length=9):
-        """
-        Generates a unique ID based on a hash of the input string.
+        """Generates a unique ID based on a hash of the input string.
 
         Args:
             input_string (str): The string to hash.
-            length (int): The length of the unique ID to generate (default: 9).
+            length (int, optional): The length of the unique ID to generate. 
+                                    Defaults to 9.
 
         Returns:
             int: A unique ID of the specified length.
@@ -409,17 +464,30 @@ class DiaryHandler:
         return unique_id
 
     def read_markdown_file(self, markdown_path):
-        """
-        Read the content of the markdown file.
+        """Reads the content of the specified markdown file.
+
+        Args:
+            markdown_path (str): The path to the markdown file.
 
         Returns:
-            str: Content of the markdown file.
+            str: The cleaned content of the markdown file.
         """
         # with open(self.markdown_diary_path, "r", encoding="utf-8") as file:
         with open(markdown_path, "r", encoding="utf-8") as file:
             return self.clean_joplin_markdown(file.read())
 
     def clean_joplin_markdown(self, content: str):
+        """Removes Joplin-specific metadata from markdown content.
+
+        This function targets metadata lines starting with "id:" and removes
+        them along with any subsequent related metadata lines.
+
+        Args:
+            content (str): The raw markdown content.
+
+        Returns:
+            str: The markdown content with Joplin metadata removed.
+        """
         # Define a regular expression pattern that matches the section starting with "id:" followed by "parent_id:" and others in order
         pattern = (
             # r"(id:\s+[a-z0-9]+.*?parent_id:\s+[a-z0-9]+.*?created_time:\s+[0-9TZ:-]+.*)"
@@ -432,26 +500,27 @@ class DiaryHandler:
         return clean_content.strip()  # Optionally strip any leading/trailing whitespace
 
     def create_main_deck(self):
-        """
-        Create the main Anki deck.
+        """Creates the main Anki deck.
 
-        Args:
-            deck_name (str): Name of the main deck.
+        The deck ID is generated by hashing the deck name.
 
         Returns:
-            Deck: The main Anki deck object.
+            genanki.Deck: The main Anki deck object.
         """
         return Deck(deck_id=hash(self.deck_name), name=self.deck_name)
 
     def process_day_block_anki(self, day_block):
-        """
-        Process a day block and add notes to the deck.
+        """Processes a single day's entries to create Anki notes and a daily audio compilation.
 
         Args:
-            day_block (dict): dict for a specific day.
+            day_block (tuple): A tuple containing the date (datetime.date) and 
+                               a dictionary of the day's entries. 
+                               The dictionary includes a title and sentences.
 
         Returns:
-            list: List of notes for the day.
+            tuple: A tuple containing:
+                - list: A list of genanki.Note objects for the day.
+                - list: A list of paths to the media files (audio) for these notes.
         """
         date, day_dict = day_block
         title = day_dict["title"]
@@ -514,19 +583,24 @@ class DiaryHandler:
         date,
         i,
     ):
-        """
-        Create a note for the subdeck.
+        """Creates an Anki note and its corresponding TTS audio.
 
         Args:
-            primary_language_sentence (str): primary_language_sentence sentence.
-            study_language_sentence (str): study_language_sentence translation.
-            tips (str): tips about study_language_sentence translation.
-            date (datetime): Date tag.
-            sub_deck_name (str): Name of the subdeck.
-            i (int): number of the sentence in diary
+            primary_language_sentence (str): The sentence in the primary language.
+            study_language_sentence (str): The sentence in the study language.
+            tips (str): Learning tips related to the translation.
+            date (datetime.date): The date of the diary entry.
+            i (int): The sentence number within the diary entry for that day.
 
         Returns:
-            Note: Anki Note object.
+            tuple: A tuple containing:
+                - genanki.Note or None: The created Anki note, or None if the study
+                  language sentence is empty.
+                - str or None: The path to the generated audio file, or None if no
+                  audio was created.
+        
+        Raises:
+            ValueError: If an unsupported TTS model is specified in the config.
         """
         study_language_sentence = study_language_sentence.replace("**", "").strip()
         primary_language_sentence = primary_language_sentence.replace("**", "").strip()
@@ -596,13 +670,11 @@ class DiaryHandler:
         return note, audio_filename
 
     def convert_diary_entries_to_ankideck(self):
-        """
-        Parse the markdown file and generate Anki flashcards with audio.
+        """Parses diary entries and generates an Anki deck with flashcards and audio.
 
-        Args:
-            markdown_path (str): Path to the markdown file.
-            deck_name (str): Name of the main deck.
-            output_dir (str): Path to the output directory.
+        If `create_anki_deck` is False in the configuration, this method returns early.
+        It reads the diary, processes each day's entries, creates notes and audio,
+        and packages them into an .apkg file.
         """
         self.validate_arguments()
 
@@ -637,6 +709,16 @@ class DiaryHandler:
         self.logging.info(f"Anki deck created: {deck_file}")
 
     def extract_dates_from_md(self, markdown_path):
+        """Extracts all dates from headers in a markdown file.
+
+        Dates are expected to be in 'YYYY/MM/DD' format following '## '.
+
+        Args:
+            markdown_path (str): The path to the markdown file.
+
+        Returns:
+            list[datetime.datetime]: A list of dates found in the markdown file.
+        """
         text = self.read_markdown_file(markdown_path)
         # Regex pattern to match lines starting with ## followed by a date (YYYY/MM/DD)
         pattern = r"^##\s(\d{4}/\d{2}/\d{2})"
@@ -649,6 +731,18 @@ class DiaryHandler:
         return dates
 
     def get_title_for_date(self, text, target_date):
+        """Extracts the title associated with a specific date from markdown text.
+
+        The title is expected to follow the date in a header, separated by a colon.
+        e.g., "## YYYY/MM/DD: Title of the day"
+
+        Args:
+            text (str): The markdown content to search within.
+            target_date (datetime.datetime): The date for which to find the title.
+
+        Returns:
+            str or None: The extracted title, or None if no title is found for the date.
+        """
         # Convert datetime to string format used in the text (YYYY/MM/DD)
         target_date_str = target_date.strftime("%Y/%m/%d")
 
@@ -675,6 +769,18 @@ class DiaryHandler:
         return title_exists  # Skip the header itself
 
     def get_text_for_date(self, text, target_date):
+        """Extracts the block of text associated with a specific date from markdown.
+
+        This includes all lines under a date header (e.g., "## YYYY/MM/DD")
+        until the next date header or the end of the text.
+
+        Args:
+            text (str): The markdown content to search within.
+            target_date (datetime.datetime): The date for which to extract text.
+
+        Returns:
+            str: The block of text associated with the target date.
+        """
         # Convert datetime to string format used in the text (YYYY/MM/DD)
         target_date_str = target_date.strftime("%Y/%m/%d")
 
@@ -703,6 +809,17 @@ class DiaryHandler:
         return "\n".join(extracted_lines).strip()
 
     def get_sentences_from_diary(self, day_block):
+        """Extracts study language sentences from a block of diary text for a specific day.
+
+        Parses the day_block using configured templates for trial, answer, and tips.
+
+        Args:
+            day_block (str): The markdown text block for a single day's diary entries.
+
+        Returns:
+            list[str] or None: A list of study language sentences extracted from the block.
+                               Returns None if no valid translations are found.
+        """
         answer_template = self.config["template_diary"]["answer"]
         tips_template = self.config["template_diary"]["tips"]
         trial_template = self.config["template_diary"]["trial"]
@@ -733,8 +850,20 @@ class DiaryHandler:
         return study_language_sentences
 
     def openai_create_day_title(self, sentences_block_dict):
+        """Generates a catchy title for a day's diary entries using OpenAI.
+
+        The title is based on the study language sentences for that day.
+
+        Args:
+            sentences_block_dict (dict): A dictionary where keys are sentence numbers
+                                         and values are dictionaries containing sentence details,
+                                         including "study_language_sentence".
+
+        Returns:
+            str: The generated title in the study language.
+        """
         sentences = [
-            dict[1]["study_language_sentence"] for dict in sentences_block_dict.items()
+            entry["study_language_sentence"] for entry in sentences_block_dict.values()
         ]
 
         prompt = f"""
@@ -764,6 +893,20 @@ class DiaryHandler:
         return output
 
     def openai_translate_sentence(self, sentence_dict):
+        """Translates a sentence from the primary language to the study language using OpenAI.
+
+        Also generates learning tips for the translation. The request considers the user's
+        gender for grammatically correct translations.
+
+        Args:
+            sentence_dict (dict): A dictionary containing the "primary_language_sentence"
+                                  and "study_language_sentence_trial".
+
+        Returns:
+            dict: A dictionary containing the "primary_language_sentence",
+                  "study_language_sentence" (the translation), "tips", and
+                  "study_language_sentence_trial".
+        """
         prompt = f"""
         You need to translate a sentence given in {self.config["languages"]["primary_language"]} into {self.config["languages"]["study_language"]}].
         The output should be a JSON dictionary where:
@@ -814,6 +957,19 @@ class DiaryHandler:
         return output["sentence"]
 
     def get_all_days_title(self, diary_dict):
+        """Gets or generates titles for all days in the diary_dict.
+
+        If the diary is new or a title is missing for an existing entry,
+        it uses OpenAI to generate a title based on the day's sentences.
+        Otherwise, it attempts to extract existing titles from the diary markdown.
+
+        Args:
+            diary_dict (dict): A dictionary of diary entries, keyed by date.
+
+        Returns:
+            dict: A dictionary where keys are dates and values are the titles for those dates.
+                  This dictionary is also stored in `self.titles_dict`.
+        """
         titles_dict = {}
 
         if self.new_diary:
@@ -852,6 +1008,15 @@ class DiaryHandler:
         return titles_dict
 
     def write_diary(self, diary_dict):
+        """Writes the processed diary entries to markdown files.
+
+        This includes a main diary markdown file and individual markdown files
+        for each day's audio content. Titles for each day are retrieved or generated.
+
+        Args:
+            diary_dict (dict): A dictionary of diary entries, keyed by date.
+                               Each entry contains sentences with translations and tips.
+        """
         # create one mardkown files for all entries
         self.get_all_days_title(diary_dict)
 
@@ -928,6 +1093,17 @@ class DiaryHandler:
                         )
 
     def markdown_diary_to_dict(self):
+        """Parses the main diary markdown file into a structured dictionary.
+
+        Extracts dates, titles, and individual sentence entries (primary language,
+        trial translation, study language translation, and tips) from the markdown.
+
+        Returns:
+            dict: A dictionary where keys are dates (datetime.date objects) and
+                  values are dictionaries containing the "title" for the day and
+                  a "sentences" dictionary. The "sentences" dictionary is keyed
+                  by sentence number and contains details for each sentence.
+        """
         dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
         all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
         self.all_diary_text = all_diary_text
@@ -979,6 +1155,14 @@ class DiaryHandler:
         return diary_dict
 
     def diary_complete_translations(self):
+        """Completes missing translations in the diary using OpenAI.
+
+        Reads the current diary into a dictionary, merges any new entries prompted
+        from the user, and then iterates through all entries. If a study language
+        sentence is missing and automatic translation is enabled in the config,
+        it calls OpenAI to generate the translation and tips. Finally, writes
+        the updated diary back to the markdown file.
+        """
         diary_dict = self.markdown_diary_to_dict()
         if self.diary_new_entries_day:
             diary_dict = self.diary_new_entries_day | diary_dict
@@ -999,6 +1183,16 @@ class DiaryHandler:
 
 class TprsCreation(DiaryHandler):
     def __init__(self, config_path=None):
+        """Initializes the TprsCreation class, inheriting from DiaryHandler.
+
+        Sets up paths for TPRS markdown files (standard, enhanced, future, present).
+        Creates these files if they don't exist. Also initializes directories
+        for TPRS output and fetches titles for TPRS and diary entries.
+
+        Args:
+            config_path (str, optional): Path to the configuration file. 
+                                         Defaults to None.
+        """
         super().__init__(config_path)
         self.markdown_tprs_path = self.config["markdown_tprs_path"]
         self.markdown_tprs_enhanced_path = self.markdown_tprs_path.replace(
@@ -1029,6 +1223,14 @@ class TprsCreation(DiaryHandler):
         self.get_all_diary_titles()
 
     def setup_output_tprs_markdown(self):
+        """Sets up paths for various TPRS output markdown files.
+
+        Handles backup of existing TPRS files if overwrite is enabled in the config.
+        Manages naming conventions for output files based on configuration
+        (overwrite vs. new timestamped files, output directory).
+        This method sets paths for standard, enhanced, future, and present
+        tense TPRS markdown files.
+        """
         time_now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")  # filename-safe
 
         def backup_if_exists(src_path):
@@ -1120,6 +1322,22 @@ class TprsCreation(DiaryHandler):
         needs_existing_tprs=False,
         log_prefix="Creating TPRS content for",
     ):
+        """Generates TPRS content for diary entries using a specified generator function.
+
+        Iterates through diary entries, generates TPRS questions and answers
+        using `tprs_generator_fn`, and then writes the output using `write_fn`.
+        Can optionally use existing TPRS content if `needs_existing_tprs` is True.
+
+        Args:
+            tprs_generator_fn (Callable): Function to generate TPRS Q&A for a sentence.
+                                          Takes a sentence (str) and optionally existing Q&A (dict).
+            write_fn (Callable): Function to write the generated TPRS dictionary to a file.
+                                 Takes the TPRS dictionary (dict).
+            needs_existing_tprs (bool, optional): Whether `tprs_generator_fn` requires
+                                                  existing TPRS data. Defaults to False.
+            log_prefix (str, optional): Prefix for log messages.
+                                        Defaults to "Creating TPRS content for".
+        """
         diary_dict = self.markdown_diary_to_dict()
         output_dict = {}
         existing_tprs = self.read_tprs_to_dict() if needs_existing_tprs else {}
@@ -1144,6 +1362,10 @@ class TprsCreation(DiaryHandler):
             write_fn(output_dict)
 
     def create_first_tprs_md_file(self):
+        """Creates the initial standard TPRS markdown file if it doesn't exist.
+
+        Uses `openai_tprs` to generate content and `write_tprs_dict_to_md` to save it.
+        """
         self._generate_tprs_md_file(
             tprs_generator_fn=self.openai_tprs,
             write_fn=self.write_tprs_dict_to_md,
@@ -1151,6 +1373,11 @@ class TprsCreation(DiaryHandler):
         )
 
     def create_first_tprs_enhanced_md_file(self):
+        """Creates the initial enhanced TPRS markdown file if it doesn't exist.
+
+        Uses `openai_tprs_enhanced` and existing TPRS data to generate content,
+        and `write_tprs_enhanced_dict_to_md` to save it.
+        """
         self._generate_tprs_md_file(
             tprs_generator_fn=self.openai_tprs_enhanced,
             write_fn=self.write_tprs_enhanced_dict_to_md,
@@ -1159,6 +1386,11 @@ class TprsCreation(DiaryHandler):
         )
 
     def create_first_tprs_future_md_file(self):
+        """Creates the initial future tense TPRS markdown file if it doesn't exist.
+
+        Uses `openai_tprs_future` and existing TPRS data to generate content,
+        and `write_tprs_future_dict_to_md` to save it.
+        """
         self._generate_tprs_md_file(
             tprs_generator_fn=self.openai_tprs_future,
             write_fn=self.write_tprs_future_dict_to_md,
@@ -1167,6 +1399,11 @@ class TprsCreation(DiaryHandler):
         )
 
     def create_first_tprs_present_md_file(self):
+        """Creates the initial present tense TPRS markdown file if it doesn't exist.
+
+        Uses `openai_tprs_present` and existing TPRS data to generate content,
+        and `write_tprs_present_dict_to_md` to save it.
+        """
         self._generate_tprs_md_file(
             tprs_generator_fn=self.openai_tprs_present,
             write_fn=self.write_tprs_present_dict_to_md,
@@ -1175,6 +1412,11 @@ class TprsCreation(DiaryHandler):
         )
 
     def get_all_tprs_titles(self):
+        """Extracts all TPRS titles from the main TPRS markdown file.
+
+        Populates `self.titles_dict` with dates as keys and titles as values.
+        If the TPRS markdown file doesn't exist, it does nothing.
+        """
         self.titles_dict = {}
         if not os.path.exists(self.markdown_tprs_path):
             return
@@ -1190,6 +1432,10 @@ class TprsCreation(DiaryHandler):
                     self.titles_dict[datetime.strptime(date, "%Y/%m/%d")] = title
 
     def get_all_diary_titles(self):
+        """Extracts all titles from the script-generated diary markdown file.
+
+        Populates `self.titles_diary_dict` with dates as keys and titles as values.
+        """
         self.titles_diary_dict = {}
 
         content = self.read_markdown_file(self.markdown_script_generated_diary_path)
@@ -1204,14 +1450,20 @@ class TprsCreation(DiaryHandler):
                     self.titles_diary_dict[datetime.strptime(date, "%Y/%m/%d")] = title
 
     def read_tprs_day_block(self, day_block):
-        """
-        Process a day block.
+        """Parses a block of TPRS markdown text for a single day.
+
+        Extracts the date, title, and TPRS questions and answers.
+        The TPRS Q&A are structured as a dictionary where keys are sentences
+        and values are lists of (question, answer) tuples.
 
         Args:
-            day_block (str): Block of text for a specific day.
+            day_block (str): The markdown text block for a single day's TPRS entries.
 
         Returns:
-            list: List of notes for the day.
+            tuple: A tuple containing:
+                - collections.defaultdict(list) or None: A dictionary of TPRS Q&A
+                  for the day, or None if the block is empty.
+                - str or None: The date string (YYYY/MM/DD) for the block, or None.
         """
         if not day_block.strip():
             return None, None
@@ -1263,6 +1515,19 @@ class TprsCreation(DiaryHandler):
         return result, date
 
     def _create_tprs_audio_generic(self, day_block, date, suffix=""):
+        """Generates a TPRS audio lesson for a given day's content.
+
+        This is a generic helper function used by specific TPRS audio creation methods.
+        It synthesizes audio for sentences, questions, and answers, adding pauses
+        and silences as configured. The final audio is saved as an MP3 file.
+
+        Args:
+            day_block (dict): A dictionary where keys are sentences and values are
+                              lists of (question, answer) tuples for a specific day.
+            date (str): The date string (YYYY/MM/DD) for the lesson.
+            suffix (str, optional): A suffix to append to the output filename
+                                    (e.g., "_enhanced", "_future"). Defaults to "".
+        """
         tprs_audio_lesson_filepath = os.path.join(
             self.output_dir,
             "TPRS",
@@ -1345,28 +1610,53 @@ class TprsCreation(DiaryHandler):
 
         e.stop()
 
-        playlist_media = [AudioSegment.from_mp3(mp3_file) for mp3_file in media_files]
+        playlist_media = [AudioSegment.from_wav(wav_file) for wav_file in media_files] # Corrected from_mp3 to from_wav
         combined = AudioSegment.empty()
         for segment in playlist_media:
             for _ in range(self.config["tts"]["repeat_sentence_tprs"]):
                 combined += segment
-                combined += pause_segment
+                # Removed redundant pause_segment addition here as pauses are already in media_files
 
         combined.export(tprs_audio_lesson_filepath, format="mp3")
 
-        for f in np.unique(media_files):
-            os.remove(f)
+        for f in np.unique(media_files): # Ensure all temporary .wav files are removed
+            if os.path.exists(f):
+                os.remove(f)
 
     def create_tprs_audio(self, day_block, date):
+        """Creates standard TPRS audio for a given day's block.
+
+        Args:
+            day_block (dict): Parsed TPRS content for the day.
+            date (str): Date string for the lesson.
+        """
         self._create_tprs_audio_generic(day_block, date)
 
     def create_tprs_enhanced_audio(self, day_block, date):
+        """Creates enhanced TPRS audio for a given day's block.
+
+        Args:
+            day_block (dict): Parsed TPRS content for the day.
+            date (str): Date string for the lesson.
+        """
         self._create_tprs_audio_generic(day_block, date, suffix="_enhanced")
 
     def create_tprs_future_audio(self, day_block, date):
+        """Creates future tense TPRS audio for a given day's block.
+
+        Args:
+            day_block (dict): Parsed TPRS content for the day.
+            date (str): Date string for the lesson.
+        """
         self._create_tprs_audio_generic(day_block, date, suffix="_future")
 
     def create_tprs_present_audio(self, day_block, date):
+        """Creates present tense TPRS audio for a given day's block.
+
+        Args:
+            day_block (dict): Parsed TPRS content for the day.
+            date (str): Date string for the lesson.
+        """
         self._create_tprs_audio_generic(day_block, date, suffix="_present")
 
     def _convert_tts_tprs_entries(
@@ -1376,7 +1666,25 @@ class TprsCreation(DiaryHandler):
         create_func: Callable,
         label: str = "",
     ):
-        """Internal method to convert diary entries to TPRS audio entries."""
+        """Internal helper to convert TPRS markdown entries to TPRS audio.
+
+        Reads TPRS data from a markdown file, parses it, and then uses a
+        creation function to generate audio for each day's entries.
+
+        Args:
+            markdown_path_candidates (list[str]): A list of possible paths to the
+                                                  TPRS markdown file. The first
+                                                  existing path will be used.
+            parse_func (Callable): Function to parse a day block of TPRS markdown.
+                                   Should return parsed data and date.
+            create_func (Callable): Function to create TPRS audio from parsed data.
+                                    Takes parsed data and date as arguments.
+            label (str, optional): A label for logging purposes (e.g., "enhanced ").
+                                   Defaults to "".
+
+        Raises:
+            FileNotFoundError: If no valid markdown path is found from the candidates.
+        """
         self.validate_arguments()
 
         # Select the first existing path from candidates
@@ -1398,7 +1706,7 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"All diary entries converted into {label}TPRS entries")
 
     def convert_tts_tprs_entries(self):
-        """Convert diary entries into standard TPRS audio entries."""
+        """Converts standard TPRS markdown entries into TPRS audio lessons."""
         self._convert_tts_tprs_entries(
             markdown_path_candidates=[
                 self.markdown_script_generated_tprs_all_path,
@@ -1410,7 +1718,7 @@ class TprsCreation(DiaryHandler):
         )
 
     def convert_tts_tprs_enhanced_entries(self):
-        """Convert diary entries into enhanced TPRS audio entries."""
+        """Converts enhanced TPRS markdown entries into TPRS audio lessons."""
         self._convert_tts_tprs_entries(
             markdown_path_candidates=[
                 self.markdown_script_generated_tprs_enhanced_all_path,
@@ -1422,7 +1730,7 @@ class TprsCreation(DiaryHandler):
         )
 
     def convert_tts_tprs_future_entries(self):
-        """Convert diary entries into future-tense TPRS audio entries."""
+        """Converts future tense TPRS markdown entries into TPRS audio lessons."""
         self._convert_tts_tprs_entries(
             markdown_path_candidates=[
                 self.markdown_script_generated_tprs_future_all_path,
@@ -1434,7 +1742,7 @@ class TprsCreation(DiaryHandler):
         )
 
     def convert_tts_tprs_present_entries(self):
-        """Convert diary entries into present-tense TPRS audio entries."""
+        """Converts present tense TPRS markdown entries into TPRS audio lessons."""
         self._convert_tts_tprs_entries(
             markdown_path_candidates=[
                 self.markdown_script_generated_tprs_present_all_path,
@@ -1446,6 +1754,20 @@ class TprsCreation(DiaryHandler):
         )
 
     def openai_tprs_enhanced(self, study_language_sentence, qa_org_dict):
+        """Generates an enhanced TPRS teaching block using OpenAI.
+
+        Rewrites a given sentence and its original Q&A block for better clarity,
+        fluency, and TTS compatibility.
+
+        Args:
+            study_language_sentence (str): The original sentence in the study language.
+            qa_org_dict (dict): The original TPRS question and answer dictionary
+                                for the sentence.
+
+        Returns:
+            dict: A new TPRS Q&A dictionary where the key is the revised sentence
+                  and the value is a dictionary of new circling-style questions and answers.
+        """
         # study_language_sentence = next(iter(qa_org_dict))
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
@@ -1512,6 +1834,21 @@ class TprsCreation(DiaryHandler):
         return qa_dict
 
     def openai_tprs_future(self, study_language_sentence, qa_org_dict):
+        """Generates a future tense TPRS teaching block using OpenAI.
+
+        Transforms a given sentence and its original Q&A block into the future tense,
+        enhancing it for clarity, fluency, and TTS compatibility.
+
+        Args:
+            study_language_sentence (str): The original sentence in the study language.
+            qa_org_dict (dict): The original TPRS question and answer dictionary
+                                for the sentence.
+
+        Returns:
+            dict: A new TPRS Q&A dictionary where the key is the revised sentence
+                  (in future tense) and the value is a dictionary of new, future-oriented
+                  circling-style questions and answers.
+        """
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1573,6 +1910,21 @@ class TprsCreation(DiaryHandler):
         return qa_dict
 
     def openai_tprs_present(self, study_language_sentence, qa_org_dict):
+        """Generates a present tense TPRS teaching block using OpenAI.
+
+        Transforms a given sentence and its original Q&A block into the present tense,
+        enhancing it for clarity, fluency, and TTS compatibility.
+
+        Args:
+            study_language_sentence (str): The original sentence in the study language.
+            qa_org_dict (dict): The original TPRS question and answer dictionary
+                                for the sentence.
+
+        Returns:
+            dict: A new TPRS Q&A dictionary where the key is the revised sentence
+                  (in present tense) and the value is a dictionary of new, present-oriented
+                  circling-style questions and answers.
+        """
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1634,6 +1986,19 @@ class TprsCreation(DiaryHandler):
         return qa_dict
 
     def openai_tprs(self, study_language_sentence):
+        """Generates TPRS questions and answers for a given sentence using OpenAI.
+
+        The generated Q&A aims to be natural, logically sound, and suitable for TTS.
+        It considers the emotional tone and style of the input sentence.
+
+        Args:
+            study_language_sentence (str): The sentence in the study language for which
+                                           to generate TPRS content.
+
+        Returns:
+            dict: A dictionary where keys are numbers (as strings, starting from "1")
+                  and values are dictionaries, each containing a "question" and "answer".
+        """
         # Define the prompt
 
         prompt = f"""
@@ -1729,6 +2094,18 @@ class TprsCreation(DiaryHandler):
         return qa_dict
 
     def create_tprs_block_day(self, study_language_sentences):
+        """Creates a markdown block of TPRS content for a list of sentences for one day.
+
+        For each sentence, it generates TPRS questions and answers using `openai_tprs`
+        and formats them into a markdown string.
+
+        Args:
+            study_language_sentences (list[str]): A list of sentences in the study
+                                                  language for a single day.
+
+        Returns:
+            str: A multiline string containing the formatted TPRS content for the day.
+        """
         multiline_text = ""
 
         for study_language_sentence in study_language_sentences:
@@ -1745,6 +2122,19 @@ class TprsCreation(DiaryHandler):
         return multiline_text
 
     def create_tprs_other_version_block_day(self, qa_tprs_day_dict):
+        """Creates a markdown block for alternative TPRS versions (e.g., enhanced, future).
+
+        Formats a given dictionary of TPRS Q&A (where keys are sentences) into
+        a markdown string.
+
+        Args:
+            qa_tprs_day_dict (dict): A dictionary where keys are study language sentences
+                                     (potentially revised) and values are dictionaries
+                                     of their corresponding TPRS questions and answers.
+
+        Returns:
+            str: A multiline string containing the formatted TPRS content for the day.
+        """
         multiline_text = ""
         for study_language_sentence, qa_dict in qa_tprs_day_dict.items():
 
@@ -1759,6 +2149,16 @@ class TprsCreation(DiaryHandler):
         return multiline_text
 
     def read_tprs_to_dict(self):
+        """Reads the main TPRS markdown file and parses it into a structured dictionary.
+
+        The dictionary is keyed by date (datetime.date objects). Each date entry
+        contains another dictionary where keys are sentences and values are
+        dictionaries of TPRS questions and answers (keyed by number string).
+
+        Returns:
+            dict or None: The parsed TPRS content as a nested dictionary,
+                          or None if the TPRS markdown file does not exist.
+        """
         if os.path.exists(self.markdown_script_generated_tprs_all_path):
             content = self.read_markdown_file(
                 self.markdown_script_generated_tprs_all_path
@@ -1787,6 +2187,18 @@ class TprsCreation(DiaryHandler):
         return tprs_dict
 
     def check_missing_sentences_from_existing_tprs(self):
+        """Checks for sentences in the diary that are missing from TPRS content.
+
+        Compares sentences in the main diary with those in the parsed TPRS dictionary.
+        If a sentence from the diary is not found in the TPRS content for that day,
+        it generates new TPRS Q&A for that sentence using `openai_tprs`.
+        The updated TPRS content (including new and existing entries) is then
+        written back to the TPRS markdown file.
+
+        Returns:
+            dict or None: The updated TPRS dictionary, or None if the initial TPRS
+                          file doesn't exist.
+        """
         # TODO: ceate code to check if a new sentence was added manually to the main diary, but now missing from the individual TPRS lesson for a day
         tprs_dict = self.read_tprs_to_dict()
 
@@ -1795,7 +2207,11 @@ class TprsCreation(DiaryHandler):
 
         diary_dict = self.markdown_diary_to_dict()
         new_tprs_dict = {}  # to preserver order and add missing sentences if applicable
-        for date_diary in tprs_dict.keys():
+        # Iterate over diary dates to ensure all diary entries are considered
+        for date_diary in diary_dict.keys():
+            if date_diary not in tprs_dict: # If date is not in TPRS, create new entry
+                 tprs_dict[date_diary] = {}
+
             diary_day_dict = diary_dict[date_diary]
             diary_day_dict_all_sentences = [
                 s["study_language_sentence"]
@@ -1804,6 +2220,7 @@ class TprsCreation(DiaryHandler):
             new_tprs_dict[date_diary] = dict()
             for sentence in diary_day_dict_all_sentences:
                 new_tprs_dict[date_diary][sentence] = dict()
+                # Check if sentence is in the TPRS dict for that date
                 if sentence not in tprs_dict[date_diary].keys():
                     self.config[
                         "overwrite_tprs_audio"
@@ -1823,6 +2240,19 @@ class TprsCreation(DiaryHandler):
         return new_tprs_dict
 
     def _write_tprs_dict_to_md_generic(self, tprs_dict, all_path, file_suffix=""):
+        """Generic function to write a TPRS dictionary to markdown files.
+
+        Writes a combined markdown file containing all TPRS entries, and also
+        individual markdown files for each day.
+
+        Args:
+            tprs_dict (dict): The TPRS dictionary to write. Keyed by date, then
+                              sentence, then Q&A.
+            all_path (str): Path to the combined TPRS markdown file.
+            file_suffix (str, optional): Suffix to append to individual day
+                                         markdown filenames (e.g., "_enhanced").
+                                         Defaults to "".
+        """
         with open(all_path, "w", encoding="utf-8") as file:
             for date_diary, sentence_dict in tprs_dict.items():
                 file.write(
@@ -1869,6 +2299,13 @@ class TprsCreation(DiaryHandler):
                     file.write("\n")
 
     def write_tprs_dict_to_md(self, tprs_dict):
+        """Writes the standard TPRS dictionary to markdown files.
+
+        Uses `_write_tprs_dict_to_md_generic` for the actual writing.
+
+        Args:
+            tprs_dict (dict): The standard TPRS dictionary.
+        """
         self._write_tprs_dict_to_md_generic(
             tprs_dict,
             all_path=self.markdown_script_generated_tprs_all_path,
@@ -1876,6 +2313,13 @@ class TprsCreation(DiaryHandler):
         )
 
     def write_tprs_enhanced_dict_to_md(self, tprs_dict):
+        """Writes the enhanced TPRS dictionary to markdown files.
+
+        Uses `_write_tprs_dict_to_md_generic` with an "_enhanced" suffix.
+
+        Args:
+            tprs_dict (dict): The enhanced TPRS dictionary.
+        """
         self._write_tprs_dict_to_md_generic(
             tprs_dict,
             all_path=self.markdown_script_generated_tprs_enhanced_all_path,
@@ -1883,6 +2327,13 @@ class TprsCreation(DiaryHandler):
         )
 
     def write_tprs_future_dict_to_md(self, tprs_dict):
+        """Writes the future tense TPRS dictionary to markdown files.
+
+        Uses `_write_tprs_dict_to_md_generic` with a "_future" suffix.
+
+        Args:
+            tprs_dict (dict): The future tense TPRS dictionary.
+        """
         self._write_tprs_dict_to_md_generic(
             tprs_dict,
             all_path=self.markdown_script_generated_tprs_future_all_path,
@@ -1890,6 +2341,13 @@ class TprsCreation(DiaryHandler):
         )
 
     def write_tprs_present_dict_to_md(self, tprs_dict):
+        """Writes the present tense TPRS dictionary to markdown files.
+
+        Uses `_write_tprs_dict_to_md_generic` with a "_present" suffix.
+
+        Args:
+            tprs_dict (dict): The present tense TPRS dictionary.
+        """
         self._write_tprs_dict_to_md_generic(
             tprs_dict,
             all_path=self.markdown_script_generated_tprs_present_all_path,
@@ -1903,6 +2361,22 @@ class TprsCreation(DiaryHandler):
         version_suffix,
         get_tprs_block_day_text_fn,
     ):
+        """Generic function to add missing TPRS entries to a TPRS markdown file.
+
+        Compares dates in the diary with dates in the specified TPRS file.
+        For any missing dates, it generates new TPRS content using
+        `get_tprs_block_day_text_fn` and appends it.
+        Updates both the combined TPRS file and individual day files.
+
+        Args:
+            tprs_path (str): Path to the existing TPRS markdown file to check.
+            tprs_all_path (str): Path to the combined TPRS markdown file to write/update.
+            version_suffix (str): Suffix for versioning (e.g., "enhanced", "future").
+                                  Used for logging and filenames.
+            get_tprs_block_day_text_fn (Callable): Function to generate the TPRS
+                                                   markdown text for a day's sentences
+                                                   or existing Q&A.
+        """
         dates_tprs = self.extract_dates_from_md(tprs_path)
         diary_path = self.markdown_script_generated_diary_path
         dates_diary = self.extract_dates_from_md(diary_path)
@@ -1965,6 +2439,10 @@ class TprsCreation(DiaryHandler):
                     file.write("\n\n")
 
     def add_missing_tprs(self):
+        """Adds missing entries to the standard TPRS markdown file.
+
+        Uses `create_tprs_block_day` to generate content for missing dates.
+        """
         self._add_missing_tprs_generic(
             tprs_path=self.markdown_tprs_path,
             tprs_all_path=self.markdown_script_generated_tprs_all_path,
@@ -1973,6 +2451,10 @@ class TprsCreation(DiaryHandler):
         )
 
     def add_missing_tprs_enhanced(self):
+        """Adds missing entries to the enhanced TPRS markdown file.
+
+        Uses `openai_tprs_enhanced` to generate content for missing dates.
+        """
         self._add_missing_tprs_generic(
             tprs_path=self.markdown_tprs_enhanced_path,
             tprs_all_path=self.markdown_script_generated_tprs_enhanced_all_path,
@@ -1981,6 +2463,10 @@ class TprsCreation(DiaryHandler):
         )
 
     def add_missing_tprs_future(self):
+        """Adds missing entries to the future tense TPRS markdown file.
+
+        Uses `openai_tprs_future` to generate content for missing dates.
+        """
         self._add_missing_tprs_generic(
             tprs_path=self.markdown_tprs_future_path,
             tprs_all_path=self.markdown_script_generated_tprs_future_all_path,
@@ -1989,6 +2475,10 @@ class TprsCreation(DiaryHandler):
         )
 
     def add_missing_tprs_present(self):
+        """Adds missing entries to the present tense TPRS markdown file.
+
+        Uses `openai_tprs_present` to generate content for missing dates.
+        """
         self._add_missing_tprs_generic(
             tprs_path=self.markdown_tprs_present_path,
             tprs_all_path=self.markdown_script_generated_tprs_present_all_path,
@@ -1998,6 +2488,14 @@ class TprsCreation(DiaryHandler):
 
 
 def main():
+    """Main function to run the diary and TPRS processing workflow.
+
+    Initializes DiaryHandler, prompts for new entries, completes translations,
+    and converts entries to an Anki deck.
+    Then, initializes TprsCreation, checks for missing TPRS sentences,
+    adds missing TPRS content for all versions (standard, enhanced, future, present),
+    and finally converts all TPRS markdown entries to audio.
+    """
     diary_instance = DiaryHandler()
     diary_instance.prompt_new_diary_entry()
     diary_instance.diary_complete_translations()
