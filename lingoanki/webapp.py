@@ -6,6 +6,7 @@ import re
 import subprocess
 import time
 import zipfile
+from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -358,7 +359,15 @@ def generate_lessons():
             tprs_instance = TprsCreation(config_path=user_config_path)
             tprs_instance.check_missing_sentences_from_existing_tprs()
             tprs_instance.add_missing_tprs()
+            tprs_instance.add_missing_tprs_enhanced()
+            tprs_instance.add_missing_tprs_future()
+            tprs_instance.add_missing_tprs_present()
+
             tprs_instance.convert_tts_tprs_entries()
+            tprs_instance.convert_tts_tprs_enhanced_entries()
+            tprs_instance.convert_tts_tprs_future_entries()
+            tprs_instance.convert_tts_tprs_present_entries()
+
             tprs_instance.stop()
 
         except subprocess.CalledProcessError as e:
@@ -606,11 +615,37 @@ def view_markdown(filename):
     md_tprs_filename = filename.replace(".mp3", ".md")
     md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
 
-    mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
-    mp3_files = sorted(set(mp3_files), reverse=True)
+    # Extract base and variant for dropdown repopulation
+    match = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", filename)
+    if match:
+        selected_base, variant_suffix = match.groups()
+        selected_variant = (variant_suffix or "").lstrip("_") or "original"
+    else:
+        selected_base = filename.replace(".mp3", "")
+        selected_variant = "original"
 
+    # Gather mp3 variants like in play_audio_page
+    variants_by_base = defaultdict(list)
+    if os.path.exists(session["tprs_folder"]):
+        for f in os.listdir(session["tprs_folder"]):
+            if f.endswith(".mp3"):
+                m = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", f)
+                if m:
+                    base, var = m.groups()
+                    variants_by_base[base].append((var or "original", f))
+
+    display_items = []
+    for base, variants in variants_by_base.items():
+        parts = base.split("_TPRS_")
+        display = parts[1] if len(parts) == 2 else base
+        display_items.append((base, display, dict(variants)))
+
+    display_items.sort(key=lambda x: x[1], reverse=True)
+
+    # Read content
     date = extract_date(md_tprs_filename)
     match_daily_diary = find_matching_md_file(date, session["daily_audio_folder"])
+    content_daily_diary = ""
     if match_daily_diary:
         with open(match_daily_diary, "r") as file:
             content_daily_diary = file.read()
@@ -628,25 +663,44 @@ def view_markdown(filename):
         return render_template(
             "diary_tprs_play_audio.html",
             content=html_content,
-            filename=filename,  # <---- pass it in
-            mp3_files=mp3_files,
+            filename=filename,
+            mp3_variants=display_items,
+            selected_base=selected_base,
+            selected_variant=selected_variant,
         )
     else:
         return f"Markdown file for {filename} not found", 404
 
 
+def get_mp3_variants(folder):
+    variants_by_base = defaultdict(list)
+
+    if os.path.exists(folder):
+        for f in os.listdir(folder):
+            if f.endswith(".mp3"):
+                match = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", f)
+                if match:
+                    base, variant = match.groups()
+                    variants_by_base[base].append((variant or "original", f))
+
+    display_items = []
+    for base, variants in variants_by_base.items():
+        parts = base.split("_TPRS_")
+        if len(parts) == 2:
+            display = parts[1]
+        else:
+            display = base
+        display_items.append((base, display, dict(variants)))
+
+    display_items.sort(key=lambda x: x[1], reverse=True)
+    return display_items
+
+
 @app.route("/play_audio")
 @login_required
 def play_audio_page():
-    if not os.path.exists(session["tprs_folder"]):
-        mp3_files = []
-    else:
-        mp3_files = [
-            f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")
-        ]
-        mp3_files = sorted(set(mp3_files), reverse=True)
-
-    return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
+    mp3_variants = get_mp3_variants(session["tprs_folder"])
+    return render_template("diary_tprs_play_audio.html", mp3_variants=mp3_variants)
 
 
 @app.route("/download_markdown/<filename>")
