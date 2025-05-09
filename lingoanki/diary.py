@@ -70,7 +70,7 @@ class DiaryHandler:
         """Initializes the DiaryHandler with configuration and sets up necessary attributes.
 
         Args:
-            config_path (str, optional): Path to the configuration file. 
+            config_path (str, optional): Path to the configuration file.
                                          Defaults to None, which then uses the default user config path.
         """
         self.config = self.load_config(config_path=config_path)
@@ -92,8 +92,8 @@ class DiaryHandler:
         """Loads the YAML configuration file.
 
         Args:
-            config_path (str, optional): The path to the configuration file. 
-                                         If None, uses the default user config path. 
+            config_path (str, optional): The path to the configuration file.
+                                         If None, uses the default user config path.
                                          Defaults to None.
 
         Returns:
@@ -446,7 +446,7 @@ class DiaryHandler:
 
         Args:
             input_string (str): The string to hash.
-            length (int, optional): The length of the unique ID to generate. 
+            length (int, optional): The length of the unique ID to generate.
                                     Defaults to 9.
 
         Returns:
@@ -513,8 +513,8 @@ class DiaryHandler:
         """Processes a single day's entries to create Anki notes and a daily audio compilation.
 
         Args:
-            day_block (tuple): A tuple containing the date (datetime.date) and 
-                               a dictionary of the day's entries. 
+            day_block (tuple): A tuple containing the date (datetime.date) and
+                               a dictionary of the day's entries.
                                The dictionary includes a title and sentences.
 
         Returns:
@@ -598,7 +598,7 @@ class DiaryHandler:
                   language sentence is empty.
                 - str or None: The path to the generated audio file, or None if no
                   audio was created.
-        
+
         Raises:
             ValueError: If an unsupported TTS model is specified in the config.
         """
@@ -1190,7 +1190,7 @@ class TprsCreation(DiaryHandler):
         for TPRS output and fetches titles for TPRS and diary entries.
 
         Args:
-            config_path (str, optional): Path to the configuration file. 
+            config_path (str, optional): Path to the configuration file.
                                          Defaults to None.
         """
         super().__init__(config_path)
@@ -1610,7 +1610,9 @@ class TprsCreation(DiaryHandler):
 
         e.stop()
 
-        playlist_media = [AudioSegment.from_wav(wav_file) for wav_file in media_files] # Corrected from_mp3 to from_wav
+        playlist_media = [
+            AudioSegment.from_wav(wav_file) for wav_file in media_files
+        ]  # Corrected from_mp3 to from_wav
         combined = AudioSegment.empty()
         for segment in playlist_media:
             for _ in range(self.config["tts"]["repeat_sentence_tprs"]):
@@ -1619,7 +1621,7 @@ class TprsCreation(DiaryHandler):
 
         combined.export(tprs_audio_lesson_filepath, format="mp3")
 
-        for f in np.unique(media_files): # Ensure all temporary .wav files are removed
+        for f in np.unique(media_files):  # Ensure all temporary .wav files are removed
             if os.path.exists(f):
                 os.remove(f)
 
@@ -2209,8 +2211,8 @@ class TprsCreation(DiaryHandler):
         new_tprs_dict = {}  # to preserver order and add missing sentences if applicable
         # Iterate over diary dates to ensure all diary entries are considered
         for date_diary in diary_dict.keys():
-            if date_diary not in tprs_dict: # If date is not in TPRS, create new entry
-                 tprs_dict[date_diary] = {}
+            if date_diary not in tprs_dict:  # If date is not in TPRS, create new entry
+                tprs_dict[date_diary] = {}
 
             diary_day_dict = diary_dict[date_diary]
             diary_day_dict_all_sentences = [
