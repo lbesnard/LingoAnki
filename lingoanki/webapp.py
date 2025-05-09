@@ -35,7 +35,12 @@ from flask_babel import Babel
 from flask_babel import gettext as _
 from platformdirs import user_config_dir
 
-from lingoanki.diary import APP_NAME, DiaryHandler, TprsCreation
+from lingoanki.diary import (
+    APP_NAME,
+    DiaryHandler,
+    TprsCreation,
+    main as main_diary_tprs,
+)
 
 # Create an in-memory buffer to capture logs
 log_stream = io.StringIO()
@@ -350,26 +355,27 @@ def generate_lessons():
         try:
             user_config_path = session["user_config_path"]
 
-            # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
-            diary_instance = DiaryHandler(config_path=user_config_path)
-            diary_instance.diary_complete_translations()
-            diary_instance.convert_diary_entries_to_ankideck()
-            diary_instance.stop()
-
-            tprs_instance = TprsCreation(config_path=user_config_path)
-            tprs_instance.check_missing_sentences_from_existing_tprs()
-            tprs_instance.add_missing_tprs()
-            tprs_instance.add_missing_tprs_enhanced()
-            tprs_instance.add_missing_tprs_future()
-            tprs_instance.add_missing_tprs_present()
-
-            tprs_instance.convert_tts_tprs_entries()
-            tprs_instance.convert_tts_tprs_enhanced_entries()
-            tprs_instance.convert_tts_tprs_future_entries()
-            tprs_instance.convert_tts_tprs_present_entries()
-
-            tprs_instance.stop()
-
+            main_diary_tprs(config_path=user_config_path)
+            # # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
+            # diary_instance = DiaryHandler(config_path=user_config_path)
+            # diary_instance.diary_complete_translations()
+            # diary_instance.convert_diary_entries_to_ankideck()
+            # diary_instance.stop()
+            #
+            # tprs_instance = TprsCreation(config_path=user_config_path)
+            # tprs_instance.check_missing_sentences_from_existing_tprs()
+            # tprs_instance.add_missing_tprs()
+            # tprs_instance.add_missing_tprs_enhanced()
+            # tprs_instance.add_missing_tprs_future()
+            # tprs_instance.add_missing_tprs_present()
+            #
+            # tprs_instance.convert_tts_tprs_entries()
+            # tprs_instance.convert_tts_tprs_enhanced_entries()
+            # tprs_instance.convert_tts_tprs_future_entries()
+            # tprs_instance.convert_tts_tprs_present_entries()
+            #
+            # tprs_instance.stop()
+            #
         except subprocess.CalledProcessError as e:
             app.logger.error("generate_tprs.py failed")
 
