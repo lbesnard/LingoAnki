@@ -906,7 +906,7 @@ class DiaryHandler:
         could you create in no more than 5/6 words a catchy title about them?
         - Don't use commas, exclamation marks, column.
         - if you need a comma, use a -
-        - Use the {self.config["languages"]["output_script"]} of the target language. Default to native if not available.
+        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
 
 
         give the result as text in {self.config["languages"]["study_language"]}
@@ -956,7 +956,7 @@ class DiaryHandler:
         - if the primary_language_sentence has reference about I, as me, you should know that my gender is {self.config["gender"]} as this will be useful to have the proper grammar and ending on words
         - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {self.config["languages"]["study_language"]}.
         - In addition, when generating text for non-English languages, expand non-spoken abbreviations according to natural usage in that language (e.g., in French, 'km/h' ➔ 'kilomètres par heure').
-        - Use the {self.config["languages"]["output_script"]} for the "study_language_sentence" field. Default to native script if not available.
+        - Use the {self.config["languages"]["output_script"]} script for the "study_language_sentence" field in {self.config["languages"]["study_language"]}.
 
         Example output format:
 
@@ -2120,7 +2120,7 @@ class TprsCreation(DiaryHandler):
         - Ensure the final output is a single valid JSON object.
         - The **key** must be the revised sentence as a natural language string in {self.config["languages"]["study_language"]}.
         - The **value** must be a dictionary of circling-style questions and answers, where keys are strings of integers starting from "1".
-        - Use the {self.config["languages"]["output_script"]} for all generated text in {self.config["languages"]["study_language"]}. Default to native script if not available.
+        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
 
         For example:
 
@@ -2198,7 +2198,7 @@ class TprsCreation(DiaryHandler):
         - Ensure the final output is a single valid JSON object.
         - The **key** must be the revised sentence in future tense, as a natural sentence in {self.config["languages"]["study_language"]}.
         - The **value** must be a dictionary of circling-style questions and answers, with string keys starting from "1".
-        - Use the {self.config["languages"]["output_script"]} for all generated text in {self.config["languages"]["study_language"]}. Default to native script if not available.
+        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
 
         For example:
 
@@ -2275,7 +2275,7 @@ class TprsCreation(DiaryHandler):
         - Ensure the final output is a single valid JSON object.
         - The **key** must be the revised sentence in present tense, as a natural sentence in {self.config["languages"]["study_language"]}.
         - The **value** must be a dictionary of circling-style questions and answers, with string keys starting from "1".
-        - Use the {self.config["languages"]["output_script"]} for all generated text in {self.config["languages"]["study_language"]}. Default to native script if not available.
+        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
 
         For example:
 
@@ -2355,7 +2355,7 @@ class TprsCreation(DiaryHandler):
         - **You can explore the setting, emotional dynamics, or deeper meanings behind the actions in the sentence.**
         - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {self.config["languages"]["study_language"]}.
         - In addition, when generating text for non-English languages, expand non-spoken abbreviations according to natural usage in that language (e.g., in French, 'km/h' ➔ 'kilomètres par heure').
-        - Use the {self.config["languages"]["output_script"]} for all generated text in {self.config["languages"]["study_language"]}. Default to native script if not available.
+        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
 
          ### Example 1 – Neutral:
         Input sentence: "Fredag var Johanne veldig syk. Vi ble hjemme og dro for å fiske med Emil og Mati. Jeg var den første som fanget noe – min første norske fisk."
