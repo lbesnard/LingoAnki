@@ -2370,21 +2370,24 @@ class TprsCreation(DiaryHandler):
         return new_or_updated_tprs_dict_for_standard
 
 
-def main(config_path=None):
+def main(config_path=None, run_interactive_prompts=False):
     """Main function to run the diary and TPRS processing workflow.
 
     Args:
         config_path (str, optional): Path to the configuration file.
                                      Defaults to None, which uses the default user config path.
+        run_interactive_prompts (bool, optional): Whether to prompt the user for new diary entries.
+                                                  Defaults to False.
 
-    Initializes DiaryHandler, prompts for new entries, completes translations,
-    and converts entries to an Anki deck.
+    Initializes DiaryHandler, prompts for new entries (if run_interactive_prompts is True),
+    completes translations, and converts entries to an Anki deck.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
     and finally converts all TPRS markdown entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
-    diary_instance.prompt_new_diary_entry()
+    if run_interactive_prompts:
+        diary_instance.prompt_new_diary_entry()
     diary_instance.diary_complete_translations()
     diary_instance.convert_diary_entries_to_ankideck()
     diary_instance.stop()
@@ -2433,4 +2436,4 @@ def main(config_path=None):
 
 
 if __name__ == "__main__":
-    main()
+    main(run_interactive_prompts=True)
