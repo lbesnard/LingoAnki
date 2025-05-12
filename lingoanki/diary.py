@@ -350,7 +350,7 @@ class DiaryHandler:
         if user_input != "y":
             return None
 
-        today_key = datetime.combine(datetime.now().date(), datetime.min.time()) # Ensure datetime.datetime key
+        today_key = datetime.now().date()
         diary[today_key] = {}
 
         sentence_number = 0
@@ -1735,23 +1735,23 @@ class TprsVariantHandler:
             # Ensure diary_date is a datetime object for comparison and dictionary key
             if isinstance(diary_date, str):
                 try:
-                    # Ensure conversion to datetime.datetime if it's a string
                     diary_date = datetime.strptime(
                         diary_date, "%Y-%m-%d"
-                    )
+                    )  # Or appropriate format
                 except ValueError:
                     try:
-                        diary_date = datetime.strptime(diary_date, "%Y/%m/%d")
+                        diary_date = datetime.strptime(diary_date, "%Y/%m/%d").date()
                     except ValueError:
                         self.logging.error(
                             f"Invalid date format '{diary_date}' from diary_dict. Skipping."
                         )
                         continue
 
-            # diary_date is datetime.datetime (from diary_dict or parsed string)
-            # variant_tprs_content_dict and base_tprs_dict are keyed by datetime.datetime.
-            # So, use diary_date directly as diary_date_key.
-            diary_date_key = diary_date
+            # Convert to date object if it's datetime, for consistency with dict keys if they are dates
+            if isinstance(diary_date, datetime):
+                diary_date_key = diary_date.date()
+            else:  # Assuming it's already a date object
+                diary_date_key = diary_date
 
             # Ensure the date entry exists in the variant's content dictionary
             if diary_date_key not in variant_tprs_content_dict:
@@ -2485,11 +2485,10 @@ class TprsCreation(DiaryHandler):
         made_changes = False
 
         for date_diary_key, day_entry_in_diary in diary_dict.items():
-            # date_diary_key from diary_dict is datetime.datetime
-            # new_or_updated_tprs_dict_for_standard (from standard_variant._read_variant_tprs_to_dict)
-            # is also keyed by datetime.datetime.
-            # So, use date_diary_key directly.
+            # Ensure date_diary_key is a datetime.date object if tprs_dict uses date objects as keys
             current_date_key = date_diary_key
+            if isinstance(date_diary_key, datetime):  # Convert if it's datetime
+                current_date_key = date_diary_key.date()
 
             if current_date_key not in new_or_updated_tprs_dict_for_standard:
                 new_or_updated_tprs_dict_for_standard[current_date_key] = {}
@@ -2515,6 +2514,7 @@ class TprsCreation(DiaryHandler):
                     continue
 
                 if study_lang_sentence not in current_day_tprs_sentences_data:
+                    breakpoint()
                     self.logging.info(
                         f"Standard TPRS: Missing sentence '{study_lang_sentence}' from diary on {current_date_key}. Generating."
                     )
