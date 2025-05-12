@@ -1965,10 +1965,17 @@ class TprsCreation(DiaryHandler):
         If the TPRS markdown file doesn't exist, it does nothing.
         """
         self.titles_dict = {}
-        if not os.path.exists(self.markdown_tprs_path):
+        standard_variant = self.variants[0]  # StandardTprsVariantHandler
+
+        path_to_read_titles_from = standard_variant.markdown_script_generated_path
+        if not os.path.exists(path_to_read_titles_from):
+            path_to_read_titles_from = standard_variant.markdown_path
+
+        if not os.path.exists(path_to_read_titles_from):
+            self.logging.info(f"Standard TPRS file not found at {path_to_read_titles_from} (or its original path). Cannot extract TPRS titles.")
             return
 
-        content = self.read_markdown_file(self.markdown_tprs_path)
+        content = self.read_markdown_file(path_to_read_titles_from)
         days = re.split(r"^##\s+", content, flags=re.MULTILINE)
         for day_block in days:
             if day_block.strip():
