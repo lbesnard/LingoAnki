@@ -656,12 +656,28 @@ class DiaryHandler:
             tts.save(audio_filename)
         elif self.tts_model == "piper":
             self.logging.info("Using piper-tts")
-            piper_config = {
+            piper_cfg = self.config["tts"]["piper"]
+            TTSClass = load_tts_plugin("ovos-tts-plugin-piper")
+            tts = TTSClass(config={
                 "module": "ovos-tts-plugin-piper",
-                "ovos-tts-plugin-piper": {
-                    "voice": self.config["tts"]["piper"]["voice"]
-                },
-            }
+                "ovos-tts-plugin-piper": {"voice": piper_cfg["voice"]}
+            })
+            tts.length_scale = piper_cfg["piper_length_scale_diary"]
+            audio_filename = os.path.join(
+                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
+            )
+            tts.get_tts(
+                study_language_sentence,
+                audio_filename,
+                lang=self.config["languages"]["study_language_code"],
+                voice=piper_cfg["voice"],
+            )
+            # convert to mp3
+            audio = AudioSegment.from_wav(audio_filename)
+            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
+            audio_filename = audio_filename.replace(".wav", ".mp3")
+            os.remove(audio_filename.replace(".mp3", ".wav"))
+            self.logging.info(f"{audio_filename}")
         elif self.tts_model == "bark":
             self.logging.info("Using Bark TTS")
             bark_cfg = self.config["tts"]["bark"]
@@ -698,31 +714,6 @@ class DiaryHandler:
             audio_filename = audio_filename.replace(".wav", ".mp3")
         else:
             raise ValueError(f"Unsupported TTS model: {self.tts_model}")
-
-            # Load the TTS module dynamically
-            TTSClass = load_tts_plugin(piper_config["module"])
-            e = TTSClass(config=piper_config["ovos-tts-plugin-piper"])
-
-            e.length_scale = self.config["tts"]["piper"]["piper_length_scale_diary"]
-
-            audio_filename = os.path.join(
-                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
-            )
-            e.get_tts(
-                study_language_sentence,
-                audio_filename,
-                lang=self.config["languages"]["study_language_code"],
-                voice=self.config["tts"]["piper"]["voice"],
-            )
-
-            # convert to mp3
-            audio = AudioSegment.from_wav(audio_filename)
-            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
-            audio_filename = audio_filename.replace(".wav", ".mp3")
-            os.remove(audio_filename.replace(".mp3", ".wav"))
-            self.logging.info(f"{audio_filename}")
-        else:
-            raise ValueError
 
         date = date.strftime("%Y/%m/%d")
         note = Note(
