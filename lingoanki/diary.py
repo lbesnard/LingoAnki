@@ -662,6 +662,42 @@ class DiaryHandler:
                     "voice": self.config["tts"]["piper"]["voice"]
                 },
             }
+        elif self.tts_model == "bark":
+            self.logging.info("Using Bark TTS")
+            bark_cfg = self.config["tts"]["bark"]
+            from bark import tts_to_file as bark_tts_to_file
+            audio_filename = os.path.join(
+                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
+            )
+            bark_tts_to_file(
+                text=study_language_sentence,
+                filename=audio_filename,
+                sample_rate=bark_cfg["sample_rate"],
+            )
+            # convert to mp3 if needed
+            audio = AudioSegment.from_file(audio_filename, format="wav")
+            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
+            audio_filename = audio_filename.replace(".wav", ".mp3")
+        elif self.tts_model == "melo":
+            self.logging.info("Using MeloTTS")
+            melo_cfg = self.config["tts"]["melo"]
+            TTSClass = load_tts_plugin(melo_cfg["module"])
+            tts = TTSClass(config=melo_cfg)
+            audio_filename = os.path.join(
+                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
+            )
+            tts.tts_to_file(
+                text=study_language_sentence,
+                filename=audio_filename,
+                speaker_ids=melo_cfg["speaker_ids"],
+                speed=melo_cfg["speed"],
+            )
+            # convert to mp3
+            audio = AudioSegment.from_wav(audio_filename)
+            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
+            audio_filename = audio_filename.replace(".wav", ".mp3")
+        else:
+            raise ValueError(f"Unsupported TTS model: {self.tts_model}")
 
             # Load the TTS module dynamically
             TTSClass = load_tts_plugin(piper_config["module"])
@@ -1563,10 +1599,18 @@ class TprsVariantHandler:
             f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
         )
 
-        tts_plugin_instance = PiperTTSPlugin()
-        tts_plugin_instance.length_scale = self.config["tts"]["piper"][
-            "piper_length_scale_tprs"
-        ]
+        tts_model = self.config["tts"]["model"]
+        if tts_model == "piper":
+            tts_plugin_instance = PiperTTSPlugin()
+            tts_plugin_instance.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
+        elif tts_model == "bark":
+            tts_plugin_instance = None  # handled per-sentence
+        elif tts_model == "melo":
+            melo_cfg = self.config["tts"]["melo"]
+            TTSClass = load_tts_plugin(melo_cfg["module"])
+            tts_plugin_instance = TTSClass(config=melo_cfg)
+        else:
+            raise ValueError(f"Unsupported TTS model: {tts_model}")
 
         pause_filename = os.path.join(
             tempfile.gettempdir(),
@@ -1597,12 +1641,32 @@ class TprsVariantHandler:
                     f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
                 )
                 temp_files_to_clean.add(audio_filename)
-                tts_plugin_instance.get_tts(
-                    sentence,
-                    audio_filename,
-                    lang=self.config["languages"]["study_language_code"],
-                    voice=self.config["tts"]["piper"]["voice"],
-                )
+                if tts_model == "piper":
+                    tts_plugin_instance.get_tts(
+                        sentence,
+                        audio_filename,
+                        lang=self.config["languages"]["study_language_code"],
+                        voice=self.config["tts"]["piper"]["voice"],
+                    )
+                elif tts_model == "bark":
+                    self.logging.info("Using Bark TTS for TPRS")
+                    bark_cfg = self.config["tts"]["bark"]
+                    from bark import tts_to_file as bark_tts_to_file
+                    bark_tts_to_file(
+                        text=sentence,
+                        filename=audio_filename,
+                        sample_rate=bark_cfg["sample_rate"],
+                    )
+                elif tts_model == "melo":
+                    self.logging.info("Using MeloTTS for TPRS")
+                    tts_plugin_instance.tts_to_file(
+                        text=sentence,
+                        filename=audio_filename,
+                        speaker_ids=melo_cfg["speaker_ids"],
+                        speed=melo_cfg["speed"],
+                    )
+                else:
+                    raise ValueError(f"Unsupported TTS model: {tts_model}")
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
 
