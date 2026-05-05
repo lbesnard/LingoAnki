@@ -29,17 +29,21 @@ ENV CONFIG_PATH=/app/.config/lingoDiary/config.yaml
 ENV CONFIG_ROOT=/app/.config/lingoDiary
 ENV USER_DB_FILE=/app/.config/lingoDiary/users.yaml
 
-# ✅ Only copy dependency files first to use caching and speed up deployment on code change
+# ✅ Copy only dependency manifests first — this layer is cached unless they change
 COPY pyproject.toml poetry.lock* /app/
 
-# ✅ Install dependencies first (cached if no change)
-RUN poetry config virtualenvs.in-project true
-RUN poetry install --with dev --no-root
+# ✅ Install third-party dependencies only (no source needed yet)
+RUN poetry config virtualenvs.in-project true && \
+    poetry install --with dev --no-root
 
-# RUN poetry env list
-# 🔁 Now copy the rest of the app (changing this won't invalidate install layer)
+# 🔁 Copy the actual source code (invalidates cache only on code changes, not dep changes)
 COPY lingoanki/ /app/lingoanki
 COPY README.md /app/
+
+# ✅ Install the lingoanki project itself (deps already in venv, this is fast)
+# Pre-write the hash file so the entrypoint skips re-install on a fresh container start
+RUN poetry install --with dev --no-deps && \
+    sha256sum /app/poetry.lock | awk '{print $1}' > /app/.poetry.lock.sha256
 
 # For piper
 ENV XDG_DATA_HOME=/app/.local
