@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/sync_manager.dart';
@@ -111,24 +110,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final audioFile = File(mp3Path);
     if (await audioFile.exists()) {
-      final displayName = widget.lesson['display'] as String? ?? 'LingoDiary';
       try {
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(mp3Path),
-            tag: MediaItem(
-              id: mp3Path,
-              title: displayName,
-              artist: variantName,
-            ),
-          ),
-        );
-      } catch (_) {
-        // Fall back to plain file path if background audio service isn't ready
-        try {
-          await _player.setFilePath(mp3Path);
-        } catch (_) {}
-      }
+        await _player.setFilePath(mp3Path);
+      } catch (_) {}
       if (mounted) setState(() => _audioReady = true);
     }
 

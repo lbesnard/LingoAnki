@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/diary_screen.dart';
@@ -11,16 +10,6 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.lingodiary.audio',
-      androidNotificationChannelName: 'LingoDiary Audio',
-      androidNotificationOngoing: false,
-      notificationColor: const Color(0xFF3F51B5),
-    );
-  } catch (e) {
-    debugPrint('Audio background service init failed: $e');
-  }
   runApp(const LingoDiaryApp());
 }
 
