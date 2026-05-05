@@ -46,6 +46,16 @@ class _LoginScreenState extends State<LoginScreen> {
         result['token'] as String,
         _serverController.text.trim(),
       );
+      // Fetch and cache TPRS keywords for the TPRS renderer
+      try {
+        final keywords = await ApiService.fetchTprsKeywords();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('tprs_sentence', keywords['sentence']!);
+        await prefs.setString('tprs_question', keywords['question']!);
+        await prefs.setString('tprs_answer', keywords['answer']!);
+      } catch (_) {
+        // Non-fatal: renderer will use built-in defaults
+      }
       if (mounted) {
         // Replace with main shell
         Navigator.of(context).pushReplacementNamed('/home');

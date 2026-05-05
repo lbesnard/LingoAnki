@@ -112,4 +112,44 @@ class ApiService {
     final encoded = Uri.encodeFull('$base/api/sync/file/$relPath');
     return http.get(Uri.parse(encoded), headers: headers).timeout(const Duration(minutes: 2));
   }
+
+  static Future<List<Map<String, dynamic>>> getLessonManifest(String base) async {
+    final serverBase = await _baseUrl();
+    final headers = await _authHeaders();
+    final encoded = Uri.encodeFull('$serverBase/api/sync/manifest/$base');
+    final resp = await http.get(Uri.parse(encoded), headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get lesson manifest');
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(data['manifest'] as List);
+  }
+
+  static Future<void> addDiaryEntry(String date, List<String> sentences) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .post(
+          Uri.parse('$base/api/diary/entry'),
+          headers: headers,
+          body: jsonEncode({'date': date, 'sentences': sentences}),
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      throw ApiException(resp.statusCode, body['error'] ?? 'Failed to add diary entry');
+    }
+  }
+
+  static Future<Map<String, String>> fetchTprsKeywords() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp =
+        await http.get(Uri.parse('$base/api/config'), headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get config');
+    final data = (jsonDecode(resp.body) as Map<String, dynamic>)['tprs'] as Map<String, dynamic>;
+    return {
+      'sentence': data['sentence'] as String? ?? 'SETNING:',
+      'question': data['question'] as String? ?? 'SPØRSMÅL:',
+      'answer': data['answer'] as String? ?? 'SVAR:',
+    };
+  }
 }
