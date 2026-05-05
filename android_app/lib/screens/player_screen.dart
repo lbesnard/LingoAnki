@@ -86,11 +86,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         onProgress: (msg) => setState(() => _syncMessage = msg),
         isCancelled: () => _cancelSync,
       );
-      setState(() => _syncMessage =
-          _cancelSync ? 'Cancelled.' : 'Synced $count file(s) ✓');
+      final msg = _cancelSync ? 'Sync cancelled.' : 'Synced $count file(s) ✓';
+      setState(() => _syncMessage = msg);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
+      }
       await _loadVariant(_currentVariant);
     } catch (e) {
-      setState(() => _syncMessage = 'Sync failed: $e');
+      final msg = 'Sync failed: $e';
+      setState(() => _syncMessage = msg);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+      }
     } finally {
       if (mounted) setState(() => _syncing = false);
     }

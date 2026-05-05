@@ -113,11 +113,18 @@ class ApiService {
     return http.get(Uri.parse(encoded), headers: headers).timeout(const Duration(minutes: 2));
   }
 
-  static Future<List<Map<String, dynamic>>> getLessonManifest(String base) async {
+  static Future<List<Map<String, dynamic>>> getLessonManifest(String lessonBase) async {
     final serverBase = await _baseUrl();
     final headers = await _authHeaders();
-    final encoded = Uri.encodeFull('$serverBase/api/sync/manifest/$base');
-    final resp = await http.get(Uri.parse(encoded), headers: headers).timeout(_timeout);
+    // Use pathSegments to properly percent-encode spaces and emoji in lessonBase
+    final serverUri = Uri.parse(serverBase);
+    final uri = Uri(
+      scheme: serverUri.scheme,
+      host: serverUri.host,
+      port: serverUri.port,
+      pathSegments: [...serverUri.pathSegments, 'api', 'sync', 'manifest', lessonBase],
+    );
+    final resp = await http.get(uri, headers: headers).timeout(_timeout);
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get lesson manifest');
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(data['manifest'] as List);
