@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/diary_screen.dart';
@@ -10,6 +11,12 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.lingodiary.audio',
+    androidNotificationChannelName: 'LingoDiary Audio',
+    androidNotificationOngoing: true,
+    notificationColor: const Color(0xFF3F51B5),
+  );
   runApp(const LingoDiaryApp());
 }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/sync_manager.dart';
@@ -37,6 +38,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _diaryContent = '';
   bool _diaryLoading = false;
   String? _lessonDate; // YYYY-MM-DD extracted from base name
+
+  // Font size
+  double _fontSize = 14.0;
+  static const List<double> _fontSizes = [12.0, 14.0, 16.0, 20.0];
 
   @override
   void initState() {
@@ -78,7 +83,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _kwSentence = prefs.getString('tprs_sentence') ?? 'SETNING:';
       _kwQuestion = prefs.getString('tprs_question') ?? 'SPØRSMÅL:';
       _kwAnswer = prefs.getString('tprs_answer') ?? 'SVAR:';
+      _fontSize = prefs.getDouble('player_font_size') ?? 14.0;
     });
+  }
+
+  void _cycleFontSize() async {
+    final idx = _fontSizes.indexOf(_fontSize);
+    final next = _fontSizes[(idx + 1) % _fontSizes.length];
+    setState(() => _fontSize = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('player_font_size', next);
   }
 
   Future<void> _loadVariant(String variantName) async {
@@ -96,7 +110,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final audioFile = File(mp3Path);
     if (await audioFile.exists()) {
-      await _player.setFilePath(mp3Path);
+      final displayName = widget.lesson['display'] as String? ?? 'LingoDiary';
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.file(mp3Path),
+          tag: MediaItem(
+            id: mp3Path,
+            title: displayName,
+            artist: variantName,
+          ),
+        ),
+      );
       setState(() => _audioReady = true);
     }
 
@@ -204,10 +228,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(bottom: 4),
         child: Text(
           '$_kwSentence $text',
-          style: const TextStyle(
-              color: Color(0xFF3F51B5),
+          style: TextStyle(
+              color: const Color(0xFF3F51B5),
               fontWeight: FontWeight.bold,
-              fontSize: 15),
+              fontSize: _fontSize + 1),
         ),
       );
     } else if (line.startsWith(_kwQuestion)) {
@@ -216,10 +240,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(bottom: 2, top: 4),
         child: Text(
           '$_kwQuestion $text',
-          style: const TextStyle(
-              color: Color(0xFFE65100),
+          style: TextStyle(
+              color: const Color(0xFFE65100),
               fontWeight: FontWeight.bold,
-              fontSize: 14),
+              fontSize: _fontSize),
         ),
       );
     } else if (line.startsWith(_kwAnswer)) {
@@ -228,14 +252,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(left: 12, bottom: 4),
         child: Text(
           '$_kwAnswer $text',
-          style: const TextStyle(color: Color(0xFF2E7D32), fontSize: 14),
+          style: TextStyle(color: const Color(0xFF2E7D32), fontSize: _fontSize),
         ),
       );
     } else {
       return Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Text(line,
-            style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            style: TextStyle(color: Colors.grey, fontSize: _fontSize - 1)),
       );
     }
   }
@@ -287,8 +311,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(bottom: 10),
         child: Text(
           line.substring(3).trim(),
-          style: const TextStyle(
-              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+          style: TextStyle(
+              fontSize: _fontSize + 4,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87),
         ),
       );
     }
@@ -299,8 +325,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(left: 12, bottom: 2),
         child: Text(
           text.isEmpty ? 'Forsøk: —' : 'Forsøk: $text',
-          style: const TextStyle(
-              color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+          style: TextStyle(
+              color: Colors.grey,
+              fontSize: _fontSize - 1,
+              fontStyle: FontStyle.italic),
         ),
       );
     }
@@ -311,9 +339,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(left: 12, bottom: 2),
         child: Text(
           'Rettelse: $text',
-          style: const TextStyle(
-              color: Color(0xFF2E7D32),
-              fontSize: 13,
+          style: TextStyle(
+              color: const Color(0xFF2E7D32),
+              fontSize: _fontSize - 1,
               fontWeight: FontWeight.w500),
         ),
       );
@@ -325,9 +353,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         padding: const EdgeInsets.only(left: 12, bottom: 8),
         child: Text(
           'Tips: $text',
-          style: const TextStyle(
-              color: Color(0xFFE65100),
-              fontSize: 12,
+          style: TextStyle(
+              color: const Color(0xFFE65100),
+              fontSize: _fontSize - 2,
               fontStyle: FontStyle.italic),
         ),
       );
@@ -341,7 +369,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       padding: const EdgeInsets.only(bottom: 4, top: 6),
       child: Text(
         line.trim(),
-        style: const TextStyle(fontSize: 14, color: Colors.black87),
+        style: TextStyle(fontSize: _fontSize, color: Colors.black87),
       ),
     );
   }
@@ -357,6 +385,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
         actions: [
+          // Font size cycle button
+          IconButton(
+            tooltip: 'Font size (${_fontSize.toStringAsFixed(0)})',
+            icon: const Icon(Icons.text_fields),
+            onPressed: _cycleFontSize,
+          ),
           ListenableBuilder(
             listenable: SyncManager.instance,
             builder: (_, __) {
