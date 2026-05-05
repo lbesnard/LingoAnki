@@ -622,10 +622,12 @@ def view_markdown(filename):
     md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
 
     # Extract base and variant for dropdown repopulation
-    match = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", filename)
+    match = re.match(
+        r"(.+?)(_enhanced|_present|_future)?\.mp3$", filename, re.IGNORECASE
+    )
     if match:
         selected_base, variant_suffix = match.groups()
-        selected_variant = (variant_suffix or "").lstrip("_") or "original"
+        selected_variant = (variant_suffix or "").lstrip("_").title() or "Original"
     else:
         selected_base = filename.replace(".mp3", "")
         selected_variant = "original"
@@ -660,7 +662,10 @@ def view_markdown(filename):
             selected_variant=selected_variant,
         )
     else:
-        return f"Markdown file for {filename} not found", 404
+        return (
+            f"Markdown file for {filename} not found. {selected_base} {selected_variant}",
+            404,
+        )
 
 
 def get_mp3_variants(folder):
@@ -669,10 +674,15 @@ def get_mp3_variants(folder):
     if os.path.exists(folder):
         for f in os.listdir(folder):
             if f.endswith(".mp3"):
-                match = re.match(r"(.+?)(_enhanced|_present|_future)?\.mp3$", f)
+                match = re.match(
+                    r"(.+?)(_enhanced|_present|_future)?\.mp3$", f, re.IGNORECASE
+                )
                 if match:
                     base, variant = match.groups()
-                    variants_by_base[base].append((variant or "original", f))
+                    variant_display = (
+                        variant.lstrip("_").title() if variant else "Original"
+                    )
+                    variants_by_base[base].append((variant_display, f))
 
     display_items = []
     for base, variants in variants_by_base.items():

@@ -39,20 +39,13 @@ content %}
 
   <label for="variant_select" style="flex: 1 1 100%;">{{ _('choose version') }}:</label>
   <select id="variant_select" name="variant" style="flex: 1 1 250px;">
-  <option value="original" {% if selected_variant == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
-  <option value="enhanced" {% if selected_variant == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
-  <option value="present" {% if selected_variant == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
-  <option value="future" {% if selected_variant == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
+  <option value="Original" {% if selected_variant|lower == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
+  <option value="Enhanced" {% if selected_variant|lower == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
+  <option value="Present" {% if selected_variant|lower == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
+  <option value="Future" {% if selected_variant|lower == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
+
 </select>
 
-  <!--<select id="variant_select" name="variant" style="flex: 1 1 250px;">-->
-  <!--  <option value="original">{{ _('Original') }}</option>-->
-  <!--  <option value="enhanced">{{ _('Enhanced') }}</option>-->
-  <!--  <option value="present">{{ _('Present') }}</option>-->
-  <!--  <option value="future">{{ _('Future') }}</option>-->
-  <!--</select>-->
-  <!---->
-  <!--<button type="submit" style="flex: 0 0 auto;">{{ _('choose lesson') }}</button>-->
 </form>
 
 <script>
@@ -64,7 +57,6 @@ content %}
   });
 </script>
 
-
 <script>
 document.getElementById("audioform").addEventListener("submit", function(event) {
   event.preventDefault();
@@ -72,9 +64,16 @@ document.getElementById("audioform").addEventListener("submit", function(event) 
   const variant = document.getElementById("variant_select").value;
 
   let filename = base;
-  if (variant !== "original") {
-    filename += "_" + variant;
+
+  // Add suffix only for these three variants exactly
+  if (variant === "Enhanced") {
+    filename += "_enhanced";
+  } else if (variant === "Present") {
+    filename += "_present";
+  } else if (variant === "Future") {
+    filename += "_future";
   }
+  // For "Original", no suffix
   filename += ".mp3";
 
   window.location.href = "/view_markdown/" + encodeURIComponent(filename);
@@ -85,11 +84,14 @@ document.getElementById("audioform").addEventListener("submit", function(event) 
   document.getElementById("audioform").addEventListener("submit", function(event) {
     event.preventDefault();
     const file = document.getElementById("file_select").value;
+      console.log( file);
+
     if (file) {
       window.location.href = "/view_markdown/" + encodeURIComponent(file);
     }
   });
 </script>
+
 <script>
   function playselectedfile() {
     const file = document.getElementById("file_select").value;

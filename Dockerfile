@@ -12,6 +12,7 @@ ENV PYTHONUNBUFFERED=1
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
 
+
 # Install Poetry and dependencies
 RUN apt-get update && apt-get install -y curl && \
   curl -sSL https://install.python-poetry.org | python3 - && \
@@ -23,6 +24,10 @@ RUN apt install ffmpeg -y
 
 # Set the working directory to install the python module
 WORKDIR /app
+
+ENV CONFIG_PATH=/app/.config/lingoDiary/config.yaml
+ENV CONFIG_ROOT=/app/.config/lingoDiary
+ENV USER_DB_FILE=/app/.config/lingoDiary/users.yaml
 
 # ✅ Only copy dependency files first to use caching and speed up deployment on code change
 COPY pyproject.toml poetry.lock* /app/
@@ -42,4 +47,7 @@ RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 
 EXPOSE 8084
 
-CMD [ "poetry", "run", "lingoWebapp"]
+# CMD [ "poetry", "run", "lingoWebapp"]
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

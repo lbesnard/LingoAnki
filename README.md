@@ -117,3 +117,61 @@ audio files from an Assimil course into flashcards. This script is mainly
 intended for this
 
 But one could use this script as well to convert podcasts.
+
+---
+
+## Development & Testing
+
+### Docker (local)
+
+Use `docker-compose_dev.yml` for local development. Always pass `--build` to
+force Docker to rebuild the image from the `Dockerfile` — without it, Docker
+reuses the cached image and your changes won't be picked up.
+
+```bash
+# Rebuild and start (uses Docker layer cache where possible)
+docker compose -f docker-compose_dev.yml up -d --build
+
+# Full clean rebuild (no cache — useful after Dockerfile changes)
+docker compose -f docker-compose_dev.yml up -d --build --no-cache
+
+# View logs
+docker compose -f docker-compose_dev.yml logs -f
+
+# Stop
+docker compose -f docker-compose_dev.yml down
+```
+
+> **Note:** `docker compose up -d` without `--build` will **not** rebuild the
+> image even if you've changed the `Dockerfile`.
+
+### Testing GitHub Actions locally with `act`
+
+[`act`](https://github.com/nektos/act) lets you run GitHub Actions workflows
+locally without pushing to GitHub.
+
+**Install:**
+```bash
+# macOS
+brew install act
+
+# Linux (via script)
+curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+```
+
+**Run the CI build workflow** (mirrors what runs on push/PR to `main`):
+```bash
+# Run the full build workflow (tests + package build)
+act push -W .github/workflows/build.yml
+
+# Run for a specific Python version only
+act push -W .github/workflows/build.yml --matrix python-version:3.10.14
+
+# Use a larger runner image (recommended — avoids missing-tool errors)
+act push -W .github/workflows/build.yml -P ubuntu-latest=catthehacker/ubuntu:act-latest
+```
+
+> **Tip:** The first run downloads a Docker image for the runner (~1–4 GB).
+> Subsequent runs are fast. The "Clean up directories" step in the workflow is
+> automatically skipped when running under `act` (it's only needed on
+> GitHub-hosted runners).

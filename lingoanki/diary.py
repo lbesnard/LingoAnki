@@ -357,7 +357,9 @@ class DiaryHandler:
         if user_input != "y":
             return None
 
-        today_key = datetime.combine(datetime.now().date(), datetime.min.time()) # Ensure datetime.datetime key
+        today_key = datetime.combine(
+            datetime.now().date(), datetime.min.time()
+        )  # Ensure datetime.datetime key
         diary[today_key] = {}
 
         sentence_number = 0
@@ -658,10 +660,12 @@ class DiaryHandler:
             self.logging.info("Using piper-tts")
             piper_cfg = self.config["tts"]["piper"]
             TTSClass = load_tts_plugin("ovos-tts-plugin-piper")
-            tts = TTSClass(config={
-                "module": "ovos-tts-plugin-piper",
-                "ovos-tts-plugin-piper": {"voice": piper_cfg["voice"]}
-            })
+            tts = TTSClass(
+                config={
+                    "module": "ovos-tts-plugin-piper",
+                    "ovos-tts-plugin-piper": {"voice": piper_cfg["voice"]},
+                }
+            )
             tts.length_scale = piper_cfg["piper_length_scale_diary"]
             audio_filename = os.path.join(
                 tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
@@ -682,6 +686,7 @@ class DiaryHandler:
             self.logging.info("Using Bark TTS")
             bark_cfg = self.config["tts"]["bark"]
             from bark import tts_to_file as bark_tts_to_file
+
             audio_filename = os.path.join(
                 tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
             )
@@ -1435,7 +1440,7 @@ class TprsVariantHandler:
             for date_diary, sentence_dict_for_day in tprs_variant_dict.items():
                 # Ensure date_diary is a datetime.date or datetime.datetime object for strftime
                 if not isinstance(
-                    date_diary, (datetime, datetime.date().__class__)
+                    date_diary, (datetime, datetime.date.__class__)
                 ):  # Check for date or datetime
                     self.logging.error(
                         f"Invalid date format for TPRS entry: {date_diary}. Skipping."
@@ -1470,7 +1475,7 @@ class TprsVariantHandler:
         os.makedirs(tprs_output_dir, exist_ok=True)
 
         for date_diary, sentence_dict_for_day in tprs_variant_dict.items():
-            if not isinstance(date_diary, (datetime, datetime.date().__class__)):
+            if not isinstance(date_diary, (datetime, datetime.date.__class__)):
                 continue  # Already logged
 
             title = current_titles_dict.get(
@@ -1590,18 +1595,10 @@ class TprsVariantHandler:
             f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
         )
 
-        tts_model = self.config["tts"]["model"]
-        if tts_model == "piper":
-            tts_plugin_instance = PiperTTSPlugin()
-            tts_plugin_instance.length_scale = self.config["tts"]["piper"]["piper_length_scale_tprs"]
-        elif tts_model == "bark":
-            tts_plugin_instance = None  # handled per-sentence
-        elif tts_model == "melo":
-            melo_cfg = self.config["tts"]["melo"]
-            TTSClass = load_tts_plugin(melo_cfg["module"])
-            tts_plugin_instance = TTSClass(config=melo_cfg)
-        else:
-            raise ValueError(f"Unsupported TTS model: {tts_model}")
+        tts_plugin_instance = PiperTTSPlugin()
+        tts_plugin_instance.length_scale = self.config["tts"]["piper"][
+            "piper_length_scale_tprs"
+        ]
 
         pause_filename = os.path.join(
             tempfile.gettempdir(),
@@ -1632,32 +1629,12 @@ class TprsVariantHandler:
                     f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
                 )
                 temp_files_to_clean.add(audio_filename)
-                if tts_model == "piper":
-                    tts_plugin_instance.get_tts(
-                        sentence,
-                        audio_filename,
-                        lang=self.config["languages"]["study_language_code"],
-                        voice=self.config["tts"]["piper"]["voice"],
-                    )
-                elif tts_model == "bark":
-                    self.logging.info("Using Bark TTS for TPRS")
-                    bark_cfg = self.config["tts"]["bark"]
-                    from bark import tts_to_file as bark_tts_to_file
-                    bark_tts_to_file(
-                        text=sentence,
-                        filename=audio_filename,
-                        sample_rate=bark_cfg["sample_rate"],
-                    )
-                elif tts_model == "melo":
-                    self.logging.info("Using MeloTTS for TPRS")
-                    tts_plugin_instance.tts_to_file(
-                        text=sentence,
-                        filename=audio_filename,
-                        speaker_ids=melo_cfg["speaker_ids"],
-                        speed=melo_cfg["speed"],
-                    )
-                else:
-                    raise ValueError(f"Unsupported TTS model: {tts_model}")
+                tts_plugin_instance.get_tts(
+                    sentence,
+                    audio_filename,
+                    lang=self.config["languages"]["study_language_code"],
+                    voice=self.config["tts"]["piper"]["voice"],
+                )
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
 
@@ -1741,6 +1718,211 @@ class TprsVariantHandler:
                             f"Could not remove temporary file {f_path}: {e_clean}"
                         )
 
+    # def _create_audio_for_day_block(self, day_block_data, date_str):
+    #     """Generates a TPRS audio lesson for a given day's content for this variant."""
+    #     if (
+    #         not hasattr(self.tprs_creator, "titles_diary_dict")
+    #         or not self.tprs_creator.titles_diary_dict
+    #     ):
+    #         self.tprs_creator.get_all_diary_titles()
+    #
+    #     current_titles_dict = self.tprs_creator.titles_diary_dict
+    #     try:
+    #         title_date_obj = datetime.strptime(date_str, "%Y/%m/%d")
+    #     except ValueError:
+    #         self.logging.error(
+    #             f"Invalid date string format '{date_str}' for TPRS audio generation. Skipping."
+    #         )
+    #         return
+    #
+    #     title = current_titles_dict.get(
+    #         title_date_obj,
+    #         self.tprs_creator.titles_dict.get(title_date_obj, "No Title"),
+    #     )
+    #
+    #     if not title or title == "No Title":
+    #         self.logging.warning(
+    #             f"Skipping audio for {self.variant_name} on {date_str} due to missing/default title."
+    #         )
+    #         return
+    #
+    #     base_filename = f"{self.config['tprs_lesson_name']}_TPRS_{date_str.replace('/', '-')}_{title}{self.file_suffix}.mp3"
+    #     # Sanitize filename
+    #     base_filename = re.sub(r'[\\/*?:"<>|]', "", base_filename)
+    #     tprs_audio_lesson_filepath = os.path.join(
+    #         self.config["output_dir"], "TPRS", base_filename
+    #     )
+    #
+    #     os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
+    #
+    #     if (
+    #         os.path.exists(tprs_audio_lesson_filepath)
+    #         and not self.config["overwrite_tprs_audio"]
+    #     ):
+    #         self.logging.info(
+    #             f"TPRS audio file for {self.variant_name} on {date_str} already processed: {tprs_audio_lesson_filepath}"
+    #         )
+    #         return
+    #
+    #     self.logging.info(
+    #         f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
+    #     )
+    #
+    #     tts_model = self.config["tts"]["model"]
+    #     if tts_model == "piper":
+    #         tts_plugin_instance = PiperTTSPlugin()
+    #         tts_plugin_instance.length_scale = self.config["tts"]["piper"][
+    #             "piper_length_scale_tprs"
+    #         ]
+    #     elif tts_model == "bark":
+    #         tts_plugin_instance = None  # handled per-sentence
+    #     elif tts_model == "melo":
+    #         melo_cfg = self.config["tts"]["melo"]
+    #         TTSClass = load_tts_plugin(melo_cfg["module"])
+    #         tts_plugin_instance = TTSClass(config=melo_cfg)
+    #     else:
+    #         raise ValueError(f"Unsupported TTS model: {tts_model}")
+    #
+    #     pause_filename = os.path.join(
+    #         tempfile.gettempdir(),
+    #         f"{self.tprs_creator.generate_unique_id('pause', 5)}.wav",
+    #     )
+    #     paused_duration = self.config["tts"]["pause_between_sentences_duration"]
+    #     repeat_tprs = (
+    #         self.config["tts"]["repeat_sentence_tprs"]
+    #         if self.config["tts"]["repeat_sentence_tprs"] > 0
+    #         else 1
+    #     )
+    #
+    #     # Ensure pause duration is not negative if repeat_tprs is large
+    #     actual_pause_duration = max(0, paused_duration / repeat_tprs)
+    #     pause_segment = AudioSegment.silent(duration=actual_pause_duration)
+    #     pause_segment.export(pause_filename, format="wav")
+    #
+    #     media_files = []
+    #     temp_files_to_clean = {pause_filename}  # Keep track of all temp files
+    #
+    #     try:
+    #         for sentence, tprs_qa_list in day_block_data.items():
+    #             self.logging.info(
+    #                 f"Generating audio for {self.variant_name} sentence: {sentence}"
+    #             )
+    #             audio_filename = os.path.join(
+    #                 tempfile.gettempdir(),
+    #                 f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
+    #             )
+    #             temp_files_to_clean.add(audio_filename)
+    #             if tts_model == "piper":
+    #                 tts_plugin_instance.get_tts(
+    #                     sentence,
+    #                     audio_filename,
+    #                     lang=self.config["languages"]["study_language_code"],
+    #                     voice=self.config["tts"]["piper"]["voice"],
+    #                 )
+    #             elif tts_model == "bark":
+    #                 self.logging.info("Using Bark TTS for TPRS")
+    #                 bark_cfg = self.config["tts"]["bark"]
+    #                 breakpoint()
+    #                 from bark import tts_to_file as bark_tts_to_file
+    #
+    #                 bark_tts_to_file(
+    #                     text=sentence,
+    #                     filename=audio_filename,
+    #                     sample_rate=bark_cfg["sample_rate"],
+    #                 )
+    #             elif tts_model == "melo":
+    #                 self.logging.info("Using MeloTTS for TPRS")
+    #                 tts_plugin_instance.tts_to_file(
+    #                     text=sentence,
+    #                     filename=audio_filename,
+    #                     speaker_ids=melo_cfg["speaker_ids"],
+    #                     speed=melo_cfg["speed"],
+    #                 )
+    #             else:
+    #                 raise ValueError(f"Unsupported TTS model: {tts_model}")
+    #             media_files.append(audio_filename)
+    #             media_files.append(pause_filename)
+    #
+    #             for question, answer in tprs_qa_list:
+    #                 media_files.append(pause_filename)  # Pause before question
+    #                 question_audio = os.path.join(
+    #                     tempfile.gettempdir(),
+    #                     f"{self.tprs_creator.generate_unique_id(question, 12)}.wav",
+    #                 )
+    #                 temp_files_to_clean.add(question_audio)
+    #                 tts_plugin_instance.get_tts(
+    #                     question,
+    #                     question_audio,
+    #                     lang=self.config["languages"]["study_language_code"],
+    #                     voice=self.config["tts"]["piper"]["voice"],
+    #                 )
+    #                 media_files.append(question_audio)
+    #
+    #                 silence_file = os.path.join(
+    #                     tempfile.gettempdir(),
+    #                     f"{self.tprs_creator.generate_unique_id('silence_answer', 5)}.wav",
+    #                 )
+    #                 temp_files_to_clean.add(silence_file)
+    #                 # Ensure silence duration is not negative
+    #                 actual_silence_duration = max(
+    #                     0, self.config["tts"]["answer_silence_duration"] / repeat_tprs
+    #                 )
+    #                 AudioSegment.silent(duration=actual_silence_duration).export(
+    #                     silence_file, format="wav"
+    #                 )
+    #                 media_files.append(silence_file)  # Silence for user to answer
+    #
+    #                 answer_audio = os.path.join(
+    #                     tempfile.gettempdir(),
+    #                     f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav",
+    #                 )
+    #                 temp_files_to_clean.add(answer_audio)
+    #                 tts_plugin_instance.get_tts(
+    #                     answer,
+    #                     answer_audio,
+    #                     lang=self.config["languages"]["study_language_code"],
+    #                     voice=self.config["tts"]["piper"]["voice"],
+    #                 )
+    #                 media_files.append(answer_audio)
+    #                 media_files.append(pause_filename)  # Pause after answer
+    #
+    #         tts_plugin_instance.stop()
+    #
+    #         if not media_files:
+    #             self.logging.warning(
+    #                 f"No audio segments generated for {self.variant_name} TPRS on {date_str}. Skipping MP3 export."
+    #             )
+    #             return
+    #
+    #         playlist_media = [
+    #             AudioSegment.from_wav(wav_file) for wav_file in media_files
+    #         ]
+    #         combined = AudioSegment.empty()
+    #         for segment in playlist_media:
+    #             for _ in range(repeat_tprs):
+    #                 combined += segment
+    #
+    #         combined.export(tprs_audio_lesson_filepath, format="mp3")
+    #         self.logging.info(
+    #             f"Successfully exported {self.variant_name} TPRS audio to {tprs_audio_lesson_filepath}"
+    #         )
+    #
+    #     except Exception as e:
+    #         self.logging.error(
+    #             f"Error during audio generation for {self.variant_name} TPRS on {date_str}: {e}",
+    #             exc_info=True,
+    #         )
+    #     finally:
+    #         # Clean up temporary files
+    #         for f_path in temp_files_to_clean:
+    #             if os.path.exists(f_path):
+    #                 try:
+    #                     os.remove(f_path)
+    #                 except Exception as e_clean:
+    #                     self.logging.warning(
+    #                         f"Could not remove temporary file {f_path}: {e_clean}"
+    #                     )
+
     def _read_variant_tprs_to_dict(self):
         """Reads this variant's TPRS markdown file and parses it into a structured dictionary."""
         path_to_read = self.markdown_script_generated_path
@@ -1800,9 +1982,7 @@ class TprsVariantHandler:
             if isinstance(diary_date, str):
                 try:
                     # Ensure conversion to datetime.datetime if it's a string
-                    diary_date = datetime.strptime(
-                        diary_date, "%Y-%m-%d"
-                    )
+                    diary_date = datetime.strptime(diary_date, "%Y-%m-%d")
                 except ValueError:
                     try:
                         diary_date = datetime.strptime(diary_date, "%Y/%m/%d")
@@ -1886,16 +2066,17 @@ class TprsVariantHandler:
                         )
                         continue  # Skip this sentence
 
-        if updated:
-            self.logging.info(
-                f"Updating {self.variant_name} TPRS markdown file with missing/new entries: {self.markdown_script_generated_path}"
-            )
-            sorted_tprs_variant_dict = dict(sorted(variant_tprs_content_dict.items()))
-            self.write_dict_to_md(sorted_tprs_variant_dict)
-        else:
-            self.logging.info(
-                f"No missing/new entries found or generated for {self.variant_name} TPRS based on diary."
-            )
+        # breakpoint()
+        # if updated:
+        #     self.logging.info(
+        #         f"Updating {self.variant_name} TPRS markdown file with missing/new entries: {self.markdown_script_generated_path}"
+        #     )
+        sorted_tprs_variant_dict = dict(sorted(variant_tprs_content_dict.items()))
+        self.write_dict_to_md(sorted_tprs_variant_dict)
+        # else:
+        #     self.logging.info(
+        #         f"No missing/new entries found or generated for {self.variant_name} TPRS based on diary."
+        #     )
 
 
 class StandardTprsVariantHandler(TprsVariantHandler):
@@ -1914,7 +2095,7 @@ class EnhancedTprsVariantHandler(TprsVariantHandler):
         super().__init__(
             tprs_creator,
             variant_name="Enhanced",
-            file_suffix="_Enhanced",
+            file_suffix="_enhanced",
             openai_method_name="openai_tprs_enhanced",
             needs_base_tprs_data=True,
         )
@@ -1925,7 +2106,7 @@ class FutureTprsVariantHandler(TprsVariantHandler):
         super().__init__(
             tprs_creator,
             variant_name="Future",
-            file_suffix="_Future",
+            file_suffix="_future",
             openai_method_name="openai_tprs_future",
             needs_base_tprs_data=True,
         )
@@ -1936,7 +2117,7 @@ class PresentTprsVariantHandler(TprsVariantHandler):
         super().__init__(
             tprs_creator,
             variant_name="Present",
-            file_suffix="_Present",
+            file_suffix="_present",
             openai_method_name="openai_tprs_present",
             needs_base_tprs_data=True,
         )
@@ -2036,7 +2217,9 @@ class TprsCreation(DiaryHandler):
             path_to_read_titles_from = standard_variant.markdown_path
 
         if not os.path.exists(path_to_read_titles_from):
-            self.logging.info(f"Standard TPRS file not found at {path_to_read_titles_from} (or its original path). Cannot extract TPRS titles.")
+            self.logging.info(
+                f"Standard TPRS file not found at {path_to_read_titles_from} (or its original path). Cannot extract TPRS titles."
+            )
             return
 
         content = self.read_markdown_file(path_to_read_titles_from)
@@ -2408,9 +2591,13 @@ class TprsCreation(DiaryHandler):
         - **Try to match the emotional tone or style of the sentence (e.g., casual, funny, dramatic).**
         - **Avoid repeating the same phrasing or vocabulary in both the questions and answers. Use different angles, emotions, or contextual clues to make each question unique.**
         - **You can explore the setting, emotional dynamics, or deeper meanings behind the actions in the sentence.**
-        - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {self.config["languages"]["study_language"]}.
+        - Generate a sentence that is ready to be spoken by a Text-to-Speech system. Expand abbreviations that are not normally spoken as-is (e.g., 'km/h' should become 'kilometers per hour'), but keep common spoken abbreviations (e.g., 'AM', 'PM') unchanged. Ensure the result is natural for TTS. Adapt abbreviation expansion appropriately to the target language {
+            self.config["languages"]["study_language"]
+        }.
         - In addition, when generating text for non-English languages, expand non-spoken abbreviations according to natural usage in that language (e.g., in French, 'km/h' ➔ 'kilomètres par heure').
-        - Use the {self.config["languages"]["output_script"]} script for all generated text in {self.config["languages"]["study_language"]}.
+        - Use the {
+            self.config["languages"]["output_script"]
+        } script for all generated text in {self.config["languages"]["study_language"]}.
 
          ### Example 1 – Neutral:
         Input sentence: "Fredag var Johanne veldig syk. Vi ble hjemme og dro for å fiske med Emil og Mati. Jeg var den første som fanget noe – min første norske fisk."
@@ -2520,7 +2707,6 @@ class TprsCreation(DiaryHandler):
         """
         multiline_text = ""
         for study_language_sentence, qa_dict in qa_tprs_day_dict.items():
-
             multiline_text += f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"  # Add each item with a newline
 
             for id, item in qa_dict.items():
@@ -2598,9 +2784,9 @@ class TprsCreation(DiaryHandler):
                         qa_dict_for_sentence = standard_variant.get_openai_generator()(
                             study_lang_sentence
                         )
-                        current_day_tprs_sentences_data[study_lang_sentence] = (
-                            qa_dict_for_sentence
-                        )
+                        current_day_tprs_sentences_data[
+                            study_lang_sentence
+                        ] = qa_dict_for_sentence
                         made_changes = True
                     except Exception as e:
                         self.logging.error(
