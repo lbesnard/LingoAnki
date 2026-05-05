@@ -19,7 +19,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadLessons();
+    _loadFromCacheThenServer();
     SyncManager.instance.addListener(_onSyncChanged);
   }
 
@@ -30,34 +30,64 @@ class _LessonsScreenState extends State<LessonsScreen> {
   }
 
   void _onSyncChanged() {
-    // Refresh lesson list when a global sync finishes
     if (!SyncManager.instance.isSyncing) {
-      _loadLessons();
+      _loadFromCacheThenServer();
     }
   }
 
-  Future<void> _loadLessons() async {
-    setState(() => _loading = true);
+  /// Show cached data immediately, then silently refresh from server.
+  Future<void> _loadFromCacheThenServer() async {
+    // 1. Show cache straight away (no long spinner)
+    final cached = await LocalDbService.getLessons();
+    if (mounted) {
+      setState(() {
+        _lessons = _parseCachedLessons(cached);
+        _loading = false;
+      });
+    }
+
+    // 2. Try server in background; update if it responds
     try {
       final remote = await ApiService.getLessons();
       await LocalDbService.saveLessons(remote);
-      setState(() => _lessons = remote);
+      if (mounted) setState(() => _lessons = remote);
     } catch (_) {
-      final cached = await LocalDbService.getLessons();
-      setState(() => _lessons = cached.map((row) {
-            final variantsRaw = row['variants_json'] as String;
-            Map<String, dynamic> variants = {};
-            try {
-              variants = jsonDecode(variantsRaw) as Map<String, dynamic>;
-            } catch (_) {}
-            return {
-              'base': row['base'],
-              'display': row['display'],
-              'variants': variants,
-            };
-          }).toList());
+      // Server unreachable — cached data is already showing, nothing to do
     }
-    setState(() => _loading = false);
+  }
+
+  /// Pull-to-refresh: explicitly sync all then reload.
+  Future<void> _onRefresh() async {
+    try {
+      final remote = await ApiService.getLessons();
+      await LocalDbService.saveLessons(remote);
+      if (mounted) setState(() => _lessons = remote);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Server unreachable — showing cached lessons'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> _parseCachedLessons(
+      List<Map<String, dynamic>> rows) {
+    return rows.map((row) {
+      final variantsRaw = row['variants_json'] as String? ?? '{}';
+      Map<String, dynamic> variants = {};
+      try {
+        variants = jsonDecode(variantsRaw) as Map<String, dynamic>;
+      } catch (_) {}
+      return {
+        'base': row['base'],
+        'display': row['display'],
+        'variants': variants,
+      };
+    }).toList();
   }
 
   void _openLesson(Map<String, dynamic> lesson) {
@@ -117,24 +147,27 @@ class _LessonsScreenState extends State<LessonsScreen> {
                       child: Text(
                           'No lessons yet.\nTap Sync All to download.',
                           textAlign: TextAlign.center))
-                  : ListView.builder(
-                      itemCount: _lessons.length,
-                      itemBuilder: (ctx, i) {
-                        final lesson = _lessons[i];
-                        final variants =
-                            lesson['variants'] as Map<String, dynamic>? ?? {};
-                        return ListTile(
-                          leading: const Icon(Icons.audiotrack),
-                          title: Text(lesson['display'] as String),
-                          subtitle: Text(
-                            variants.keys.join(' · '),
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey),
-                          ),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => _openLesson(lesson),
-                        );
-                      },
+                  : RefreshIndicator(
+                      onRefresh: _onRefresh,
+                      child: ListView.builder(
+                        itemCount: _lessons.length,
+                        itemBuilder: (ctx, i) {
+                          final lesson = _lessons[i];
+                          final variants =
+                              lesson['variants'] as Map<String, dynamic>? ?? {};
+                          return ListTile(
+                            leading: const Icon(Icons.audiotrack),
+                            title: Text(lesson['display'] as String),
+                            subtitle: Text(
+                              variants.keys.join(' · '),
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.grey),
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _openLesson(lesson),
+                          );
+                        },
+                      ),
                     ),
         ),
       ],
