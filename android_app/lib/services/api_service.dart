@@ -130,6 +130,18 @@ class ApiService {
     return List<Map<String, dynamic>>.from(data['manifest'] as List);
   }
 
+  static Future<String> getDiaryEntryByDate(String date) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .get(Uri.parse('$base/api/diary/date/$date'), headers: headers)
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get diary entry for $date');
+    }
+    return (jsonDecode(resp.body) as Map<String, dynamic>)['content'] as String? ?? '';
+  }
+
   static Future<void> addDiaryEntry(String date, List<String> sentences) async {
     final base = await _baseUrl();
     final headers = await _authHeaders();

@@ -2,8 +2,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
+
+/// Synthetic tab name for the "Input Diary" view (no audio).
+const _kInputDiaryTab = 'Input Diary';
 
 class PlayerScreen extends StatefulWidget {
   final Map<String, dynamic> lesson;
@@ -19,30 +23,52 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _markdownContent = '';
   bool _audioReady = false;
 
-  late List<String> _variantNames;
-  late String _currentVariant;
+  /// All tab names: TPRS variants + synthetic "Input Diary" at the end.
+  late List<String> _tabNames;
+  late String _currentTab;
   late Map<String, dynamic> _variants;
 
+  // TPRS rendering keywords
   String _kwSentence = 'SETNING:';
   String _kwQuestion = 'SPØRSMÅL:';
   String _kwAnswer = 'SVAR:';
+
+  // Input Diary state
+  String _diaryContent = '';
+  bool _diaryLoading = false;
+  String? _lessonDate; // YYYY-MM-DD extracted from base name
 
   @override
   void initState() {
     super.initState();
     _player = AudioPlayer();
     _variants = widget.lesson['variants'] as Map<String, dynamic>? ?? {};
-    _variantNames = _variants.keys.toList();
-    _currentVariant = _variantNames.isNotEmpty ? _variantNames.first : '';
-    _loadKeywords().then((_) => _loadVariant(_currentVariant));
+    _tabNames = [..._variants.keys, _kInputDiaryTab];
+    _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
-    // Reload content when a sync started from this screen completes
+    // Extract YYYY-MM-DD from base name (e.g. …_TPRS_2026-01-21_…)
+    final base = widget.lesson['base'] as String? ?? '';
+    final m = RegExp(r'_TPRS_(\d{4}-\d{2}-\d{2})').firstMatch(base);
+    _lessonDate = m?.group(1);
+
+    _loadKeywords().then((_) {
+      if (_currentTab != _kInputDiaryTab) {
+        _loadVariant(_currentTab);
+      } else {
+        _loadDiaryContent();
+      }
+    });
+
     SyncManager.instance.addListener(_onSyncChanged);
   }
 
   void _onSyncChanged() {
     if (!SyncManager.instance.isSyncing && mounted) {
-      _loadVariant(_currentVariant);
+      if (_currentTab != _kInputDiaryTab) {
+        _loadVariant(_currentTab);
+      } else {
+        _loadDiaryContent();
+      }
     }
   }
 
@@ -56,7 +82,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _loadVariant(String variantName) async {
-    if (variantName.isEmpty) return;
+    if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
     final filename = _variants[variantName] as String? ?? '';
     final mp3Path = await SyncService.localPath('TPRS/$filename');
     final mdPath =
@@ -77,6 +103,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final mdFile = File(mdPath);
     if (await mdFile.exists()) {
       setState(() => _markdownContent = mdFile.readAsStringSync());
+    }
+  }
+
+  /// Load the Input Diary content: try local cache first, then server.
+  Future<void> _loadDiaryContent() async {
+    if (_lessonDate == null) {
+      setState(() => _diaryContent = '(No date found in lesson name)');
+      return;
+    }
+    final base = widget.lesson['base'] as String? ?? '';
+    final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+    final cacheFile = File(cachePath);
+
+    if (await cacheFile.exists()) {
+      setState(() => _diaryContent = cacheFile.readAsStringSync());
+      return;
+    }
+
+    // Not cached — fetch from server
+    setState(() {
+      _diaryLoading = true;
+      _diaryContent = '';
+    });
+    try {
+      final content = await ApiService.getDiaryEntryByDate(_lessonDate!);
+      if (content.isNotEmpty) {
+        await cacheFile.parent.create(recursive: true);
+        await cacheFile.writeAsString(content);
+      }
+      if (mounted) setState(() => _diaryContent = content);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _diaryContent =
+            'Could not load diary entry.\nTap sync or check server connection.\n\nError: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _diaryLoading = false);
     }
   }
 
@@ -106,7 +169,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final blocks = _markdownContent.split(RegExp(r'\n{2,}'));
-    final widgets = <Widget>[];
+    final blockWidgets = <Widget>[];
 
     for (final block in blocks) {
       if (block.trim().isEmpty) continue;
@@ -115,24 +178,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
       for (final rawLine in lines) {
         final line = rawLine.trim();
         if (line.isEmpty) continue;
-        lineWidgets.add(_buildLine(line));
+        lineWidgets.add(_buildTprsLine(line));
       }
       if (lineWidgets.isNotEmpty) {
-        widgets.add(Column(
+        blockWidgets.add(Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: lineWidgets,
         ));
-        widgets.add(const SizedBox(height: 16));
+        blockWidgets.add(const SizedBox(height: 16));
       }
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: widgets,
+    return SelectionArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: blockWidgets,
+      ),
     );
   }
 
-  Widget _buildLine(String line) {
+  Widget _buildTprsLine(String line) {
     if (line.startsWith(_kwSentence)) {
       final text = line.substring(_kwSentence.length).trim();
       return Padding(
@@ -175,11 +240,119 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  // ── Input Diary renderer ──────────────────────────────────────────────────────
+
+  Widget _buildDiaryContent() {
+    if (_diaryLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_diaryContent.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.menu_book_outlined, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              _lessonDate == null
+                  ? 'No date found in lesson name.'
+                  : 'No diary entry found for $_lessonDate.\nMake sure the server has this entry.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final lines = _diaryContent.split('\n');
+    final widgets = <Widget>[];
+
+    for (final rawLine in lines) {
+      widgets.add(_buildDiaryLine(rawLine));
+    }
+
+    return SelectionArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: widgets,
+      ),
+    );
+  }
+
+  Widget _buildDiaryLine(String line) {
+    // ## YYYY/MM/DD: Title header
+    if (line.startsWith('## ')) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          line.substring(3).trim(),
+          style: const TextStyle(
+              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+      );
+    }
+    // Forsøk: (user attempt — usually blank)
+    if (line.trimLeft().startsWith('Forsøk:')) {
+      final text = line.trimLeft().substring('Forsøk:'.length).trim();
+      return Padding(
+        padding: const EdgeInsets.only(left: 12, bottom: 2),
+        child: Text(
+          text.isEmpty ? 'Forsøk: —' : 'Forsøk: $text',
+          style: const TextStyle(
+              color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+    // Rettelse: (correction — green)
+    if (line.trimLeft().startsWith('Rettelse:')) {
+      final text = line.trimLeft().substring('Rettelse:'.length).trim();
+      return Padding(
+        padding: const EdgeInsets.only(left: 12, bottom: 2),
+        child: Text(
+          'Rettelse: $text',
+          style: const TextStyle(
+              color: Color(0xFF2E7D32),
+              fontSize: 13,
+              fontWeight: FontWeight.w500),
+        ),
+      );
+    }
+    // Tips: (orange italic)
+    if (line.trimLeft().startsWith('Tips:')) {
+      final text = line.trimLeft().substring('Tips:'.length).trim();
+      return Padding(
+        padding: const EdgeInsets.only(left: 12, bottom: 8),
+        child: Text(
+          'Tips: $text',
+          style: const TextStyle(
+              color: Color(0xFFE65100),
+              fontSize: 12,
+              fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+    // Blank lines → spacing
+    if (line.trim().isEmpty) {
+      return const SizedBox(height: 4);
+    }
+    // Regular sentence / content line
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4, top: 6),
+      child: Text(
+        line.trim(),
+        style: const TextStyle(fontSize: 14, color: Colors.black87),
+      ),
+    );
+  }
+
   // ── build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final title = widget.lesson['display'] as String? ?? '';
+    final isInputDiary = _currentTab == _kInputDiaryTab;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
@@ -205,116 +378,135 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       body: Column(
         children: [
-          // ── Variant selector ─────────────────────────────────────────────
-          if (_variantNames.length > 1)
+          // ── Tab / Variant selector ────────────────────────────────────────
+          if (_tabNames.length > 1)
             Container(
               color: Colors.grey.shade50,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SegmentedButton<String>(
-                  segments: _variantNames
-                      .map((v) => ButtonSegment<String>(
-                            value: v,
-                            label: Text(v,
-                                style: const TextStyle(fontSize: 12)),
-                          ))
-                      .toList(),
-                  selected: {_currentVariant},
+                  segments: _tabNames.map((v) {
+                    return ButtonSegment<String>(
+                      value: v,
+                      label: Text(v, style: const TextStyle(fontSize: 12)),
+                      icon: v == _kInputDiaryTab
+                          ? const Icon(Icons.menu_book_outlined, size: 14)
+                          : null,
+                    );
+                  }).toList(),
+                  selected: {_currentTab},
                   onSelectionChanged: (sel) {
-                    setState(() => _currentVariant = sel.first);
-                    _loadVariant(sel.first);
+                    final tab = sel.first;
+                    setState(() {
+                      _currentTab = tab;
+                      _audioReady = false;
+                    });
+                    if (tab == _kInputDiaryTab) {
+                      _player.stop();
+                      _loadDiaryContent();
+                    } else {
+                      _loadVariant(tab);
+                    }
                   },
                 ),
               ),
             ),
 
-          // ── Audio controls ────────────────────────────────────────────────
-          Container(
-            color: Colors.grey.shade100,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              children: [
-                StreamBuilder<Duration>(
-                  stream: _player.positionStream,
-                  builder: (_, posSnap) {
-                    return StreamBuilder<Duration?>(
-                      stream: _player.durationStream,
-                      builder: (_, durSnap) {
-                        final position = posSnap.data ?? Duration.zero;
-                        final duration = durSnap.data ?? Duration.zero;
-                        final progress = duration.inMilliseconds > 0
-                            ? position.inMilliseconds / duration.inMilliseconds
-                            : 0.0;
-                        return Column(
-                          children: [
-                            Slider(
-                              value: progress.clamp(0.0, 1.0),
-                              onChanged: _audioReady
-                                  ? (v) => _player.seek(Duration(
-                                      milliseconds:
-                                          (v * duration.inMilliseconds)
-                                              .round()))
-                                  : null,
-                            ),
-                            Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(_formatDuration(position)),
-                                Text(_formatDuration(duration)),
-                              ],
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.replay_10),
-                      onPressed: _audioReady
-                          ? () => _player.seek(
-                              _player.position - const Duration(seconds: 10))
-                          : null,
-                    ),
-                    StreamBuilder<PlayerState>(
-                      stream: _player.playerStateStream,
-                      builder: (_, snap) {
-                        final playing = snap.data?.playing ?? false;
-                        return IconButton(
-                          iconSize: 48,
-                          icon: Icon(playing
-                              ? Icons.pause_circle
-                              : Icons.play_circle),
-                          onPressed: _audioReady
-                              ? () =>
-                                  playing ? _player.pause() : _player.play()
-                              : null,
-                        );
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.forward_10),
-                      onPressed: _audioReady
-                          ? () => _player.seek(
-                              _player.position + const Duration(seconds: 10))
-                          : null,
-                    ),
-                  ],
-                ),
-                if (!_audioReady)
-                  const Text('Audio not synced yet — tap ⟳ in the toolbar.',
-                      style: TextStyle(color: Colors.orange, fontSize: 12)),
-              ],
+          // ── Audio controls (hidden for Input Diary tab) ───────────────────
+          if (!isInputDiary)
+            Container(
+              color: Colors.grey.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                children: [
+                  StreamBuilder<Duration>(
+                    stream: _player.positionStream,
+                    builder: (_, posSnap) {
+                      return StreamBuilder<Duration?>(
+                        stream: _player.durationStream,
+                        builder: (_, durSnap) {
+                          final position = posSnap.data ?? Duration.zero;
+                          final duration = durSnap.data ?? Duration.zero;
+                          final progress = duration.inMilliseconds > 0
+                              ? position.inMilliseconds /
+                                  duration.inMilliseconds
+                              : 0.0;
+                          return Column(
+                            children: [
+                              Slider(
+                                value: progress.clamp(0.0, 1.0),
+                                onChanged: _audioReady
+                                    ? (v) => _player.seek(Duration(
+                                        milliseconds:
+                                            (v * duration.inMilliseconds)
+                                                .round()))
+                                    : null,
+                              ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(_formatDuration(position)),
+                                  Text(_formatDuration(duration)),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.replay_10),
+                        onPressed: _audioReady
+                            ? () => _player.seek(_player.position -
+                                const Duration(seconds: 10))
+                            : null,
+                      ),
+                      StreamBuilder<PlayerState>(
+                        stream: _player.playerStateStream,
+                        builder: (_, snap) {
+                          final playing = snap.data?.playing ?? false;
+                          return IconButton(
+                            iconSize: 48,
+                            icon: Icon(playing
+                                ? Icons.pause_circle
+                                : Icons.play_circle),
+                            onPressed: _audioReady
+                                ? () =>
+                                    playing ? _player.pause() : _player.play()
+                                : null,
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.forward_10),
+                        onPressed: _audioReady
+                            ? () => _player.seek(_player.position +
+                                const Duration(seconds: 10))
+                            : null,
+                      ),
+                    ],
+                  ),
+                  if (!_audioReady)
+                    const Text(
+                        'Audio not synced yet — tap ⟳ in the toolbar.',
+                        style:
+                            TextStyle(color: Colors.orange, fontSize: 12)),
+                ],
+              ),
             ),
-          ),
 
-          // ── TPRS text content ─────────────────────────────────────────────
-          Expanded(child: _buildTprsContent()),
+          // ── Content area ──────────────────────────────────────────────────
+          Expanded(
+            child: isInputDiary
+                ? _buildDiaryContent()
+                : _buildTprsContent(),
+          ),
         ],
       ),
     );

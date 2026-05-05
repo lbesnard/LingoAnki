@@ -1032,6 +1032,41 @@ def api_sync_lesson_manifest(base):
     return jsonify({"manifest": manifest})
 
 
+@app.route("/api/diary/date/<date_str>", methods=["GET"])
+@_jwt_required
+def api_get_diary_by_date(date_str):
+    """Return the diary section for a specific date.
+
+    date_str format: YYYY-MM-DD (as embedded in lesson base names).
+    Returns JSON {"content": "<text>"} or {"content": ""} if not found.
+    """
+    from flask import g as _g
+
+    diary_file = _g.api_diary_file
+    if not os.path.exists(diary_file):
+        return jsonify({"content": ""})
+
+    # Convert YYYY-MM-DD -> YYYY/MM/DD for matching diary headers (## YYYY/MM/DD)
+    try:
+        date_slash = datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y/%m/%d")
+    except ValueError:
+        return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
+
+    with open(diary_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Split on diary section headers  ## YYYY/MM/DD
+    sections = re.split(r"(^##\s+\d{4}/\d{2}/\d{2}.*)", content, flags=re.MULTILINE)
+    # sections: ["preamble", "## header", "body", "## header2", "body2", ...]
+    for i in range(1, len(sections) - 1, 2):
+        header = sections[i]
+        body = sections[i + 1] if i + 1 < len(sections) else ""
+        if date_slash in header:
+            return jsonify({"content": (header + body).strip()})
+
+    return jsonify({"content": ""})
+
+
 @app.route("/api/diary/entry", methods=["POST"])
 @_jwt_required
 def api_add_diary_entry():
