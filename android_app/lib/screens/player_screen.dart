@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -111,22 +112,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final audioFile = File(mp3Path);
     if (await audioFile.exists()) {
       final displayName = widget.lesson['display'] as String? ?? 'LingoDiary';
-      await _player.setAudioSource(
-        AudioSource.uri(
-          Uri.file(mp3Path),
-          tag: MediaItem(
-            id: mp3Path,
-            title: displayName,
-            artist: variantName,
+      try {
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.file(mp3Path),
+            tag: MediaItem(
+              id: mp3Path,
+              title: displayName,
+              artist: variantName,
+            ),
           ),
-        ),
-      );
-      setState(() => _audioReady = true);
+        );
+      } catch (_) {
+        // Fall back to plain file path if background audio service isn't ready
+        try {
+          await _player.setFilePath(mp3Path);
+        } catch (_) {}
+      }
+      if (mounted) setState(() => _audioReady = true);
     }
 
     final mdFile = File(mdPath);
     if (await mdFile.exists()) {
-      setState(() => _markdownContent = mdFile.readAsStringSync());
+      final content = mdFile.readAsStringSync();
+      if (mounted) setState(() => _markdownContent = content);
     }
   }
 
@@ -289,88 +298,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    final lines = _diaryContent.split('\n');
-    final widgets = <Widget>[];
-
-    for (final rawLine in lines) {
-      widgets.add(_buildDiaryLine(rawLine));
-    }
-
-    return SelectionArea(
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: widgets,
+    return Markdown(
+      data: _diaryContent,
+      selectable: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: TextStyle(fontSize: _fontSize, color: Colors.black87),
+        h2: TextStyle(
+            fontSize: _fontSize + 4,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87),
+        h3: TextStyle(
+            fontSize: _fontSize + 2,
+            fontWeight: FontWeight.bold,
+            color: Colors.black54),
+        strong: TextStyle(
+            fontWeight: FontWeight.bold, color: const Color(0xFF3F51B5)),
+        em: TextStyle(
+            fontStyle: FontStyle.italic, color: Colors.grey.shade700),
+        blockquoteDecoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(4),
+        ),
       ),
-    );
-  }
-
-  Widget _buildDiaryLine(String line) {
-    // ## YYYY/MM/DD: Title header
-    if (line.startsWith('## ')) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Text(
-          line.substring(3).trim(),
-          style: TextStyle(
-              fontSize: _fontSize + 4,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87),
-        ),
-      );
-    }
-    // Forsøk: (user attempt — usually blank)
-    if (line.trimLeft().startsWith('Forsøk:')) {
-      final text = line.trimLeft().substring('Forsøk:'.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(left: 12, bottom: 2),
-        child: Text(
-          text.isEmpty ? 'Forsøk: —' : 'Forsøk: $text',
-          style: TextStyle(
-              color: Colors.grey,
-              fontSize: _fontSize - 1,
-              fontStyle: FontStyle.italic),
-        ),
-      );
-    }
-    // Rettelse: (correction — green)
-    if (line.trimLeft().startsWith('Rettelse:')) {
-      final text = line.trimLeft().substring('Rettelse:'.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(left: 12, bottom: 2),
-        child: Text(
-          'Rettelse: $text',
-          style: TextStyle(
-              color: const Color(0xFF2E7D32),
-              fontSize: _fontSize - 1,
-              fontWeight: FontWeight.w500),
-        ),
-      );
-    }
-    // Tips: (orange italic)
-    if (line.trimLeft().startsWith('Tips:')) {
-      final text = line.trimLeft().substring('Tips:'.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(left: 12, bottom: 8),
-        child: Text(
-          'Tips: $text',
-          style: TextStyle(
-              color: const Color(0xFFE65100),
-              fontSize: _fontSize - 2,
-              fontStyle: FontStyle.italic),
-        ),
-      );
-    }
-    // Blank lines → spacing
-    if (line.trim().isEmpty) {
-      return const SizedBox(height: 4);
-    }
-    // Regular sentence / content line
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4, top: 6),
-      child: Text(
-        line.trim(),
-        style: TextStyle(fontSize: _fontSize, color: Colors.black87),
-      ),
+      padding: const EdgeInsets.all(16),
     );
   }
 
@@ -412,6 +362,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       body: Column(
         children: [
+          // ── Sync progress bar (visible while syncing) ─────────────────────
+          ListenableBuilder(
+            listenable: SyncManager.instance,
+            builder: (_, __) {
+              final sync = SyncManager.instance;
+              if (!sync.isSyncing) return const SizedBox.shrink();
+              return Container(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          LinearProgressIndicator(
+                            value: sync.progress,
+                            minHeight: 4,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(sync.message,
+                              style: const TextStyle(fontSize: 11),
+                              overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (sync.progress != null)
+                      Text(
+                        '${(sync.progress! * 100).round()}%',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary),
+                      ),
+                    const SizedBox(width: 4),
+                    TextButton(
+                      onPressed: sync.cancel,
+                      style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(48, 28)),
+                      child: const Text('Cancel',
+                          style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           // ── Tab / Variant selector ────────────────────────────────────────
           if (_tabNames.length > 1)
             Container(

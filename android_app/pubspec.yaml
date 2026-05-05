@@ -3,6 +3,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_secure_storage: ^9.0.0
+  flutter_markdown: ^0.7.6
   http: ^1.2.0
   just_audio: ^0.9.39
   just_audio_background: ^0.0.1-beta.13
