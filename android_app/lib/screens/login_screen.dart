@@ -46,6 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
         result['token'] as String,
         _serverController.text.trim(),
       );
+      await AuthService.saveUsername(_usernameController.text.trim());
       // Fetch and cache TPRS keywords for the TPRS renderer
       try {
         final keywords = await ApiService.fetchTprsKeywords();

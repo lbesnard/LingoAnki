@@ -88,4 +88,11 @@ class LocalDbService {
     final database = await db;
     return database.query('lessons_cache', orderBy: 'display DESC');
   }
+
+  /// Deletes all rows from all cache tables.
+  static Future<void> clearAll() async {
+    final database = await db;
+    await database.delete('diary_cache');
+    await database.delete('lessons_cache');
+  }
 }

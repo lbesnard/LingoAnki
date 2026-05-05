@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
+import 'screens/settings_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'services/auth_service.dart';
 import 'services/sync_manager.dart';
@@ -24,6 +25,9 @@ class LingoDiaryApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const AuthGate(),
+      routes: {
+        '/home': (_) => const MainShell(),
+      },
     );
   }
 }
@@ -86,7 +90,17 @@ class _MainShellState extends State<MainShell> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('LingoDiary'),
-            actions: const [ConnectionBadge()],
+            actions: [
+              const ConnectionBadge(),
+              IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
+              ),
+            ],
           ),
           body: _screens[_currentIndex],
           // Persistent sync progress bar above the bottom nav
