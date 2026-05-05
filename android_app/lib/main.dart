@@ -11,12 +11,16 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.lingodiary.audio',
-    androidNotificationChannelName: 'LingoDiary Audio',
-    androidNotificationOngoing: true,
-    notificationColor: const Color(0xFF3F51B5),
-  );
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.lingodiary.audio',
+      androidNotificationChannelName: 'LingoDiary Audio',
+      androidNotificationOngoing: false,
+      notificationColor: const Color(0xFF3F51B5),
+    );
+  } catch (e) {
+    debugPrint('Audio background service init failed: $e');
+  }
   runApp(const LingoDiaryApp());
 }
 
