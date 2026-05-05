@@ -2,7 +2,7 @@
 FROM python:3.10.1
 
 # Set environment variables for Poetry
-ENV POETRY_VERSION=1.8.4
+ENV POETRY_VERSION=2.3.3
 ENV POETRY_HOME=/opt/poetry
 ENV POETRY_NO_INTERACTION=1
 ENV POETRY_VIRTUALENVS_IN_PROJECT=1
@@ -44,6 +44,9 @@ COPY README.md /app/
 # For piper
 ENV XDG_DATA_HOME=/app/.local
 RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
+
+# Allow user 1000 to write anywhere in /app (needed when running as non-root)
+RUN chown -R 1000:1000 /app
 
 EXPOSE 8084
 
