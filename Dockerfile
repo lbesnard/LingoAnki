@@ -42,7 +42,7 @@ COPY README.md /app/
 
 # ✅ Install the lingoanki project itself (deps already in venv, this is fast)
 # Pre-write the hash file so the entrypoint skips re-install on a fresh container start
-RUN poetry install --with dev --no-deps && \
+RUN poetry install --only-root && \
     sha256sum /app/poetry.lock | awk '{print $1}' > /app/.poetry.lock.sha256
 
 # For piper

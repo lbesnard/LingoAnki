@@ -15,13 +15,13 @@ if [ -f "$HASHFILE" ] && [ -d /app/.venv ]; then
   else
     echo "⚠ poetry.lock changed. Reinstalling dependencies..."
     poetry install --with dev --no-root
-    poetry install --with dev --no-deps
+    poetry install --only-root
     echo "$CURRENT_HASH" >"$HASHFILE"
   fi
 else
   echo "🆕 No hash or venv found. Installing dependencies..."
   poetry install --with dev --no-root
-  poetry install --with dev --no-deps
+  poetry install --only-root
   echo "$CURRENT_HASH" >"$HASHFILE"
 fi
 
