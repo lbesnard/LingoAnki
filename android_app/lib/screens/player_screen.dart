@@ -20,6 +20,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _syncing = false;
   bool _cancelSync = false;
   String _syncMessage = '';
+  double? _syncProgress; // 0.0–1.0, null when not syncing
 
   late List<String> _variantNames;
   late String _currentVariant;
@@ -77,17 +78,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _syncing = true;
       _cancelSync = false;
-      _syncMessage = 'Syncing…';
+      _syncMessage = 'Checking files…';
+      _syncProgress = 0.0;
     });
     try {
       final base = widget.lesson['base'] as String;
       final count = await SyncService.syncLesson(
         base,
         onProgress: (msg) => setState(() => _syncMessage = msg),
+        onProgressCount: (current, total) => setState(() {
+          _syncProgress = total > 0 ? current / total : 1.0;
+          _syncMessage = '$current / $total';
+        }),
         isCancelled: () => _cancelSync,
       );
       final msg = _cancelSync ? 'Sync cancelled.' : 'Synced $count file(s) ✓';
-      setState(() => _syncMessage = msg);
+      setState(() {
+        _syncMessage = msg;
+        _syncProgress = null;
+      });
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(msg)));
@@ -95,10 +104,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await _loadVariant(_currentVariant);
     } catch (e) {
       final msg = 'Sync failed: $e';
-      setState(() => _syncMessage = msg);
+      setState(() {
+        _syncMessage = msg;
+        _syncProgress = null;
+      });
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _syncing = false);
@@ -202,19 +214,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
+        bottom: _syncing
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(20),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: _syncProgress,
+                          backgroundColor: Colors.white24,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _syncProgress != null
+                            ? '${(_syncProgress! * 100).round()}%'
+                            : '',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : null,
         actions: [
           if (_syncing)
-            Row(
-              children: [
-                Text(_syncMessage,
-                    style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                const SizedBox(width: 4),
-                TextButton(
-                  onPressed: () => setState(() => _cancelSync = true),
-                  child: const Text('Cancel',
-                      style: TextStyle(color: Colors.redAccent)),
-                ),
-              ],
+            TextButton(
+              onPressed: () => setState(() => _cancelSync = true),
+              child: const Text('Cancel',
+                  style: TextStyle(color: Colors.redAccent)),
             )
           else
             IconButton(

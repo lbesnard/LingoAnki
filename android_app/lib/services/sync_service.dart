@@ -57,14 +57,18 @@ class SyncService {
   static Future<int> syncLesson(
     String base, {
     void Function(String message)? onProgress,
+    void Function(int current, int total)? onProgressCount,
     bool Function()? isCancelled,
   }) async {
     final dir = await _localOutputDir();
     final manifest = await ApiService.getLessonManifest(base);
+    final total = manifest.length;
+    int checked = 0;
     int downloaded = 0;
 
     for (final entry in manifest) {
       if (isCancelled != null && isCancelled()) break;
+      checked++;
       final relPath = entry['path'] as String;
       final serverMtime = (entry['mtime'] as num).toDouble();
       final localFile = File('${dir.path}/$relPath');
@@ -84,6 +88,7 @@ class SyncService {
           downloaded++;
         }
       }
+      onProgressCount?.call(checked, total);
     }
     return downloaded;
   }
