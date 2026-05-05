@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -17,16 +18,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late final AudioPlayer _player;
   String _markdownContent = '';
   bool _audioReady = false;
-  bool _syncing = false;
-  bool _cancelSync = false;
-  String _syncMessage = '';
-  double? _syncProgress; // 0.0–1.0, null when not syncing
 
   late List<String> _variantNames;
   late String _currentVariant;
   late Map<String, dynamic> _variants;
 
-  // TPRS keywords loaded from SharedPreferences (set at login via /api/config)
   String _kwSentence = 'SETNING:';
   String _kwQuestion = 'SPØRSMÅL:';
   String _kwAnswer = 'SVAR:';
@@ -39,6 +35,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _variantNames = _variants.keys.toList();
     _currentVariant = _variantNames.isNotEmpty ? _variantNames.first : '';
     _loadKeywords().then((_) => _loadVariant(_currentVariant));
+
+    // Reload content when a sync started from this screen completes
+    SyncManager.instance.addListener(_onSyncChanged);
+  }
+
+  void _onSyncChanged() {
+    if (!SyncManager.instance.isSyncing && mounted) {
+      _loadVariant(_currentVariant);
+    }
   }
 
   Future<void> _loadKeywords() async {
@@ -54,7 +59,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (variantName.isEmpty) return;
     final filename = _variants[variantName] as String? ?? '';
     final mp3Path = await SyncService.localPath('TPRS/$filename');
-    final mdPath = mp3Path.replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '.md');
+    final mdPath =
+        mp3Path.replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '.md');
 
     await _player.stop();
     setState(() {
@@ -74,51 +80,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _syncLesson() async {
-    setState(() {
-      _syncing = true;
-      _cancelSync = false;
-      _syncMessage = 'Loading manifest…';
-      _syncProgress = null; // indeterminate until we know the total
-    });
-    try {
-      final base = widget.lesson['base'] as String;
-      final count = await SyncService.syncLesson(
-        base,
-        onProgress: (msg) => setState(() => _syncMessage = msg),
-        onProgressCount: (current, total) => setState(() {
-          _syncProgress = total > 0 ? current / total : 1.0;
-          _syncMessage = '$current / $total files checked';
-        }),
-        isCancelled: () => _cancelSync,
-      );
-      final msg = _cancelSync ? 'Sync cancelled.' : 'Synced $count file(s) ✓';
-      setState(() {
-        _syncMessage = msg;
-        _syncProgress = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(msg)));
-      }
-      await _loadVariant(_currentVariant);
-    } catch (e) {
-      final msg = 'Sync failed: $e';
-      setState(() {
-        _syncMessage = msg;
-        _syncProgress = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg), backgroundColor: Colors.red));
-      }
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
+  void _triggerSync() {
+    final base = widget.lesson['base'] as String;
+    SyncManager.instance.syncLesson(base);
   }
 
   @override
   void dispose() {
+    SyncManager.instance.removeListener(_onSyncChanged);
     _player.dispose();
     super.dispose();
   }
@@ -214,47 +183,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
-        bottom: _syncing
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(28),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: LinearProgressIndicator(
-                          value: _syncProgress,
-                          backgroundColor: Colors.white24,
-                          color: Colors.white,
-                          minHeight: 6,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _syncProgress != null
-                            ? '${(_syncProgress! * 100).round()}%'
-                            : _syncMessage,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            : null,
         actions: [
-          if (_syncing)
-            TextButton(
-              onPressed: () => setState(() => _cancelSync = true),
-              child: const Text('Cancel',
-                  style: TextStyle(color: Colors.redAccent)),
-            )
-          else
-            IconButton(
-              tooltip: 'Sync this lesson',
-              icon: const Icon(Icons.sync),
-              onPressed: _syncLesson,
-            ),
+          ListenableBuilder(
+            listenable: SyncManager.instance,
+            builder: (_, __) {
+              final syncing = SyncManager.instance.isSyncing;
+              return IconButton(
+                tooltip: syncing ? 'Sync in progress…' : 'Sync this lesson',
+                icon: syncing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.sync),
+                onPressed: syncing ? null : _triggerSync,
+              );
+            },
+          ),
         ],
       ),
       body: Column(

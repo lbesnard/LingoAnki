@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
-import '../services/sync_service.dart';
+import '../services/sync_manager.dart';
 import 'player_screen.dart';
 
 class LessonsScreen extends StatefulWidget {
@@ -16,14 +15,25 @@ class LessonsScreen extends StatefulWidget {
 class _LessonsScreenState extends State<LessonsScreen> {
   List<Map<String, dynamic>> _lessons = [];
   bool _loading = true;
-  bool _syncing = false;
-  bool _cancelSync = false;
-  String _syncMessage = '';
 
   @override
   void initState() {
     super.initState();
     _loadLessons();
+    SyncManager.instance.addListener(_onSyncChanged);
+  }
+
+  @override
+  void dispose() {
+    SyncManager.instance.removeListener(_onSyncChanged);
+    super.dispose();
+  }
+
+  void _onSyncChanged() {
+    // Refresh lesson list when a global sync finishes
+    if (!SyncManager.instance.isSyncing) {
+      _loadLessons();
+    }
   }
 
   Future<void> _loadLessons() async {
@@ -50,33 +60,10 @@ class _LessonsScreenState extends State<LessonsScreen> {
     setState(() => _loading = false);
   }
 
-  Future<void> _syncAll() async {
-    setState(() {
-      _syncing = true;
-      _cancelSync = false;
-      _syncMessage = 'Syncing…';
-    });
-    try {
-      final count = await SyncService.syncFromServer(
-        onProgress: (msg) => setState(() => _syncMessage = msg),
-        isCancelled: () => _cancelSync,
-      );
-      setState(() => _syncMessage =
-          _cancelSync ? 'Sync cancelled.' : 'Synced $count file(s) ✓');
-      await _loadLessons();
-    } catch (e) {
-      setState(() => _syncMessage = 'Sync failed: $e');
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
-  }
-
   void _openLesson(Map<String, dynamic> lesson) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(lesson: lesson),
-      ),
+      MaterialPageRoute(builder: (_) => PlayerScreen(lesson: lesson)),
     );
   }
 
@@ -89,25 +76,36 @@ class _LessonsScreenState extends State<LessonsScreen> {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  _syncMessage,
-                  style: Theme.of(context).textTheme.bodySmall,
-                  overflow: TextOverflow.ellipsis,
+                child: ListenableBuilder(
+                  listenable: SyncManager.instance,
+                  builder: (_, __) => Text(
+                    SyncManager.instance.isSyncing
+                        ? SyncManager.instance.message
+                        : '',
+                    style: Theme.of(context).textTheme.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
-              if (_syncing)
-                TextButton.icon(
-                  onPressed: () => setState(() => _cancelSync = true),
-                  icon: const Icon(Icons.stop, size: 16, color: Colors.red),
-                  label: const Text('Cancel',
-                      style: TextStyle(color: Colors.red)),
-                )
-              else
-                ElevatedButton.icon(
-                  onPressed: _sync,
-                  icon: const Icon(Icons.sync, size: 16),
-                  label: const Text('Sync All'),
-                ),
+              ListenableBuilder(
+                listenable: SyncManager.instance,
+                builder: (_, __) {
+                  final syncing = SyncManager.instance.isSyncing;
+                  return syncing
+                      ? TextButton.icon(
+                          onPressed: SyncManager.instance.cancel,
+                          icon: const Icon(Icons.stop,
+                              size: 16, color: Colors.red),
+                          label: const Text('Cancel',
+                              style: TextStyle(color: Colors.red)),
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: SyncManager.instance.syncAll,
+                          icon: const Icon(Icons.sync, size: 16),
+                          label: const Text('Sync All'),
+                        );
+                },
+              ),
             ],
           ),
         ),
@@ -116,7 +114,8 @@ class _LessonsScreenState extends State<LessonsScreen> {
               ? const Center(child: CircularProgressIndicator())
               : _lessons.isEmpty
                   ? const Center(
-                      child: Text('No lessons yet.\nTap Sync All to download.',
+                      child: Text(
+                          'No lessons yet.\nTap Sync All to download.',
                           textAlign: TextAlign.center))
                   : ListView.builder(
                       itemCount: _lessons.length,
@@ -141,7 +140,4 @@ class _LessonsScreenState extends State<LessonsScreen> {
       ],
     );
   }
-
-  // alias so both the button label change and the call site compile
-  void _sync() => _syncAll();
 }
