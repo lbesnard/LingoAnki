@@ -78,8 +78,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _syncing = true;
       _cancelSync = false;
-      _syncMessage = 'Checking files…';
-      _syncProgress = 0.0;
+      _syncMessage = 'Loading manifest…';
+      _syncProgress = null; // indeterminate until we know the total
     });
     try {
       final base = widget.lesson['base'] as String;
@@ -88,7 +88,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         onProgress: (msg) => setState(() => _syncMessage = msg),
         onProgressCount: (current, total) => setState(() {
           _syncProgress = total > 0 ? current / total : 1.0;
-          _syncMessage = '$current / $total';
+          _syncMessage = '$current / $total files checked';
         }),
         isCancelled: () => _cancelSync,
       );
@@ -216,9 +216,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         title: Text(title, overflow: TextOverflow.ellipsis),
         bottom: _syncing
             ? PreferredSize(
-                preferredSize: const Size.fromHeight(20),
+                preferredSize: const Size.fromHeight(28),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                   child: Row(
                     children: [
                       Expanded(
@@ -226,13 +226,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           value: _syncProgress,
                           backgroundColor: Colors.white24,
                           color: Colors.white,
+                          minHeight: 6,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         _syncProgress != null
                             ? '${(_syncProgress! * 100).round()}%'
-                            : '',
+                            : _syncMessage,
                         style: const TextStyle(
                             color: Colors.white, fontSize: 11),
                       ),
