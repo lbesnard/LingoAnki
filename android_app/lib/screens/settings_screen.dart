@@ -68,9 +68,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveServerUrl() async {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final url = _serverController.text.trim();
-    if (url.isEmpty) return;
     setState(() => _saving = true);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('server_url', url);
@@ -86,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _signOut() async {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -113,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _clearCachedData() async {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -152,9 +151,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.remove('tprs_answer');
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         final newSize = await _computeCacheSize();
         setState(() => _cacheSize = newSize);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text(l10n.settingsDataCleared)),
         );
       }
@@ -175,7 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(

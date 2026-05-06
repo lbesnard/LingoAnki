@@ -8,6 +8,7 @@ dependencies:
   flutter_markdown: ^0.7.6
   http: ^1.2.0
   just_audio: ^0.9.39
+  path: ^1.9.0
   path_provider: ^2.1.2
   shared_preferences: ^2.2.2
   sqflite: ^2.3.0

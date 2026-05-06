@@ -188,10 +188,10 @@ class _MainShellState extends State<MainShell> {
                 items: [
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.book),
-                      label: AppLocalizations.of(context)!.navDiary),
+                      label: AppLocalizations.of(context).navDiary),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
-                      label: AppLocalizations.of(context)!.navLessons),
+                      label: AppLocalizations.of(context).navLessons),
                 ],
               ),
             ],
