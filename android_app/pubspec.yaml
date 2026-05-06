@@ -1,0 +1,26 @@
+dependencies:
+  cupertino_icons: ^1.0.8
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_secure_storage: ^9.0.0
+  flutter_markdown: ^0.7.6
+  http: ^1.2.0
+  just_audio: ^0.9.39
+  path: ^1.9.0
+  path_provider: ^2.1.2
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+description: A new Flutter project.
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+flutter:
+  uses-material-design: true
+name: lingodiary_app
+publish_to: none
+version: 1.0.0+1

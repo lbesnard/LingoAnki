@@ -148,6 +148,7 @@
       <a href="/generate_lessons" class="{{ 'active-tab' if request.path == '/generate_lessons' else '' }}">{{ _('Step 2: Generate Lessons') }}</a>
       <a href="/play_audio" class="{{ 'active-tab' if request.path == '/play_audio' else '' }}">{{ _('Step 3: Listen to Lessons') }}</a>
       <a href="/output" class="{{ 'active-tab' if request.path == '/output' else '' }}">{{ _('Step 4: Download Output Files') }}</a>
+      <a href="/backup" class="{{ 'active-tab' if request.path == '/backup' else '' }}">{{ _('Backup & Restore') }}</a>
     </nav>
 
     {% with messages = get_flashed_messages(with_categories=true) %} {% if

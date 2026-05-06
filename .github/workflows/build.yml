@@ -27,6 +27,7 @@ jobs:
           submodules: "true"
 
       - name: Clean up directories
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc

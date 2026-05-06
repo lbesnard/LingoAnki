@@ -6,11 +6,14 @@ import re
 import subprocess
 import time
 import zipfile
+from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from queue import Queue
 from threading import Thread
+
+import jwt
 
 import bcrypt
 import markdown
@@ -34,7 +37,12 @@ from flask_babel import Babel
 from flask_babel import gettext as _
 from platformdirs import user_config_dir
 
-from lingoanki.diary import APP_NAME, DiaryHandler, TprsCreation
+from lingoanki.diary import (
+    APP_NAME,
+    DiaryHandler,
+    TprsCreation,
+    main as main_diary_tprs,
+)
 
 # Create an in-memory buffer to capture logs
 log_stream = io.StringIO()
@@ -67,6 +75,9 @@ thread.start()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
+JWT_SECRET = os.getenv("JWT_SECRET", app.secret_key)
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 # babel setup
 app.config["BABEL_DEFAULT_LOCALE"] = "en"
@@ -349,18 +360,27 @@ def generate_lessons():
         try:
             user_config_path = session["user_config_path"]
 
-            # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
-            diary_instance = DiaryHandler(config_path=user_config_path)
-            diary_instance.diary_complete_translations()
-            diary_instance.convert_diary_entries_to_ankideck()
-            diary_instance.stop()
-
-            tprs_instance = TprsCreation(config_path=user_config_path)
-            tprs_instance.check_missing_sentences_from_existing_tprs()
-            tprs_instance.add_missing_tprs()
-            tprs_instance.convert_tts_tprs_entries()
-            tprs_instance.stop()
-
+            main_diary_tprs(config_path=user_config_path)
+            # # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
+            # diary_instance = DiaryHandler(config_path=user_config_path)
+            # diary_instance.diary_complete_translations()
+            # diary_instance.convert_diary_entries_to_ankideck()
+            # diary_instance.stop()
+            #
+            # tprs_instance = TprsCreation(config_path=user_config_path)
+            # tprs_instance.check_missing_sentences_from_existing_tprs()
+            # tprs_instance.add_missing_tprs()
+            # tprs_instance.add_missing_tprs_enhanced()
+            # tprs_instance.add_missing_tprs_future()
+            # tprs_instance.add_missing_tprs_present()
+            #
+            # tprs_instance.convert_tts_tprs_entries()
+            # tprs_instance.convert_tts_tprs_enhanced_entries()
+            # tprs_instance.convert_tts_tprs_future_entries()
+            # tprs_instance.convert_tts_tprs_present_entries()
+            #
+            # tprs_instance.stop()
+            #
         except subprocess.CalledProcessError as e:
             app.logger.error("generate_tprs.py failed")
 
@@ -606,11 +626,24 @@ def view_markdown(filename):
     md_tprs_filename = filename.replace(".mp3", ".md")
     md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
 
-    mp3_files = [f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")]
-    mp3_files = sorted(set(mp3_files), reverse=True)
+    # Extract base and variant for dropdown repopulation
+    match = re.match(
+        r"(.+?)(_enhanced|_present|_future)?\.mp3$", filename, re.IGNORECASE
+    )
+    if match:
+        selected_base, variant_suffix = match.groups()
+        selected_variant = (variant_suffix or "").lstrip("_").title() or "Original"
+    else:
+        selected_base = filename.replace(".mp3", "")
+        selected_variant = "original"
 
+    # Gather mp3 variants like in play_audio_page
+    display_items = get_mp3_variants(session["tprs_folder"])
+
+    # Read content
     date = extract_date(md_tprs_filename)
     match_daily_diary = find_matching_md_file(date, session["daily_audio_folder"])
+    content_daily_diary = ""
     if match_daily_diary:
         with open(match_daily_diary, "r") as file:
             content_daily_diary = file.read()
@@ -628,31 +661,474 @@ def view_markdown(filename):
         return render_template(
             "diary_tprs_play_audio.html",
             content=html_content,
-            filename=filename,  # <---- pass it in
-            mp3_files=mp3_files,
+            filename=filename,
+            mp3_variants=display_items,
+            selected_base=selected_base,
+            selected_variant=selected_variant,
         )
     else:
-        return f"Markdown file for {filename} not found", 404
+        return (
+            f"Markdown file for {filename} not found. {selected_base} {selected_variant}",
+            404,
+        )
+
+
+def get_mp3_variants(folder):
+    variants_by_base = defaultdict(list)
+
+    if os.path.exists(folder):
+        for f in os.listdir(folder):
+            if f.endswith(".mp3"):
+                match = re.match(
+                    r"(.+?)(_enhanced|_present|_future)?\.mp3$", f, re.IGNORECASE
+                )
+                if match:
+                    base, variant = match.groups()
+                    variant_display = (
+                        variant.lstrip("_").title() if variant else "Original"
+                    )
+                    variants_by_base[base].append((variant_display, f))
+
+    display_items = []
+    for base, variants in variants_by_base.items():
+        parts = base.split("_TPRS_")
+        if len(parts) == 2:
+            display = parts[1]
+        else:
+            display = base
+        display_items.append((base, display, dict(variants)))
+
+    display_items.sort(key=lambda x: x[1], reverse=True)
+    return display_items
 
 
 @app.route("/play_audio")
 @login_required
 def play_audio_page():
-    if not os.path.exists(session["tprs_folder"]):
-        mp3_files = []
-    else:
-        mp3_files = [
-            f for f in os.listdir(session["tprs_folder"]) if f.endswith(".mp3")
-        ]
-        mp3_files = sorted(set(mp3_files), reverse=True)
-
-    return render_template("diary_tprs_play_audio.html", mp3_files=mp3_files)
+    mp3_variants = get_mp3_variants(session["tprs_folder"])
+    return render_template("diary_tprs_play_audio.html", mp3_variants=mp3_variants)
 
 
 @app.route("/download_markdown/<filename>")
 @login_required
 def download_markdown(filename):
     return send_from_directory(session["tprs_folder"], filename, as_attachment=True)
+
+
+@app.route("/backup/download")
+@login_required
+def backup_download():
+    diary_file = session["diary_file"]
+    tprs_file = session["tprs_file"]
+    output_folder = session["output_folder"]
+    username = session["username"]
+    time_now_str = datetime.now().strftime("%Y%m%dT%H%M%S")
+    zip_name = f"backup_{username}_{time_now_str}.zip"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zipf:
+        # Diary markdown
+        if os.path.exists(diary_file):
+            zipf.write(diary_file, arcname=f"diary/{os.path.basename(diary_file)}")
+        # TPRS markdown
+        if os.path.exists(tprs_file):
+            zipf.write(tprs_file, arcname=f"tprs/{os.path.basename(tprs_file)}")
+        # Full output folder (mp3s, TPRS/, DAILY_AUDIO/, etc.)
+        for root, _, files in os.walk(output_folder):
+            for file in files:
+                if (
+                    not file.startswith(".")
+                    and not file.endswith(".zip")
+                    and not file.endswith(".log")
+                ):
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, output_folder)
+                    zipf.write(full_path, arcname=f"output/{rel_path}")
+
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True, download_name=zip_name, mimetype="application/zip"
+    )
+
+
+@app.route("/backup/upload", methods=["POST"])
+@login_required
+def backup_upload():
+    if "backup_file" not in request.files:
+        flash("No file uploaded.", "error")
+        return redirect("/backup")
+
+    f = request.files["backup_file"]
+    if not f.filename.endswith(".zip"):
+        flash("Please upload a .zip backup file.", "error")
+        return redirect("/backup")
+
+    diary_file = session["diary_file"]
+    tprs_file = session["tprs_file"]
+    output_folder = session["output_folder"]
+
+    try:
+        with zipfile.ZipFile(f, "r") as zipf:
+            names = zipf.namelist()
+            restored = []
+
+            for name in names:
+                if name.startswith("diary/") and name.endswith(".md"):
+                    data = zipf.read(name)
+                    os.makedirs(os.path.dirname(diary_file), exist_ok=True)
+                    with open(diary_file, "wb") as out:
+                        out.write(data)
+                    restored.append("diary")
+
+                elif name.startswith("tprs/") and name.endswith(".md"):
+                    data = zipf.read(name)
+                    os.makedirs(os.path.dirname(tprs_file), exist_ok=True)
+                    with open(tprs_file, "wb") as out:
+                        out.write(data)
+                    restored.append("tprs")
+
+                elif name.startswith("output/") and not name.endswith("/"):
+                    rel = name[len("output/") :]
+                    dest = os.path.join(output_folder, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zipf.open(name) as src, open(dest, "wb") as out:
+                        out.write(src.read())
+
+            if not restored:
+                flash("No recognisable backup content found in the zip.", "error")
+            else:
+                flash(
+                    f"Backup restored successfully ({', '.join(set(restored))} + output files).",
+                    "success",
+                )
+
+    except zipfile.BadZipFile:
+        flash("Invalid zip file.", "error")
+
+    return redirect("/backup")
+
+
+@app.route("/backup")
+@login_required
+def backup_page():
+    return render_template("diary_backup.html")
+
+
+# ---------------------------------------------------------------------------
+# REST API for mobile app
+# ---------------------------------------------------------------------------
+
+
+def _jwt_required(f):
+    """Decorator that validates a Bearer JWT token and injects user context."""
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+        token = auth[len("Bearer ") :]
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+
+        username = payload.get("sub")
+        user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
+        if not os.path.exists(user_config_path):
+            return jsonify({"error": "User config not found"}), 403
+
+        # Inject into Flask's g so route handlers can access it
+        from flask import g as _g
+
+        _g.api_username = username
+        _g.api_config_path = user_config_path
+        diary_instance = DiaryHandler(config_path=user_config_path)
+        _g.api_diary_file = diary_instance.config["markdown_diary_path"]
+        _g.api_tprs_file = diary_instance.config["markdown_tprs_path"]
+        _g.api_output_folder = diary_instance.config["output_dir"]
+        _g.api_tprs_folder = os.path.join(_g.api_output_folder, "TPRS")
+        diary_instance.stop()
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "")
+    password = data.get("password", "")
+
+    if not username or not password:
+        return jsonify({"error": "username and password required"}), 400
+
+    with open(USER_DB_FILE) as f_db:
+        users = yaml.safe_load(f_db)
+
+    if username not in users.get("users", {}) or not bcrypt.checkpw(
+        password.encode(), users["users"][username]["password"].encode()
+    ):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
+    if not os.path.exists(user_config_path):
+        return jsonify({"error": "No config found for this user"}), 403
+
+    expiry = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+    token = jwt.encode(
+        {"sub": username, "exp": expiry}, JWT_SECRET, algorithm=JWT_ALGORITHM
+    )
+    return jsonify({"token": token, "expires_at": expiry.isoformat()})
+
+
+@app.route("/api/diary", methods=["GET"])
+@_jwt_required
+def api_get_diary():
+    from flask import g as _g
+
+    diary_file = _g.api_diary_file
+    if not os.path.exists(diary_file):
+        return jsonify({"content": ""})
+    with open(diary_file, "r") as f:
+        return jsonify({"content": f.read()})
+
+
+@app.route("/api/diary", methods=["POST"])
+@_jwt_required
+def api_save_diary():
+    from flask import g as _g
+
+    data = request.get_json(silent=True) or {}
+    content = data.get("content")
+    if content is None:
+        return jsonify({"error": "content field required"}), 400
+    diary_file = _g.api_diary_file
+    os.makedirs(os.path.dirname(diary_file), exist_ok=True)
+    with open(diary_file, "w") as f:
+        f.write(content)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/generate", methods=["POST"])
+@_jwt_required
+def api_generate():
+    from flask import g as _g
+
+    config_path = _g.api_config_path
+
+    def _run():
+        try:
+            main_diary_tprs(config_path=config_path)
+        except Exception as exc:
+            app.logger.error(f"API generate error: {exc}")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"ok": True, "message": "Generation started"})
+
+
+@app.route("/api/generate/status", methods=["GET"])
+@_jwt_required
+def api_generate_status():
+    from flask import g as _g
+
+    log_file = os.path.join(_g.api_output_folder, "output.log")
+    lines = []
+    if os.path.exists(log_file):
+        with open(log_file, "r") as f:
+            lines = f.readlines()[-50:]
+    return jsonify({"log": "".join(lines)})
+
+
+@app.route("/api/lessons", methods=["GET"])
+@_jwt_required
+def api_lessons():
+    from flask import g as _g
+
+    items = get_mp3_variants(_g.api_tprs_folder)
+    result = [
+        {"base": base, "display": display, "variants": variants}
+        for base, display, variants in items
+    ]
+    return jsonify({"lessons": result})
+
+
+@app.route("/api/sync/manifest", methods=["GET"])
+@_jwt_required
+def api_sync_manifest():
+    """Return a manifest of all syncable files (mp3 + md) with size and mtime."""
+    from flask import g as _g
+
+    output_folder = _g.api_output_folder
+    manifest = []
+    for root, _, files in os.walk(output_folder):
+        for fname in files:
+            if (
+                fname.startswith(".")
+                or fname.endswith(".zip")
+                or fname.endswith(".log")
+            ):
+                continue
+            full = os.path.join(root, fname)
+            rel = os.path.relpath(full, output_folder)
+            stat = os.stat(full)
+            manifest.append(
+                {
+                    "path": rel,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                }
+            )
+    return jsonify({"manifest": manifest})
+
+
+@app.route("/api/sync/file/<path:rel_path>", methods=["GET"])
+@_jwt_required
+def api_sync_file(rel_path):
+    """Download a single output file by its relative path."""
+    from flask import g as _g
+
+    output_folder = _g.api_output_folder
+    # Security: resolve and ensure the path stays within output_folder
+    safe_path = os.path.realpath(os.path.join(output_folder, rel_path))
+    if not safe_path.startswith(os.path.realpath(output_folder)):
+        return jsonify({"error": "Access denied"}), 403
+    if not os.path.exists(safe_path):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(safe_path, as_attachment=True)
+
+
+@app.route("/api/sync/manifest/<path:base>", methods=["GET"])
+@_jwt_required
+def api_sync_lesson_manifest(base):
+    """Return manifest filtered to files belonging to a single lesson (by base name)."""
+    from flask import g as _g
+
+    output_folder = _g.api_output_folder
+    manifest = []
+    for root, _, files in os.walk(output_folder):
+        for fname in files:
+            if (
+                fname.startswith(".")
+                or fname.endswith(".zip")
+                or fname.endswith(".log")
+            ):
+                continue
+            full = os.path.join(root, fname)
+            rel = os.path.relpath(full, output_folder)
+            if base not in rel:
+                continue
+            stat = os.stat(full)
+            manifest.append(
+                {
+                    "path": rel,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                }
+            )
+    return jsonify({"manifest": manifest})
+
+
+@app.route("/api/diary/date/<date_str>", methods=["GET"])
+@_jwt_required
+def api_get_diary_by_date(date_str):
+    """Return the diary section for a specific date.
+
+    date_str format: YYYY-MM-DD (as embedded in lesson base names).
+    Returns JSON {"content": "<text>"} or {"content": ""} if not found.
+    """
+    from flask import g as _g
+
+    diary_file = _g.api_diary_file
+    if not os.path.exists(diary_file):
+        return jsonify({"content": ""})
+
+    # Convert YYYY-MM-DD -> YYYY/MM/DD for matching diary headers (## YYYY/MM/DD)
+    try:
+        date_slash = datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y/%m/%d")
+    except ValueError:
+        return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
+
+    with open(diary_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Split on diary section headers  ## YYYY/MM/DD
+    sections = re.split(r"(^##\s+\d{4}/\d{2}/\d{2}.*)", content, flags=re.MULTILINE)
+    # sections: ["preamble", "## header", "body", "## header2", "body2", ...]
+    for i in range(1, len(sections) - 1, 2):
+        header = sections[i]
+        body = sections[i + 1] if i + 1 < len(sections) else ""
+        if date_slash in header:
+            return jsonify({"content": (header + body).strip()})
+
+    return jsonify({"content": ""})
+
+
+@app.route("/api/diary/entry", methods=["POST"])
+@_jwt_required
+def api_add_diary_entry():
+    """Add a structured diary entry: {date: 'YYYY-MM-DD', sentences: [...]}."""
+    from flask import g as _g
+
+    data = request.get_json(silent=True) or {}
+    selected_date = data.get("date", "")
+    sentences = data.get("sentences", [])
+
+    if not selected_date or not sentences:
+        return jsonify({"error": "date and sentences are required"}), 400
+
+    try:
+        timestamp_key = datetime.strptime(selected_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
+
+    user_input_diary_dict = {
+        timestamp_key: {
+            "title": "",
+            "sentences": {
+                str(i): {
+                    "primary_language_sentence": s,
+                    "study_language_sentence": "",
+                    "study_language_sentence_trial": "",
+                    "tips": "",
+                }
+                for i, s in enumerate(sentences)
+            },
+        }
+    }
+
+    diary_instance = DiaryHandler(config_path=_g.api_config_path)
+    org_diary_dict = diary_instance.markdown_diary_to_dict()
+    updated_diary_dict = user_input_diary_dict | org_diary_dict
+    diary_instance.write_diary(updated_diary_dict)
+    diary_instance.stop()
+
+    return jsonify(
+        {"success": True, "date": selected_date, "sentences_added": len(sentences)}
+    )
+
+
+@app.route("/api/config", methods=["GET"])
+@_jwt_required
+def api_get_config():
+    """Return user config values relevant to the mobile app (TPRS keywords)."""
+    from flask import g as _g
+
+    with open(_g.api_config_path) as f:
+        user_config = yaml.safe_load(f)
+    tprs = user_config.get("template_tprs", {})
+    return jsonify(
+        {
+            "tprs": {
+                "sentence": tprs.get("sentence", "SETNING:"),
+                "question": tprs.get("question", "SPØRSMÅL:"),
+                "answer": tprs.get("answer", "SVAR:"),
+            }
+        }
+    )
 
 
 def main():

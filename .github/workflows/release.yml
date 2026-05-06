@@ -1,18 +1,72 @@
-name: Automated Release
+name: Release
 
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-release:
+  bump:
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.14"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+          installer-parallel: true
+
+      - name: Bump version
+        id: bump
+        run: |
+          NEW_VERSION=$(poetry version ${{ github.event.inputs.bump_type }} | awk '{print $NF}')
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump and create tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore: bump version to v${{ steps.bump.outputs.new_version }}"
+          git tag "v${{ steps.bump.outputs.new_version }}"
+          git push origin HEAD
+          git push origin "v${{ steps.bump.outputs.new_version }}"
+
+  build-wheel:
+    runs-on: ubuntu-latest
+    needs: bump
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump.outputs.new_version }}"
 
       - name: Clean up directories
         run: |
@@ -24,7 +78,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10.14'
+          python-version: "3.10.14"
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
@@ -33,100 +87,120 @@ jobs:
           virtualenvs-in-project: true
           installer-parallel: true
 
-      #----------------------------------------------
-      #       load cached venv if cache exists
-      #----------------------------------------------
       - name: Load cached venv
         id: cached-poetry-dependencies
         uses: actions/cache@v3
         with:
           path: .venv
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-3.10.14-${{ hashFiles('**/poetry.lock') }}
 
-      #----------------------------------------------
-      # install dependencies if cache does not exist
-      #----------------------------------------------
       - name: Install dependencies
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root
-      #----------------------------------------------
-      # install your root project, if required
-      #----------------------------------------------
+
       - name: Install project
         run: poetry install --no-interaction
-      #----------------------------------------------
-      #              run test suite
-      #----------------------------------------------
-      - name: Install pytest
-        run: poetry add --dev pytest coverage
 
       - name: Run tests
         run: |
           source .venv/bin/activate
-          poetry run pytest
+          poetry run coverage run -m pytest
+          poetry run coverage report --fail-under=20
 
-       # Configure git for committing version bump
-      - name: Configure git for committing version bump
+      - name: Build wheel
+        run: poetry build --format wheel
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingoanki-wheel
+          path: dist/*.whl
+
+  build-apk:
+    runs-on: ubuntu-latest
+    needs: bump
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump.outputs.new_version }}"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          channel: "stable"
+
+      - name: Install Android SDK (act/local only)
+        if: ${{ env.ACT }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p "$HOME/android-sdk/cmdline-tools"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/
+          mv /tmp/cmdline-tools "$HOME/android-sdk/cmdline-tools/latest"
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          yes | "$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      # Bump version
-      - name: Bump version
-        id: bump_version
-        run: |
-          NEW_VERSION=$(poetry version patch | awk '{print $NF}')
-          echo "New version: $NEW_VERSION"
-          echo "new_version=$NEW_VERSION" >> $GITHUB_ENV
-          git add pyproject.toml
-          git commit -m "Bump version to $NEW_VERSION"
+      - name: Regenerate Flutter project scaffold
+        run: bash scripts/setup_flutter_app.sh
 
-      - name: Push version bump
-        run: |
-          git push origin HEAD:main
+      - name: Install Flutter dependencies
+        working-directory: android_app
+        run: flutter pub get
 
-      # build the package after bumping version
-      - name: Build package
-        run: poetry build
+      - name: Analyze Flutter code
+        working-directory: android_app
+        run: flutter analyze --no-fatal-infos
 
+      - name: Run Flutter tests
+        working-directory: android_app
+        run: flutter test
 
-      - name: Delete existing tag (if any)
-        run: |
-          git tag -d v${{ env.new_version }} || true
-          git push origin :refs/tags/v${{ env.new_version }} || true
+      - name: Build release APK
+        working-directory: android_app
+        run: flutter build apk --release
 
-      - name: Create and push new tag
-        run: |
-          git tag -a v${{ env.new_version }}  -m "Release v${{ env.new_version }}"
-          git push origin v${{ env.new_version }}
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingoanki-apk
+          path: android_app/build/app/outputs/flutter-apk/app-release.apk
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [bump, build-wheel, build-apk]
+
+    steps:
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lingoanki-wheel
+          path: dist/
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lingoanki-apk
+          path: apk/
+
+      - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install GitHub CLI
         run: |
-          sudo apt-get install gh
-
-      - name: Create GitHub release
-        run: |
-          gh release create v${{ env.new_version }} --generate-notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-      - name: Upload assets to release
-        run: |
-          gh release upload v${{ env.new_version }} dist/*.whl dist/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Delete latest draft release
-      - name: Delete latest draft release
-        run: |
-          latest_release=$(gh release list --draft --limit 1 --json name,url | jq -r '.[0] | select(.name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-\\w+)?")) | .url')
-          if [ -n "$latest_release" ]; then
-            gh release delete "$latest_release" -y
-          else
-            echo "No draft release found to delete."
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          gh release create "v${{ needs.bump.outputs.new_version }}" \
+            --repo "${{ github.repository }}" \
+            --title "v${{ needs.bump.outputs.new_version }}" \
+            --generate-notes \
+            dist/*.whl \
+            apk/app-release.apk

@@ -27,29 +27,71 @@ content %}
 }
 </style>
 
+<h2>{{ _('select a lesson and variant to play') }}</h2>
 
-    <h2>{{ _('select an mp3 file to play') }}</h2>
-
-<form id="audioform" style="display: flex; flex-wrap: wrap; gap: 0.5rem; max-width: 100%;">
-  <label for="file_select" style="flex: 1 1 100%;">{{ _('choose an audio file') }}:</label>
-  <select id="file_select" name="file" style="flex: 1 1 250px; max-width: 100%;">
-    {% for mp3_file in mp3_files %}
-    <option value="{{ mp3_file }}">{{ mp3_file }}</option>
+<form id="audioform" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+  <label for="base_select" style="flex: 1 1 100%;">{{ _('choose a lesson') }}:</label>
+  <select id="base_select" name="base" style="flex: 1 1 250px;">
+    {% for base, display, variants in mp3_variants %}
+    <option value="{{ base }}" {% if base == selected_base %}selected{% endif %}>{{ display }}</option>
     {% endfor %}
   </select>
-  <button type="submit" style="flex: 0 0 auto;">{{ _('choose file') }}</button>
+
+  <label for="variant_select" style="flex: 1 1 100%;">{{ _('choose version') }}:</label>
+  <select id="variant_select" name="variant" style="flex: 1 1 250px;">
+  <option value="Original" {% if selected_variant|lower == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
+  <option value="Enhanced" {% if selected_variant|lower == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
+  <option value="Present" {% if selected_variant|lower == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
+  <option value="Future" {% if selected_variant|lower == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
+
+</select>
+
 </form>
 
+<script>
+  document.getElementById("variant_select").addEventListener("change", function () {
+    document.getElementById("audioform").requestSubmit();
+  });
+    document.getElementById("base_select").addEventListener("change", function () {
+    document.getElementById("audioform").requestSubmit();
+  });
+</script>
+
+<script>
+document.getElementById("audioform").addEventListener("submit", function(event) {
+  event.preventDefault();
+  const base = document.getElementById("base_select").value;
+  const variant = document.getElementById("variant_select").value;
+
+  let filename = base;
+
+  // Add suffix only for these three variants exactly
+  if (variant === "Enhanced") {
+    filename += "_enhanced";
+  } else if (variant === "Present") {
+    filename += "_present";
+  } else if (variant === "Future") {
+    filename += "_future";
+  }
+  // For "Original", no suffix
+  filename += ".mp3";
+
+  window.location.href = "/view_markdown/" + encodeURIComponent(filename);
+});
+</script>
 
 <script>
   document.getElementById("audioform").addEventListener("submit", function(event) {
     event.preventDefault();
     const file = document.getElementById("file_select").value;
+      console.log( file);
+
     if (file) {
       window.location.href = "/view_markdown/" + encodeURIComponent(file);
     }
   });
 </script>
+
 <script>
   function playselectedfile() {
     const file = document.getElementById("file_select").value;
