@@ -1,0 +1,85 @@
+{
+  "@@locale": "en",
+
+  "appTitle": "LingoDiary",
+
+  "navDiary": "Diary",
+  "navLessons": "Lessons",
+  "navSettings": "Settings",
+
+  "syncAll": "Sync All",
+  "syncInProgress": "Sync in progress…",
+  "syncCancelled": "Cancelled.",
+  "syncFailed": "Sync failed: {error}",
+  "@syncFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "syncedFiles": "Synced {count} file(s) ✓",
+  "@syncedFiles": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "cancelButton": "Cancel",
+
+  "noLessons": "No lessons yet.\nTap Sync All to download.",
+  "serverUnreachable": "Server unreachable — showing cached lessons",
+  "syncThisLesson": "Sync this lesson",
+  "lessonSynced": "Synced",
+
+  "audioNotSynced": "Audio not synced yet — tap ⟳ in the toolbar.",
+  "noContent": "No content — tap Sync to download.",
+  "noDateInLesson": "No date found in lesson name.",
+  "noDiaryEntry": "No diary entry found for {date}.\nMake sure the server has this entry.",
+  "@noDiaryEntry": {
+    "placeholders": {
+      "date": {"type": "String"}
+    }
+  },
+  "loopOn": "Loop: on",
+  "loopOff": "Loop: off",
+  "fontSizeTooltip": "Font size ({size})",
+  "@fontSizeTooltip": {
+    "placeholders": {
+      "size": {"type": "String"}
+    }
+  },
+
+  "loginServerUrl": "Server URL",
+  "loginServerHint": "http://192.168.1.x:8084",
+  "loginServerRequired": "Enter the server URL",
+  "loginUsername": "Username",
+  "loginUsernameRequired": "Enter username",
+  "loginPassword": "Password",
+  "loginPasswordRequired": "Enter password",
+  "loginButton": "Login",
+
+  "settingsTitle": "Settings",
+  "settingsAccount": "Account",
+  "settingsUsernameLabel": "Username",
+  "settingsServerLabel": "Server",
+  "settingsChangeServer": "Change server URL",
+  "settingsSave": "Save",
+  "settingsServerUpdated": "Server URL updated",
+  "settingsSession": "Session",
+  "settingsSignOut": "Sign out",
+  "settingsSignOutSubtitle": "Keeps all cached data on this device",
+  "settingsSignOutTitle": "Sign out",
+  "settingsSignOutBody": "Your locally cached lessons and diary data will be kept.\n\nSign out?",
+  "settingsData": "Data",
+  "settingsStorageLabel": "Cache size",
+  "settingsClearData": "Clear all cached data",
+  "settingsClearDataSubtitle": "Deletes downloaded lessons & diary cache from this device",
+  "settingsClearDataTitle": "Clear all cached data",
+  "settingsClearDataBody": "This will delete all downloaded lesson files (audio + text) and the local database cache.\n\nYou will remain signed in and can sync again from the server.\n\nThis cannot be undone. Continue?",
+  "settingsClearButton": "Clear",
+  "settingsDataCleared": "All cached data cleared.",
+  "settingsErrorClearing": "Error clearing data: {error}",
+  "@settingsErrorClearing": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  }
+}

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/diary_screen.dart';
@@ -20,6 +22,16 @@ class LingoDiaryApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'LingoDiary',
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('fr'),
+      ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
@@ -173,11 +185,13 @@ class _MainShellState extends State<MainShell> {
               BottomNavigationBar(
                 currentIndex: _currentIndex,
                 onTap: (i) => setState(() => _currentIndex = i),
-                items: const [
+                items: [
                   BottomNavigationBarItem(
-                      icon: Icon(Icons.book), label: 'Diary'),
+                      icon: const Icon(Icons.book),
+                      label: AppLocalizations.of(context)!.navDiary),
                   BottomNavigationBarItem(
-                      icon: Icon(Icons.headphones), label: 'Lessons'),
+                      icon: const Icon(Icons.headphones),
+                      label: AppLocalizations.of(context)!.navLessons),
                 ],
               ),
             ],

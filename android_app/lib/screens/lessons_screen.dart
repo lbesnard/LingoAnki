@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
+import '../services/sync_service.dart';
 import 'player_screen.dart';
 
 class LessonsScreen extends StatefulWidget {
@@ -15,6 +17,7 @@ class LessonsScreen extends StatefulWidget {
 class _LessonsScreenState extends State<LessonsScreen> {
   List<Map<String, dynamic>> _lessons = [];
   bool _loading = true;
+  Set<String> _syncedBases = {};
 
   @override
   void initState() {
@@ -33,9 +36,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
     if (!SyncManager.instance.isSyncing) {
       _loadFromCacheThenServer();
     }
-  }
-
-  /// Show cached data immediately, then silently refresh from server.
+  }  /// Show cached data immediately, then silently refresh from server.
   Future<void> _loadFromCacheThenServer() async {
     // 1. Show cache straight away (no long spinner)
     final cached = await LocalDbService.getLessons();
@@ -45,15 +46,33 @@ class _LessonsScreenState extends State<LessonsScreen> {
         _loading = false;
       });
     }
+    _checkSyncStatus(_lessons);
 
     // 2. Try server in background; update if it responds
     try {
       final remote = await ApiService.getLessons();
       await LocalDbService.saveLessons(remote);
       if (mounted) setState(() => _lessons = remote);
+      _checkSyncStatus(remote);
     } catch (_) {
       // Server unreachable — cached data is already showing, nothing to do
     }
+  }
+
+  Future<void> _checkSyncStatus(List<Map<String, dynamic>> lessons) async {
+    final synced = <String>{};
+    for (final lesson in lessons) {
+      final base = lesson['base'] as String? ?? '';
+      final variants = lesson['variants'] as Map<String, dynamic>? ?? {};
+      for (final filename in variants.values) {
+        final mp3Path = await SyncService.localPath('TPRS/$filename');
+        if (await File(mp3Path).exists()) {
+          synced.add(base);
+          break;
+        }
+      }
+    }
+    if (mounted) setState(() => _syncedBases = synced);
   }
 
   /// Pull-to-refresh: explicitly sync all then reload.
@@ -62,6 +81,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
       final remote = await ApiService.getLessons();
       await LocalDbService.saveLessons(remote);
       if (mounted) setState(() => _lessons = remote);
+      _checkSyncStatus(remote);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -156,7 +176,12 @@ class _LessonsScreenState extends State<LessonsScreen> {
                           final variants =
                               lesson['variants'] as Map<String, dynamic>? ?? {};
                           return ListTile(
-                            leading: const Icon(Icons.audiotrack),
+                            leading: _syncedBases.contains(
+                                    lesson['base'] as String? ?? '')
+                                ? const Icon(Icons.check_circle,
+                                    color: Colors.green)
+                                : const Icon(Icons.radio_button_unchecked,
+                                    color: Colors.grey),
                             title: Text(lesson['display'] as String),
                             subtitle: Text(
                               variants.keys.join(' · '),

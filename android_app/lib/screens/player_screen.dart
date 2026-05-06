@@ -43,6 +43,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _fontSize = 14.0;
   static const List<double> _fontSizes = [12.0, 14.0, 16.0, 20.0];
 
+  // Loop
+  bool _loopEnabled = false;
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +96,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _fontSize = next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('player_font_size', next);
+  }
+
+  void _toggleLoop() {
+    setState(() => _loopEnabled = !_loopEnabled);
+    _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
   }
 
   Future<void> _loadVariant(String variantName) async {
@@ -324,6 +332,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
             tooltip: 'Font size (${_fontSize.toStringAsFixed(0)})',
             icon: const Icon(Icons.text_fields),
             onPressed: _cycleFontSize,
+          ),
+          // Loop toggle
+          IconButton(
+            tooltip: _loopEnabled ? 'Loop: on' : 'Loop: off',
+            icon: Icon(
+              _loopEnabled ? Icons.repeat_one : Icons.repeat,
+              color: _loopEnabled
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            onPressed: _toggleLoop,
           ),
           ListenableBuilder(
             listenable: SyncManager.instance,

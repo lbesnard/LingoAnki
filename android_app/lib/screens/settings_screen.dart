@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
@@ -16,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _username = '';
   String _serverUrl = '';
+  String _cacheSize = '…';
   late TextEditingController _serverController;
   bool _saving = false;
   bool _clearing = false;
@@ -37,14 +39,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final username = await AuthService.getUsername() ?? '';
     final prefs = await SharedPreferences.getInstance();
     final serverUrl = prefs.getString('server_url') ?? '';
+    final cacheSize = await _computeCacheSize();
     setState(() {
       _username = username;
       _serverUrl = serverUrl;
       _serverController.text = serverUrl;
+      _cacheSize = cacheSize;
     });
   }
 
+  Future<String> _computeCacheSize() async {
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final outputDir = Directory('${docsDir.path}/output');
+      if (!await outputDir.exists()) return '0 B';
+      int total = 0;
+      await for (final entity in outputDir.list(recursive: true)) {
+        if (entity is File) total += await entity.length();
+      }
+      if (total < 1024) return '$total B';
+      if (total < 1024 * 1024) {
+        return '${(total / 1024).toStringAsFixed(1)} KB';
+      }
+      return '${(total / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } catch (_) {
+      return '—';
+    }
+  }
+
   Future<void> _saveServerUrl() async {
+    final l10n = AppLocalizations.of(context)!;
     final url = _serverController.text.trim();
     if (url.isEmpty) return;
     setState(() => _saving = true);
@@ -56,25 +80,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Server URL updated')),
+        SnackBar(content: Text(l10n.settingsServerUpdated)),
       );
     }
   }
 
   Future<void> _signOut() async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Sign out'),
-        content: const Text(
-            'Your locally cached lessons and diary data will be kept.\n\nSign out?'),
+        title: Text(l10n.settingsSignOutTitle),
+        content: Text(l10n.settingsSignOutBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(l10n.cancelButton)),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sign out')),
+              child: Text(l10n.settingsSignOut)),
         ],
       ),
     );
@@ -89,23 +113,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _clearCachedData() async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Clear all cached data'),
-        content: const Text(
-            'This will delete all downloaded lesson files (audio + text) and '
-            'the local database cache.\n\n'
-            'You will remain signed in and can sync again from the server.\n\n'
-            'This cannot be undone. Continue?'),
+        title: Text(l10n.settingsClearDataTitle),
+        content: Text(l10n.settingsClearDataBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(l10n.cancelButton)),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clear'),
+            child: Text(l10n.settingsClearButton),
           ),
         ],
       ),
@@ -131,15 +152,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.remove('tprs_answer');
 
       if (mounted) {
+        final newSize = await _computeCacheSize();
+        setState(() => _cacheSize = newSize);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All cached data cleared.')),
+          SnackBar(content: Text(l10n.settingsDataCleared)),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Error clearing data: $e'),
+              content: Text(l10n.settingsErrorClearing(e.toString())),
               backgroundColor: Colors.red),
         );
       }
@@ -152,27 +175,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
         children: [
           // ── Account ───────────────────────────────────────────────────────
-          _sectionHeader('Account'),
+          _sectionHeader(l10n.settingsAccount),
           ListTile(
             leading: const Icon(Icons.person_outline),
-            title: const Text('Username'),
+            title: Text(l10n.settingsUsernameLabel),
             subtitle: Text(_username.isEmpty ? '—' : _username),
           ),
           ListTile(
             leading: const Icon(Icons.dns_outlined),
-            title: const Text('Server'),
+            title: Text(l10n.settingsServerLabel),
             subtitle: Text(_serverUrl.isEmpty ? '—' : _serverUrl),
           ),
           const Divider(),
 
           // ── Server URL ────────────────────────────────────────────────────
-          _sectionHeader('Change server URL'),
+          _sectionHeader(l10n.settingsChangeServer),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -180,10 +203,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Expanded(
                   child: TextField(
                     controller: _serverController,
-                    decoration: const InputDecoration(
-                      labelText: 'Server URL',
-                      hintText: 'http://192.168.1.x:8084',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.loginServerUrl,
+                      hintText: l10n.loginServerHint,
+                      border: const OutlineInputBorder(),
                       isDense: true,
                     ),
                     keyboardType: TextInputType.url,
@@ -198,7 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Save'),
+                      : Text(l10n.settingsSave),
                 ),
               ],
             ),
@@ -206,17 +229,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
 
           // ── Sign out ──────────────────────────────────────────────────────
-          _sectionHeader('Session'),
+          _sectionHeader(l10n.settingsSession),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.orange),
-            title: const Text('Sign out'),
-            subtitle: const Text('Keeps all cached data on this device'),
+            title: Text(l10n.settingsSignOut),
+            subtitle: Text(l10n.settingsSignOutSubtitle),
             onTap: _signOut,
           ),
           const Divider(),
 
           // ── Data ──────────────────────────────────────────────────────────
-          _sectionHeader('Data'),
+          _sectionHeader(l10n.settingsData),
+          ListTile(
+            leading: const Icon(Icons.storage_outlined),
+            title: Text(l10n.settingsStorageLabel),
+            subtitle: Text(_cacheSize),
+          ),
           ListTile(
             leading: _clearing
                 ? const SizedBox(
@@ -224,10 +252,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.delete_sweep_outlined, color: Colors.red),
-            title: const Text('Clear all cached data',
-                style: TextStyle(color: Colors.red)),
-            subtitle: const Text(
-                'Deletes downloaded lessons & diary cache from this device'),
+            title: Text(l10n.settingsClearData,
+                style: const TextStyle(color: Colors.red)),
+            subtitle: Text(l10n.settingsClearDataSubtitle),
             onTap: _clearing ? null : _clearCachedData,
           ),
           const SizedBox(height: 24),
