@@ -51,6 +51,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<Map<String, dynamic>> _sentenceEntries = [];
   // Flat list of timed segments: {entryIdx, qaIdx (-1=sentence), isQuestion, timing}
   List<Map<String, dynamic>> _segments = [];
+  // Entry-level spans covering the full block (sentence → last answer)
+  Map<int, Map<String, int>> _entrySpans = {};
   int _activeEntryIndex = -1;
   int _activeQaIndex = -1; // -1 = sentence is active
   bool _activeIsQuestion = false;
@@ -133,6 +135,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _markdownContent = '';
       _sentenceEntries = [];
       _segments = [];
+      _entrySpans = {};
       _expandedTranslations.clear();
       _activeEntryIndex = -1;
       _activeQaIndex = -1;
@@ -190,10 +193,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _buildSegmentList() {
     final segs = <Map<String, dynamic>>[];
+    final spans = <int, Map<String, int>>{}; // entryIdx → {start, end}
+
     for (var i = 0; i < _sentenceEntries.length; i++) {
       final entry = _sentenceEntries[i];
       final st = entry['audio_timing'] as Map<String, dynamic>?;
-      if (st != null && (st['end_ms'] as int? ?? 0) > 0) {
+      int blockStart = (st?['start_ms'] as int?) ?? 0;
+      int blockEnd = (st?['end_ms'] as int?) ?? 0;
+
+      if (st != null && blockEnd > 0) {
         segs.add({'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
       }
       final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -201,33 +209,50 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
         if (qt != null && (qt['end_ms'] as int? ?? 0) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
+          final end = qt['end_ms'] as int? ?? 0;
+          if (end > blockEnd) blockEnd = end;
         }
         final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
         if (at != null && (at['end_ms'] as int? ?? 0) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
+          final end = at['end_ms'] as int? ?? 0;
+          if (end > blockEnd) blockEnd = end;
         }
       }
+      if (blockEnd > 0) spans[i] = {'start': blockStart, 'end': blockEnd};
     }
     _segments = segs;
+    _entrySpans = spans;
   }
 
   void _startPositionListener() {
     _player.positionStream.listen((pos) {
       if (!mounted) return;
       final ms = pos.inMilliseconds;
-      int entryIdx = -1, qaIdx = -1;
+
+      // Container highlight: based on full entry block span (stays on during pauses)
+      int entryIdx = -1;
+      for (final e in _entrySpans.entries) {
+        if (ms >= e.value['start']! && ms < e.value['end']!) {
+          entryIdx = e.key;
+          break;
+        }
+      }
+
+      // Fine-grained: which specific segment (sentence/Q/A) is playing
+      int qaIdx = -1;
       bool isQ = false;
       for (final seg in _segments) {
         final t = seg['timing'] as Map<String, dynamic>;
         final start = (t['start_ms'] as int?) ?? 0;
         final end = (t['end_ms'] as int?) ?? 0;
         if (end > start && ms >= start && ms < end) {
-          entryIdx = seg['entryIdx'] as int;
           qaIdx = seg['qaIdx'] as int;
           isQ = seg['isQuestion'] as bool;
           break;
         }
       }
+
       if (entryIdx != _activeEntryIndex ||
           qaIdx != _activeQaIndex ||
           isQ != _activeIsQuestion) {
@@ -236,8 +261,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _activeQaIndex = qaIdx;
           _activeIsQuestion = isQ;
         });
-        // Only scroll to entry when the sentence itself becomes active
-        if (entryIdx >= 0 && qaIdx == -1) _scrollToSentence(entryIdx);
+        // Scroll to entry when sentence block starts
+        if (entryIdx >= 0 && entryIdx != _activeEntryIndex) {
+          _scrollToSentence(entryIdx);
+        }
       }
     });
   }

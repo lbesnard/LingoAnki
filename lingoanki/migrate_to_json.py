@@ -123,8 +123,17 @@ def migrate_markdown_to_json(
         title = day_data.get("title", "")
         sentences_data = day_data.get("sentences", {})
 
+        # Pre-build ordered position lists per variant for this date (match by index)
+        day_tprs_by_variant: dict[str, list[tuple[str, dict]]] = {}
+        for json_key, tprs_date_dict in variant_dicts.items():
+            for tprs_date_obj, tprs_sentences in tprs_date_dict.items():
+                if _date_obj_to_str(tprs_date_obj) == date_str:
+                    # ordered list of (sentence_text, qa_raw_dict)
+                    day_tprs_by_variant[json_key] = list(tprs_sentences.items())
+                    break
+
         entries: list[DiaryEntry] = []
-        for idx, sentence_dict in sorted(sentences_data.items()):
+        for position, (idx, sentence_dict) in enumerate(sorted(sentences_data.items())):
             input_sentence = sentence_dict.get("primary_language_sentence", "").strip()
             output_sentence = sentence_dict.get("study_language_sentence", "").strip()
             trial = sentence_dict.get("study_language_sentence_trial", "").strip()
@@ -132,32 +141,19 @@ def migrate_markdown_to_json(
 
             lessons = LessonsBlock(reviewing=ReviewingState())
 
-            # Match TPRS Q&A for each variant by looking up the output sentence text
-            for json_key, tprs_date_dict in variant_dicts.items():
-                # Try to find the date in the TPRS data (keyed by datetime object)
-                day_tprs = None
-                for tprs_date_obj, tprs_sentences in tprs_date_dict.items():
-                    if _date_obj_to_str(tprs_date_obj) == date_str:
-                        day_tprs = tprs_sentences
-                        break
-
-                if day_tprs is None:
+            # Match TPRS Q&A by position (index), not by text.
+            # Each variant lists sentences in the same order as diary entries.
+            for json_key, ordered_sentences in day_tprs_by_variant.items():
+                if position >= len(ordered_sentences):
+                    logger.warning(
+                        f"  {date_str} [{json_key}]: no entry at position {position}, skipping."
+                    )
                     continue
-
-                # Find matching sentence in TPRS data
-                # TPRS data is keyed by the study-language sentence text
-                tprs_sentence_text, qa_raw = _find_best_sentence_match(
-                    output_sentence, day_tprs
-                )
-                if tprs_sentence_text is None:
-                    continue
-
+                tprs_sentence_text, qa_raw = ordered_sentences[position]
                 qa_list = _parse_qa_raw(qa_raw)
-                variant_lesson = VariantLesson(
-                    sentence=tprs_sentence_text,
-                    qa=qa_list,
+                lessons.set_variant(
+                    json_key, VariantLesson(sentence=tprs_sentence_text, qa=qa_list)
                 )
-                lessons.set_variant(json_key, variant_lesson)
 
             entry = DiaryEntry(
                 index=int(idx),
