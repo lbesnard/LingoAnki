@@ -7,7 +7,7 @@ both individual words and sentences, generating transcriptions and translations,
 
 Features:
 - Uses Whisper for transcription and Google Text-to-Speech (TTS) for generating audio.
-- Translates words and sentences using GoogleTranslator or ChatGptTranslator.
+- Translates words and sentences using GoogleTranslator or OpenAI ChatGPT.
 - Organizes flashcards into two Anki subdecks: one for words and one for sentences.
 - Supports multiple languages.
 
@@ -31,8 +31,9 @@ import genanki
 import spacy
 import spacy.cli
 import whisper
-from deep_translator import GoogleTranslator, ChatGptTranslator
+from deep_translator import GoogleTranslator
 from gtts import gTTS
+from openai import OpenAI
 from pydub import AudioSegment
 
 ANKICONNECT_URL = "http://localhost:8765"
@@ -398,9 +399,9 @@ def translate_list(list_words, input_language="no", target_language="en"):
     Translates a list of words from the input language to the target language using OpenAI's ChatGPT translator
     or Google Translator as a fallback.
 
-    This function checks for an OpenAI API key in the 'openai.json' file. If available, it uses the ChatGptTranslator
-    to translate the list of words. If the translation fails or the API key is unavailable, it falls back to the
-    GoogleTranslator.
+    This function checks for an OpenAI API key in the 'openai.json' file. If available, it uses the OpenAI
+    ChatGPT API directly to translate the list of words. If the translation fails or the API key is unavailable,
+    it falls back to the GoogleTranslator.
 
     Args:
         list_words (list): The list of words to translate.
@@ -420,9 +421,17 @@ def translate_list(list_words, input_language="no", target_language="en"):
         # Extract the OpenAI API key and assign it to a variable
         api_key = data["api_key"]
         try:
-            translated = ChatGptTranslator(
-                api_key=api_key, source=input_language, target=target_language
-            ).translate_batch(list_words)
+            client = OpenAI(api_key=api_key)
+            prompt = (
+                f"Translate the following words/phrases from {input_language} to {target_language}. "
+                "Return only the translations, one per line, in the same order, with no extra text:\n"
+                + "\n".join(list_words)
+            )
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            translated = response.choices[0].message.content.strip().split("\n")
         except Exception as err:
             logger.info(
                 f"ChatGPT translator failed: {err}. Fallback using Google Translator"
