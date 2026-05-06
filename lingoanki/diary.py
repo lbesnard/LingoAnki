@@ -1215,6 +1215,7 @@ class DiaryHandler:
         except Exception as exc:
             self.logging.warning(f"Could not write JSON diary: {exc}")
 
+    def markdown_diary_to_dict(self):
         """Parses the main diary markdown file into a structured dictionary.
 
         Extracts dates, titles, and individual sentence entries (primary language,
