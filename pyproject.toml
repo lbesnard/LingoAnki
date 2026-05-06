@@ -29,6 +29,7 @@ piper-tts = ">=1.2.0"
 ovos-tts-plugin-piper = "==0.0.2"
 pydub = ">=0.25.1"
 numpy = ">=2.0.0"
+PyJWT = ">=2.8.0"
 
 
 [tool.poetry.scripts]

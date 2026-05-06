@@ -1,0 +1,24 @@
+{% extends "diary.html" %} {% block title %}{{ _('Backup') }}{% endblock %} {% block content %}
+
+<h2>{{ _('Backup & Restore') }}</h2>
+
+<p>{{ _('Download a full backup of your diary, TPRS lessons, and all generated audio files. Your configuration (including API keys) is not included.') }}</p>
+
+<h3>{{ _('Download Backup') }}</h3>
+<p>{{ _('Creates a zip file containing your diary, TPRS markdown, and all output files (mp3s, generated lessons).') }}</p>
+<a href="{{ url_for('backup_download') }}" class="btn btn-primary">
+  <button type="button">⬇ {{ _('Download Backup') }}</button>
+</a>
+
+<hr style="margin: 2em 0;">
+
+<h3>{{ _('Restore from Backup') }}</h3>
+<p>⚠ {{ _('This will overwrite your current diary, TPRS, and output files with the contents of the backup. This cannot be undone.') }}</p>
+
+<form action="{{ url_for('backup_upload') }}" method="POST" enctype="multipart/form-data">
+  <label for="backup_file">{{ _('Select a backup .zip file:') }}</label><br>
+  <input type="file" id="backup_file" name="backup_file" accept=".zip" required style="margin: 0.5em 0;"><br>
+  <button type="submit" style="background-color: #dc3545;">⬆ {{ _('Restore Backup') }}</button>
+</form>
+
+{% endblock %}

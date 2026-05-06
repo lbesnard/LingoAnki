@@ -1,0 +1,17 @@
+services:
+  lingo-diary:
+    build: .
+    # image: lozzaroo/lingodiary
+    ports:
+      - 8083:8084
+    stdin_open: true # keep stdin open (like `-i`)
+    tty: true
+    volumes:
+      - /opt/lingodiary_venv:/app/.venv # 👈 bind mount replaces named volume
+      - ~/.config/lingoDiary/:/app/.config/lingoDiary/ # Mount config file to /app inside the container
+      - ~/Documents/lingodiary/:/data/lingodiary/
+    environment:
+      # CONFIG_PATH: /app/.config/lingoDiary/config.yaml # Update path to reflect /app location
+      SECRET_KEY: "bceac54fc00cbdfee69e3f10905b73ec550eb9bf6779a9476471171170493962" # python -c "import secrets; print(secrets.token_hex(32))"
+      # CONFIG_ROOT: /app/.config/lingoDiary # Update path to reflect /app location
+      # USER_DB_FILE: /app/.config/lingoDiary/users.yaml # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
