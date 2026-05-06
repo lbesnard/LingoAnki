@@ -75,13 +75,25 @@ class AudioTiming:
 class QA:
     question: str = ""
     answer: str = ""
+    question_timing: AudioTiming = field(default_factory=AudioTiming)
+    answer_timing: AudioTiming = field(default_factory=AudioTiming)
 
     def to_dict(self) -> dict:
-        return {"question": self.question, "answer": self.answer}
+        return {
+            "question": self.question,
+            "answer": self.answer,
+            "question_timing": self.question_timing.to_dict(),
+            "answer_timing": self.answer_timing.to_dict(),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "QA":
-        return cls(question=d.get("question", ""), answer=d.get("answer", ""))
+        return cls(
+            question=d.get("question", ""),
+            answer=d.get("answer", ""),
+            question_timing=AudioTiming.from_dict(d.get("question_timing", {})),
+            answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
+        )
 
 
 @dataclass

@@ -95,6 +95,7 @@ def _compute_day_timings(
     we just add pause_ms and answer_silence_ms directly (no TTS needed for pauses).
 
     Returns list of (start_ms, end_ms) per entry, or [] if variant has no data.
+    Q&A timings are stored directly onto each QA object (question_timing/answer_timing).
     """
     R = max(1, repeat_tprs)
     cumulative = 0
@@ -104,8 +105,6 @@ def _compute_day_timings(
     for entry in entries:
         variant = entry.lessons.get_variant(variant_key)
         if not variant.sentence:
-            # No data for this variant/entry — still must track position
-            # if other entries exist; push a zero-range placeholder
             timings.append((cumulative, cumulative))
             continue
 
@@ -120,14 +119,22 @@ def _compute_day_timings(
         # Advance cursor past sentence + its pause
         cumulative = entry_end + pause_ms
 
-        # ── Q&A pairs ─────────────────────────────────────────────────────
+        # ── Q&A pairs — compute and store individual timings ──────────────
         for qa in variant.qa:
+            from lingoanki.diary_json import AudioTiming  # type: ignore
+
             cumulative += pause_ms  # pause before question
+            q_start = cumulative
             q_dur = _tts_duration_ms(qa.question, tts_plugin, lang, voice)
             cumulative += q_dur * R
+            qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
+
             cumulative += answer_silence_ms  # silence for user to answer
+            a_start = cumulative
             a_dur = _tts_duration_ms(qa.answer, tts_plugin, lang, voice)
             cumulative += a_dur * R
+            qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
+
             cumulative += pause_ms  # pause after answer
 
     return timings if has_any else []

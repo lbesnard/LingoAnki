@@ -49,7 +49,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Sentence timing + highlighting
   List<Map<String, dynamic>> _sentenceEntries = [];
-  int _activeSentenceIndex = -1;
+  // Flat list of timed segments: {entryIdx, qaIdx (-1=sentence), isQuestion, timing}
+  List<Map<String, dynamic>> _segments = [];
+  int _activeEntryIndex = -1;
+  int _activeQaIndex = -1; // -1 = sentence is active
+  bool _activeIsQuestion = false;
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _sentenceKeys = {};
 
@@ -128,8 +132,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _audioReady = false;
       _markdownContent = '';
       _sentenceEntries = [];
+      _segments = [];
       _expandedTranslations.clear();
-      _activeSentenceIndex = -1;
+      _activeEntryIndex = -1;
+      _activeQaIndex = -1;
+      _activeIsQuestion = false;
       _sentenceKeys.clear();
     });
 
@@ -161,12 +168,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           setState(() {
             _sentenceEntries = entries;
             _expandedTranslations.clear();
-            _activeSentenceIndex = -1;
+            _activeEntryIndex = -1;
+            _activeQaIndex = -1;
+            _activeIsQuestion = false;
             _sentenceKeys.clear();
             for (var i = 0; i < entries.length; i++) {
               _sentenceKeys[i] = GlobalKey();
             }
           });
+          _buildSegmentList();
         }
       } catch (_) {
         // Server unreachable — fall back to markdown-only display
@@ -178,25 +188,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return variantName.toLowerCase();
   }
 
+  void _buildSegmentList() {
+    final segs = <Map<String, dynamic>>[];
+    for (var i = 0; i < _sentenceEntries.length; i++) {
+      final entry = _sentenceEntries[i];
+      final st = entry['audio_timing'] as Map<String, dynamic>?;
+      if (st != null && (st['end_ms'] as int? ?? 0) > 0) {
+        segs.add({'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
+      }
+      final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      for (var j = 0; j < qa.length; j++) {
+        final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
+        if (qt != null && (qt['end_ms'] as int? ?? 0) > 0) {
+          segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
+        }
+        final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
+        if (at != null && (at['end_ms'] as int? ?? 0) > 0) {
+          segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
+        }
+      }
+    }
+    _segments = segs;
+  }
+
   void _startPositionListener() {
     _player.positionStream.listen((pos) {
-      if (!mounted || _sentenceEntries.isEmpty) return;
+      if (!mounted) return;
       final ms = pos.inMilliseconds;
-      int idx = -1;
-      for (var i = 0; i < _sentenceEntries.length; i++) {
-        final timing =
-            _sentenceEntries[i]['audio_timing'] as Map<String, dynamic>?;
-        if (timing == null) continue;
-        final start = (timing['start_ms'] as int?) ?? 0;
-        final end = (timing['end_ms'] as int?) ?? 0;
+      int entryIdx = -1, qaIdx = -1;
+      bool isQ = false;
+      for (final seg in _segments) {
+        final t = seg['timing'] as Map<String, dynamic>;
+        final start = (t['start_ms'] as int?) ?? 0;
+        final end = (t['end_ms'] as int?) ?? 0;
         if (end > start && ms >= start && ms < end) {
-          idx = i;
+          entryIdx = seg['entryIdx'] as int;
+          qaIdx = seg['qaIdx'] as int;
+          isQ = seg['isQuestion'] as bool;
           break;
         }
       }
-      if (idx != _activeSentenceIndex) {
-        setState(() => _activeSentenceIndex = idx);
-        if (idx >= 0) _scrollToSentence(idx);
+      if (entryIdx != _activeEntryIndex ||
+          qaIdx != _activeQaIndex ||
+          isQ != _activeIsQuestion) {
+        setState(() {
+          _activeEntryIndex = entryIdx;
+          _activeQaIndex = qaIdx;
+          _activeIsQuestion = isQ;
+        });
+        // Only scroll to entry when the sentence itself becomes active
+        if (entryIdx >= 0 && qaIdx == -1) _scrollToSentence(entryIdx);
       }
     });
   }
@@ -290,7 +331,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         itemCount: _sentenceEntries.length,
         itemBuilder: (ctx, i) {
           final entry = _sentenceEntries[i];
-          final isActive = i == _activeSentenceIndex;
+          final isEntryActive = i == _activeEntryIndex;
+          final isSentenceActive = isEntryActive && _activeQaIndex == -1;
           final isExpanded = _expandedTranslations.contains(i);
           final isScored = i == _scoredSentenceIndex;
           final sentence = entry['sentence'] as String? ?? '';
@@ -304,7 +346,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return Container(
             key: _sentenceKeys[i],
             margin: const EdgeInsets.only(bottom: 16),
-            decoration: isActive
+            decoration: isEntryActive
                 ? BoxDecoration(
                     color: Colors.indigo.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -336,7 +378,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             sentence.isNotEmpty ? sentence : inputSentence,
                             style: TextStyle(
                               color: const Color(0xFF3F51B5),
-                              fontWeight: isActive
+                              fontWeight: isSentenceActive
                                   ? FontWeight.bold
                                   : FontWeight.normal,
                               fontSize: _fontSize + 1,
@@ -392,9 +434,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
 
                 // Q&A pairs
-                ...qa.map((qaPair) {
+                ...qa.asMap().entries.map((e) {
+                  final j = e.key;
+                  final qaPair = e.value;
                   final question = qaPair['question'] as String? ?? '';
                   final answer = qaPair['answer'] as String? ?? '';
+                  final isQActive =
+                      isEntryActive && _activeQaIndex == j && _activeIsQuestion;
+                  final isAActive =
+                      isEntryActive && _activeQaIndex == j && !_activeIsQuestion && _activeQaIndex >= 0;
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
                     child: Column(
@@ -403,8 +451,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         Text(
                           '$_kwQuestion $question',
                           style: TextStyle(
-                            color: const Color(0xFFE65100),
-                            fontWeight: FontWeight.bold,
+                            color: isQActive
+                                ? const Color(0xFFBF360C)
+                                : const Color(0xFFE65100),
+                            fontWeight: isQActive
+                                ? FontWeight.bold
+                                : FontWeight.normal,
                             fontSize: _fontSize,
                           ),
                         ),
@@ -413,7 +465,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           child: Text(
                             '$_kwAnswer $answer',
                             style: TextStyle(
-                              color: const Color(0xFF2E7D32),
+                              color: isAActive
+                                  ? const Color(0xFF1B5E20)
+                                  : const Color(0xFF2E7D32),
+                              fontWeight: isAActive
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                               fontSize: _fontSize,
                             ),
                           ),
@@ -510,7 +567,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildScoringBar() {
     final total = _sentenceEntries.length;
-    final current = _activeSentenceIndex + 1;
+    final current = _activeEntryIndex + 1;
     final buttons = <Map<String, dynamic>>[
       {'label': 'Again', 'score': 0, 'color': Colors.red},
       {'label': 'Hard', 'score': 2, 'color': Colors.orange},
@@ -542,7 +599,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     minimumSize: const Size(0, 32),
                     textStyle: const TextStyle(fontSize: 11),
                   ),
-                  onPressed: () => _scoreEntry(_activeSentenceIndex, score),
+                  onPressed: () => _scoreEntry(_activeEntryIndex, score),
                   child: Text(label),
                 ),
               ),
@@ -880,7 +937,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
 
           // ── Scoring bar (visible when a sentence is active and structured data loaded) ──
-          if (_activeSentenceIndex >= 0 && _sentenceEntries.isNotEmpty)
+          if (_activeEntryIndex >= 0 && _sentenceEntries.isNotEmpty)
             _buildScoringBar(),
 
           // ── Content area ──────────────────────────────────────────────────
