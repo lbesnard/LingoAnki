@@ -14,26 +14,56 @@ class LocalDbService {
     final path = join(await getDatabasesPath(), 'lingodiary.db');
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE diary_cache (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT NOT NULL,
-            saved_at TEXT NOT NULL,
-            synced INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE lessons_cache (
-            base TEXT PRIMARY KEY,
-            display TEXT NOT NULL,
-            variants_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-          )
-        ''');
+        await _createV1Tables(db);
+        await _createV2Tables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createV2Tables(db);
+        }
       },
     );
+  }
+
+  static Future<void> _createV1Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS diary_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content TEXT NOT NULL,
+        saved_at TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lessons_cache (
+        base TEXT PRIMARY KEY,
+        display TEXT NOT NULL,
+        variants_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createV2Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS home_cache (
+        id INTEGER PRIMARY KEY,
+        data_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS srs_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        entry_index INTEGER NOT NULL,
+        score INTEGER NOT NULL,
+        scored_at TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   // ---- Diary ----
@@ -75,7 +105,7 @@ class LocalDbService {
         {
           'base': lesson['base'],
           'display': lesson['display'],
-        'variants_json': jsonEncode(lesson['variants']),
+          'variants_json': jsonEncode(lesson['variants']),
           'updated_at': DateTime.now().toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
@@ -89,10 +119,66 @@ class LocalDbService {
     return database.query('lessons_cache', orderBy: 'display DESC');
   }
 
+  // ---- Home cache ----
+
+  static Future<void> saveHomeData(Map<String, dynamic> data) async {
+    final database = await db;
+    await database.insert(
+      'home_cache',
+      {
+        'id': 1,
+        'data_json': jsonEncode(data),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<Map<String, dynamic>?> getCachedHomeData() async {
+    final database = await db;
+    final rows = await database.query('home_cache', where: 'id = 1');
+    if (rows.isEmpty) return null;
+    try {
+      return jsonDecode(rows.first['data_json'] as String) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ---- SRS scores ----
+
+  static Future<void> saveSrsScore({
+    required String date,
+    required int entryIndex,
+    required int score,
+  }) async {
+    final database = await db;
+    await database.insert('srs_scores', {
+      'date': date,
+      'entry_index': entryIndex,
+      'score': score,
+      'scored_at': DateTime.now().toIso8601String(),
+      'synced': 0,
+    });
+  }
+
+  static Future<List<Map<String, dynamic>>> getUnsyncedScores() async {
+    final database = await db;
+    return database.query('srs_scores', where: 'synced = 0');
+  }
+
+  static Future<void> markScoreSynced(int id) async {
+    final database = await db;
+    await database.update('srs_scores', {'synced': 1},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
   /// Deletes all rows from all cache tables.
   static Future<void> clearAll() async {
     final database = await db;
     await database.delete('diary_cache');
     await database.delete('lessons_cache');
+    await database.delete('home_cache');
+    await database.delete('srs_scores');
   }
 }

@@ -1,0 +1,31 @@
+{% extends "diary.html" %} {% block content %}
+<h2>{{ _('Add Diary Entries') }}</h2>
+<form method="POST" action="/diary_entries">
+  <div class="mb-3">
+    <label class="form-label">{{ _('Date') }}</label>
+    <input type="date" name="date" class="form-control" required
+      value="{{ today }}">
+  </div>
+  <div id="sentences-container">
+    <div class="sentence-row mb-2 d-flex gap-2">
+      <input type="text" name="sentence" class="form-control"
+        placeholder="{{ _('Enter sentence in') }} {{ primary_language }}">
+      <button type="button" class="btn btn-outline-danger btn-sm remove-row"
+        onclick="this.closest('.sentence-row').remove()">✕</button>
+    </div>
+  </div>
+  <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="add-row">
+    + {{ _('Add sentence') }}
+  </button>
+  <br>
+  <button type="submit" class="btn btn-primary">{{ _('Save') }}</button>
+</form>
+<script>
+document.getElementById('add-row').addEventListener('click', () => {
+  const container = document.getElementById('sentences-container');
+  const row = container.querySelector('.sentence-row').cloneNode(true);
+  row.querySelector('input').value = '';
+  container.appendChild(row);
+});
+</script>
+{% endblock %}

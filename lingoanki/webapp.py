@@ -312,8 +312,24 @@ def diary_html():
         and not f.endswith("zip")
         and not f.endswith("log")
     ]
+
+    # Try JSON-based render
+    json_path = output_folder and os.path.join(output_folder, "diary.json")
+    diary_data = None
+    if json_path and os.path.exists(json_path):
+        try:
+            from lingoanki.diary_json import load_diary_json
+
+            diary_data = load_diary_json(json_path)
+        except Exception:
+            diary_data = None
+
     return render_template(
-        "diary_html.html", content=content, tab="diary_html", files=files
+        "diary_html.html",
+        content=content,
+        diary_data=diary_data,
+        tab="diary_html",
+        files=files,
     )
 
 
@@ -332,6 +348,17 @@ def view_tprs():
     else:
         tprs_content = None
 
+    # Try JSON-based render
+    json_path = output_folder and os.path.join(output_folder, "diary.json")
+    diary_data = None
+    if json_path and os.path.exists(json_path):
+        try:
+            from lingoanki.diary_json import load_diary_json
+
+            diary_data = load_diary_json(json_path)
+        except Exception:
+            diary_data = None
+
     files = [
         f
         for f in os.listdir(output_folder)
@@ -341,7 +368,11 @@ def view_tprs():
         and not f.endswith("log")
     ]
     return render_template(
-        "diary_tprs.html", tprs_content=tprs_content, tab="tprs", files=files
+        "diary_tprs.html",
+        tprs_content=tprs_content,
+        diary_data=diary_data,
+        tab="tprs",
+        files=files,
     )
 
 
@@ -814,7 +845,59 @@ def backup_page():
     return render_template("diary_backup.html")
 
 
-# ---------------------------------------------------------------------------
+@app.route("/diary_entries", methods=["GET", "POST"])
+@login_required
+def diary_entries_route():
+    import datetime as _dt
+
+    today = _dt.date.today().strftime("%Y-%m-%d")
+    primary_language = session.get("primary_language", "English")
+    if request.method == "POST":
+        date_str = request.form.get("date", "")
+        sentences = request.form.getlist("sentence")
+        sentences = [s.strip() for s in sentences if s.strip()]
+        if date_str and sentences:
+            user_config_path = session.get("user_config_path", "")
+            output_folder = session.get("output_folder", "")
+            if user_config_path and output_folder:
+                try:
+                    from lingoanki.diary_json import (
+                        DiaryEntry,
+                        LessonsBlock,
+                        ReviewingState,
+                        load_diary_json,
+                        save_diary_json,
+                        upsert_day,
+                    )
+
+                    json_path = os.path.join(output_folder, "diary.json")
+                    diary_json = load_diary_json(json_path)
+                    date_slash = date_str.replace("-", "/")
+                    entries = [
+                        DiaryEntry(
+                            index=i,
+                            input_language_sentence=s,
+                            user_trial_translation="",
+                            output_language_translation="",
+                            tips="",
+                            lessons=LessonsBlock(reviewing=ReviewingState()),
+                        )
+                        for i, s in enumerate(sentences)
+                    ]
+                    diary_json = upsert_day(diary_json, date_slash, "", entries)
+                    save_diary_json(diary_json, json_path)
+                    flash(_("Entries saved successfully."), "success")
+                except Exception as e:
+                    flash(f"Error: {e}", "danger")
+        return redirect(url_for("diary_entries_route"))
+    return render_template(
+        "diary_entries.html",
+        today=today,
+        primary_language=primary_language,
+        tab="diary_entries",
+    )
+
+
 # REST API for mobile app
 # ---------------------------------------------------------------------------
 
@@ -850,6 +933,10 @@ def _jwt_required(f):
         _g.api_tprs_file = diary_instance.config["markdown_tprs_path"]
         _g.api_output_folder = diary_instance.config["output_dir"]
         _g.api_tprs_folder = os.path.join(_g.api_output_folder, "TPRS")
+        json_diary_path = diary_instance.config.get("json_diary_path") or os.path.join(
+            _g.api_output_folder, "diary.json"
+        )
+        _g.api_json_diary_path = json_diary_path
         diary_instance.stop()
         return f(*args, **kwargs)
 
@@ -949,10 +1036,46 @@ def api_lessons():
     from flask import g as _g
 
     items = get_mp3_variants(_g.api_tprs_folder)
-    result = [
-        {"base": base, "display": display, "variants": variants}
-        for base, display, variants in items
-    ]
+    result = []
+    diary = None
+    try:
+        from lingoanki.diary_json import load_diary_json, compute_stats, get_day
+
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception:
+        diary = None
+
+    for base, display, variants in items:
+        lesson = {"base": base, "display": display, "variants": variants}
+        if diary is not None:
+            try:
+                m = re.search(r"_TPRS_(\d{4}-\d{2}-\d{2})", base)
+                if m:
+                    date_dash = m.group(1)
+                    date_slash = date_dash.replace("-", "/")
+                    day = get_day(diary, date_slash)
+                    if day is not None:
+                        total = len(day.entries)
+                        mastered = sum(
+                            1
+                            for e in day.entries
+                            if e.lessons.reviewing.status == "mastered"
+                        )
+                        learning = sum(
+                            1
+                            for e in day.entries
+                            if e.lessons.reviewing.status == "learning"
+                        )
+                        new_count = total - mastered - learning
+                        lesson["srs"] = {
+                            "total": total,
+                            "mastered": mastered,
+                            "learning": learning,
+                            "new": new_count,
+                        }
+            except Exception:
+                pass
+        result.append(lesson)
     return jsonify({"lessons": result})
 
 
@@ -1032,7 +1155,198 @@ def api_sync_lesson_manifest(base):
     return jsonify({"manifest": manifest})
 
 
-@app.route("/api/diary/date/<date_str>", methods=["GET"])
+@app.route("/api/diary/json", methods=["GET"])
+@_jwt_required
+def api_get_diary_json():
+    """Return the full diary JSON for the authenticated user."""
+    from flask import g as _g
+    from lingoanki.diary_json import load_diary_json
+
+    json_path = _g.api_json_diary_path
+    if not os.path.exists(json_path):
+        return jsonify({"diaries": []})
+    try:
+        diary = load_diary_json(json_path)
+        return jsonify(diary.to_dict())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/diary/json", methods=["POST"])
+@_jwt_required
+def api_post_diary_json():
+    """Overwrite diary JSON (full replace, for migration tool)."""
+    from flask import g as _g
+    from lingoanki.diary_json import DiaryJson, save_diary_json
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+    try:
+        diary = DiaryJson.from_dict(data)
+        save_diary_json(diary, _g.api_json_diary_path)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/lessons/entries/<date>/<variant>", methods=["GET"])
+@_jwt_required
+def api_lesson_entries(date, variant):
+    """Return entries list with audio timings for a given date and variant."""
+    from flask import g as _g
+    from lingoanki.diary_json import load_diary_json, get_day
+
+    # Normalise date to YYYY/MM/DD
+    date_slash = date.replace("-", "/")
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    day = get_day(diary, date_slash)
+    if day is None:
+        return jsonify({"date": date_slash, "variant": variant, "entries": []})
+
+    entries_out = []
+    for entry in day.entries:
+        v_obj = entry.lessons.get_variant(variant)
+        if not v_obj or not v_obj.sentence:
+            continue
+        entries_out.append(
+            {
+                "index": entry.index,
+                "input_language_sentence": entry.input_language_sentence,
+                "output_language_translation": entry.output_language_translation,
+                "sentence": v_obj.sentence,
+                "audio_timing": v_obj.audio_timing.to_dict(),
+                "qa": [q.to_dict() for q in v_obj.qa],
+                "reviewing": entry.lessons.reviewing.to_dict(),
+            }
+        )
+
+    return jsonify({"date": date_slash, "variant": variant, "entries": entries_out})
+
+
+@app.route("/api/lessons/score", methods=["POST"])
+@_jwt_required
+def api_lesson_score():
+    """Apply SM-2 score to a diary entry. Body: {date, entry_index, score}."""
+    from flask import g as _g
+    from lingoanki.diary_json import load_diary_json, save_diary_json, update_srs
+
+    data = request.get_json(silent=True) or {}
+    date = data.get("date", "")
+    entry_index = data.get("entry_index")
+    score = data.get("score")
+
+    if not date or entry_index is None or score is None:
+        return jsonify({"error": "date, entry_index, and score are required"}), 400
+    if score not in (0, 2, 3, 5):
+        return jsonify({"error": "score must be one of 0, 2, 3, 5"}), 400
+
+    date_slash = date.replace("-", "/")
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+        diary, reviewing = update_srs(diary, date_slash, int(entry_index), int(score))
+        save_diary_json(diary, _g.api_json_diary_path)
+        return jsonify({"ok": True, "reviewing": reviewing.to_dict()})
+    except ValueError:
+        return jsonify({"error": "Entry not found"}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/home", methods=["GET"])
+@_jwt_required
+def api_home():
+    """Dashboard: stats + recent + recommended lesson."""
+    from flask import g as _g
+    from lingoanki.diary_json import (
+        load_diary_json,
+        compute_stats,
+        get_due_entries,
+        get_recently_reviewed,
+    )
+
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    stats = compute_stats(diary)
+
+    recent_days = get_recently_reviewed(diary, limit=5)
+    recent_lessons = []
+    for day in recent_days:
+        for entry in day.entries:
+            lr = entry.lessons.reviewing.last_reviewed
+            if lr:
+                recent_lessons.append(
+                    {
+                        "date": day.date,
+                        "title": day.title,
+                        "entry_index": entry.index,
+                        "last_reviewed": lr,
+                        "status": entry.lessons.reviewing.status,
+                    }
+                )
+    recent_lessons.sort(key=lambda x: x["last_reviewed"], reverse=True)
+    recent_lessons = recent_lessons[:5]
+
+    recommended = None
+    due = get_due_entries(diary)
+    if due:
+        day, entry = due[0]
+        recommended = {
+            "date": day.date,
+            "title": day.title,
+            "entry_index": entry.index,
+            "variant": "original",
+            "reason": "due_for_review",
+        }
+    else:
+        # Fall back to first new entry
+        for day in diary.diaries:
+            for entry in day.entries:
+                if entry.lessons.reviewing.status == "new":
+                    recommended = {
+                        "date": day.date,
+                        "title": day.title,
+                        "entry_index": entry.index,
+                        "variant": "original",
+                        "reason": "new",
+                    }
+                    break
+            if recommended:
+                break
+
+    return jsonify(
+        {"stats": stats, "recent_lessons": recent_lessons, "recommended": recommended}
+    )
+
+
+@app.route("/api/migrate", methods=["POST"])
+@_jwt_required
+def api_migrate():
+    """Trigger server-side migration from Markdown to JSON in a background thread."""
+    from flask import g as _g
+
+    config_path = _g.api_config_path
+    json_path = _g.api_json_diary_path
+
+    def _run():
+        try:
+            from lingoanki.migrate_to_json import migrate_markdown_to_json
+
+            migrate_markdown_to_json(config_path, json_path, overwrite=True)
+        except Exception as exc:
+            app.logger.error("Migration failed: %s", exc)
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Migration started"})
+
+
 @_jwt_required
 def api_get_diary_by_date(date_str):
     """Return the diary section for a specific date.

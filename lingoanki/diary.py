@@ -1161,7 +1161,60 @@ class DiaryHandler:
                             f"  {self.config['template_diary']['tips']} {sentence_dict['tips']}\n\n"
                         )
 
-    def markdown_diary_to_dict(self):
+        self._write_json_diary(diary_dict)
+
+    def _write_json_diary(self, diary_dict):
+        """Write diary entries to the JSON file if json_diary_path is configured.
+
+        Preserves existing SRS state for entries that already exist in the JSON.
+        Silently skips if json_diary_path is not set in config.
+        """
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+
+        try:
+            from lingoanki.diary_json import (
+                DiaryEntry,
+                LessonsBlock,
+                ReviewingState,
+                load_diary_json,
+                save_diary_json,
+                upsert_day,
+            )
+
+            diary_json = load_diary_json(json_path)
+
+            for date_obj, day_data in diary_dict.items():
+                date_str = date_obj.strftime("%Y/%m/%d")
+                title = self.titles_dict.get(date_obj, "")
+                sentences = day_data.get("sentences", {})
+
+                entries = []
+                for idx, sentence_dict in sorted(sentences.items()):
+                    entry = DiaryEntry(
+                        index=int(idx),
+                        input_language_sentence=sentence_dict.get(
+                            "primary_language_sentence", ""
+                        ).strip(),
+                        user_trial_translation=sentence_dict.get(
+                            "study_language_sentence_trial", ""
+                        ).strip(),
+                        output_language_translation=sentence_dict.get(
+                            "study_language_sentence", ""
+                        ).strip(),
+                        tips=sentence_dict.get("tips", "").strip(),
+                        lessons=LessonsBlock(reviewing=ReviewingState()),
+                    )
+                    entries.append(entry)
+
+                diary_json = upsert_day(diary_json, date_str, title, entries)
+
+            save_diary_json(diary_json, json_path)
+            self.logging.info(f"JSON diary updated at {json_path}")
+        except Exception as exc:
+            self.logging.warning(f"Could not write JSON diary: {exc}")
+
         """Parses the main diary markdown file into a structured dictionary.
 
         Extracts dates, titles, and individual sentence entries (primary language,
@@ -1516,7 +1569,81 @@ class TprsVariantHandler:
                 f"Wrote individual {self.variant_name} TPRS MD to {full_day_path}"
             )
 
-    def convert_to_audio(self):
+        self._write_json_tprs(tprs_variant_dict)
+
+    def _write_json_tprs(self, tprs_variant_dict):
+        """Update the JSON diary file with Q&A data for this TPRS variant.
+
+        Matches entries by output_language_translation text.
+        Silently skips if json_diary_path is not configured.
+        """
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+
+        from lingoanki.diary_json import (
+            QA,
+            VariantLesson,
+            load_diary_json,
+            save_diary_json,
+        )
+
+        _VARIANT_NAME_MAP = {
+            "Standard": "original",
+            "Enhanced": "enhanced",
+            "Future": "future",
+            "Present": "present",
+        }
+        json_key = _VARIANT_NAME_MAP.get(self.variant_name)
+        if json_key is None:
+            return
+
+        try:
+            diary_json = load_diary_json(json_path)
+
+            for date_obj, sentence_dict_for_day in tprs_variant_dict.items():
+                date_str = date_obj.strftime("%Y/%m/%d")
+                day = next((d for d in diary_json.diaries if d.date == date_str), None)
+                if day is None:
+                    continue
+
+                for sentence_text, qa_raw in sentence_dict_for_day.items():
+                    # Match entry by output_language_translation
+                    matched_entry = None
+                    for entry in day.entries:
+                        if (
+                            entry.output_language_translation.strip()
+                            == sentence_text.strip()
+                        ):
+                            matched_entry = entry
+                            break
+                    if matched_entry is None:
+                        continue
+
+                    qa_list = [
+                        QA(
+                            question=qa_raw[k]["question"],
+                            answer=qa_raw[k]["answer"],
+                        )
+                        for k in sorted(
+                            qa_raw.keys(),
+                            key=lambda x: int(x) if x.isdigit() else 0,
+                        )
+                    ]
+                    matched_entry.lessons.set_variant(
+                        json_key,
+                        VariantLesson(sentence=sentence_text, qa=qa_list),
+                    )
+
+            save_diary_json(diary_json, json_path)
+            self.logging.info(
+                f"JSON diary updated with {self.variant_name} TPRS data at {json_path}"
+            )
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not write {self.variant_name} TPRS data to JSON diary: {exc}"
+            )
+
         """Converts TPRS markdown entries for this variant to TPRS audio lessons."""
         self.tprs_creator.validate_arguments()
 

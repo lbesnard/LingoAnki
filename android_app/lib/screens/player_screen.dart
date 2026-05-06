@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
 
@@ -45,6 +46,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Loop
   bool _loopEnabled = false;
+
+  // Sentence timing + highlighting
+  List<Map<String, dynamic>> _sentenceEntries = [];
+  int _activeSentenceIndex = -1;
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _sentenceKeys = {};
+
+  // Translation toggle — set of entry indices whose translation is revealed
+  final Set<int> _expandedTranslations = {};
+
+  // Scoring state
+  int? _scoredSentenceIndex;
 
   @override
   void initState() {
@@ -114,6 +127,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _audioReady = false;
       _markdownContent = '';
+      _sentenceEntries = [];
+      _expandedTranslations.clear();
+      _activeSentenceIndex = -1;
+      _sentenceKeys.clear();
     });
 
     final audioFile = File(mp3Path);
@@ -121,7 +138,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       try {
         await _player.setFilePath(mp3Path);
       } catch (_) {}
-      if (mounted) setState(() => _audioReady = true);
+      if (mounted) {
+        setState(() => _audioReady = true);
+        _startPositionListener();
+      }
     }
 
     final mdFile = File(mdPath);
@@ -129,6 +149,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final content = mdFile.readAsStringSync();
       if (mounted) setState(() => _markdownContent = content);
     }
+
+    // Fetch structured entries (timings + translations) from server
+    if (_lessonDate != null) {
+      try {
+        final variantKey = _variantToApiKey(variantName);
+        final data = await ApiService.getLessonEntries(_lessonDate!, variantKey);
+        final entries =
+            (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        if (mounted) {
+          setState(() {
+            _sentenceEntries = entries;
+            _expandedTranslations.clear();
+            _activeSentenceIndex = -1;
+            _sentenceKeys.clear();
+            for (var i = 0; i < entries.length; i++) {
+              _sentenceKeys[i] = GlobalKey();
+            }
+          });
+        }
+      } catch (_) {
+        // Server unreachable — fall back to markdown-only display
+      }
+    }
+  }
+
+  String _variantToApiKey(String variantName) {
+    return variantName.toLowerCase();
+  }
+
+  void _startPositionListener() {
+    _player.positionStream.listen((pos) {
+      if (!mounted || _sentenceEntries.isEmpty) return;
+      final ms = pos.inMilliseconds;
+      int idx = -1;
+      for (var i = 0; i < _sentenceEntries.length; i++) {
+        final timing =
+            _sentenceEntries[i]['audio_timing'] as Map<String, dynamic>?;
+        if (timing == null) continue;
+        final start = (timing['start_ms'] as int?) ?? 0;
+        final end = (timing['end_ms'] as int?) ?? 0;
+        if (end > start && ms >= start && ms < end) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx != _activeSentenceIndex) {
+        setState(() => _activeSentenceIndex = idx);
+        if (idx >= 0) _scrollToSentence(idx);
+      }
+    });
+  }
+
+  void _scrollToSentence(int idx) {
+    final key = _sentenceKeys[idx];
+    if (key == null) return;
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.3,
+    );
   }
 
   /// Load the Input Diary content: try local cache first, then server.
@@ -177,6 +260,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     SyncManager.instance.removeListener(_onSyncChanged);
     _player.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -189,10 +273,166 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // ── TPRS renderer ─────────────────────────────────────────────────────────────
 
   Widget _buildTprsContent() {
+    if (_sentenceEntries.isNotEmpty) {
+      return _buildStructuredContent();
+    }
     if (_markdownContent.isEmpty) {
       return const Center(child: Text('No content — tap Sync to download.'));
     }
+    return _buildMarkdownFallback();
+  }
 
+  Widget _buildStructuredContent() {
+    return SelectionArea(
+      child: ListView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(16),
+        itemCount: _sentenceEntries.length,
+        itemBuilder: (ctx, i) {
+          final entry = _sentenceEntries[i];
+          final isActive = i == _activeSentenceIndex;
+          final isExpanded = _expandedTranslations.contains(i);
+          final isScored = i == _scoredSentenceIndex;
+          final sentence = entry['sentence'] as String? ?? '';
+          final inputSentence =
+              entry['input_language_sentence'] as String? ?? '';
+          final outputTranslation =
+              entry['output_language_translation'] as String? ?? '';
+          final qa =
+              (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+          return Container(
+            key: _sentenceKeys[i],
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: isActive
+                ? BoxDecoration(
+                    color: Colors.indigo.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border:
+                        Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
+                  )
+                : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Sentence row — tap to toggle translation
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedTranslations.remove(i);
+                      } else {
+                        _expandedTranslations.add(i);
+                      }
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            sentence.isNotEmpty ? sentence : inputSentence,
+                            style: TextStyle(
+                              color: const Color(0xFF3F51B5),
+                              fontWeight: isActive
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: _fontSize + 1,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          isExpanded
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                          size: 16,
+                          color: Colors.grey.shade400,
+                        ),
+                        if (isScored) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.check_circle,
+                              size: 14, color: Colors.green.shade400),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Translation (hidden until tapped)
+                if (isExpanded &&
+                    (inputSentence.isNotEmpty ||
+                        outputTranslation.isNotEmpty))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (inputSentence.isNotEmpty)
+                          Text(
+                            inputSentence,
+                            style: TextStyle(
+                              fontSize: _fontSize - 1,
+                              color: Colors.grey.shade700,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        if (outputTranslation.isNotEmpty &&
+                            outputTranslation != sentence)
+                          Text(
+                            outputTranslation,
+                            style: TextStyle(
+                              fontSize: _fontSize - 1,
+                              color: Colors.teal.shade700,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                // Q&A pairs
+                ...qa.map((qaPair) {
+                  final question = qaPair['question'] as String? ?? '';
+                  final answer = qaPair['answer'] as String? ?? '';
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$_kwQuestion $question',
+                          style: TextStyle(
+                            color: const Color(0xFFE65100),
+                            fontWeight: FontWeight.bold,
+                            fontSize: _fontSize,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: Text(
+                            '$_kwAnswer $answer',
+                            style: TextStyle(
+                              color: const Color(0xFF2E7D32),
+                              fontSize: _fontSize,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+
+                const SizedBox(height: 4),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMarkdownFallback() {
     final blocks = _markdownContent.split(RegExp(r'\n{2,}'));
     final blockWidgets = <Widget>[];
 
@@ -216,6 +456,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     return SelectionArea(
       child: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: blockWidgets,
       ),
@@ -262,6 +503,105 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Text(line,
             style: TextStyle(color: Colors.grey, fontSize: _fontSize - 1)),
       );
+    }
+  }
+
+  // ── Scoring bar ───────────────────────────────────────────────────────────────
+
+  Widget _buildScoringBar() {
+    final total = _sentenceEntries.length;
+    final current = _activeSentenceIndex + 1;
+    final buttons = <Map<String, dynamic>>[
+      {'label': 'Again', 'score': 0, 'color': Colors.red},
+      {'label': 'Hard', 'score': 2, 'color': Colors.orange},
+      {'label': 'Good', 'score': 3, 'color': Colors.blue},
+      {'label': 'Easy', 'score': 5, 'color': Colors.green},
+    ];
+    return Container(
+      color: Colors.grey.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Text(
+            '$current/$total',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+          const SizedBox(width: 8),
+          ...buttons.map((t) {
+            final label = t['label'] as String;
+            final score = t['score'] as int;
+            final color = t['color'] as Color;
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: color,
+                    side: BorderSide(color: color.withValues(alpha: 0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    minimumSize: const Size(0, 32),
+                    textStyle: const TextStyle(fontSize: 11),
+                  ),
+                  onPressed: () => _scoreEntry(_activeSentenceIndex, score),
+                  child: Text(label),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _scoreEntry(int entryIndex, int score) async {
+    if (_lessonDate == null) return;
+    final entry = _sentenceEntries[entryIndex];
+    final idx = (entry['index'] as int?) ?? entryIndex;
+
+    setState(() => _scoredSentenceIndex = entryIndex);
+
+    try {
+      final result = await ApiService.scoreEntry(_lessonDate!, idx, score);
+      final reviewing = result['reviewing'] as Map<String, dynamic>?;
+      final nextReview = reviewing?['next_review']; // ignore: unused_local_variable
+      final intervalDays = reviewing?['interval_days'] as int?;
+
+      await LocalDbService.saveSrsScore(
+        date: _lessonDate!,
+        entryIndex: idx,
+        score: score,
+      );
+
+      if (mounted) {
+        const scoreLabels = ['Again', '', 'Hard', 'Good', '', 'Easy'];
+        final scoreLabel =
+            score < scoreLabels.length ? scoreLabels[score] : '$score';
+        final days =
+            intervalDays != null ? ' — next in $intervalDays days' : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Marked $scoreLabel$days'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      // Save locally even when server is unreachable
+      try {
+        await LocalDbService.saveSrsScore(
+          date: _lessonDate!,
+          entryIndex: idx,
+          score: score,
+        );
+      } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Score saved locally (server unreachable)'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -538,6 +878,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
               ),
             ),
+
+          // ── Scoring bar (visible when a sentence is active and structured data loaded) ──
+          if (_activeSentenceIndex >= 0 && _sentenceEntries.isNotEmpty)
+            _buildScoringBar(),
 
           // ── Content area ──────────────────────────────────────────────────
           Expanded(

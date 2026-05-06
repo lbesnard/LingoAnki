@@ -171,4 +171,62 @@ class ApiService {
       'answer': data['answer'] as String? ?? 'SVAR:',
     };
   }
+
+  // ── Diary JSON / SRS endpoints ──────────────────────────────────────────────
+
+  /// Fetch all lesson entries (with audio timings) for a date + variant.
+  /// [date] in YYYY-MM-DD or YYYY/MM/DD format.
+  static Future<Map<String, dynamic>> getLessonEntries(
+      String date, String variant) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    // Normalise to YYYY/MM/DD for the URL
+    final dateFmt = date.replaceAll('/', '-');
+    final resp = await http
+        .get(
+          Uri.parse('$base/api/lessons/entries/$dateFmt/$variant'),
+          headers: headers,
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get lesson entries');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Score an individual entry via SM-2.
+  /// [score]: 0=Again, 2=Hard, 3=Good, 5=Easy
+  static Future<Map<String, dynamic>> scoreEntry(
+      String date, int entryIndex, int score) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .post(
+          Uri.parse('$base/api/lessons/score'),
+          headers: headers,
+          body: jsonEncode({
+            'date': date,
+            'entry_index': entryIndex,
+            'score': score,
+          }),
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to score entry');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Fetch home dashboard data: stats, recent lessons, recommendation.
+  static Future<Map<String, dynamic>> getHomeData() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .get(Uri.parse('$base/api/home'), headers: headers)
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get home data');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
 }

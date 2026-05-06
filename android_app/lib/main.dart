@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/app_localizations.dart';
 
 import 'screens/login_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
 import 'screens/settings_screen.dart';
@@ -89,8 +90,9 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = const [
-    DiaryScreen(),
+    HomeScreen(),
     LessonsScreen(),
+    DiaryScreen(),
   ];
 
   @override
@@ -187,11 +189,14 @@ class _MainShellState extends State<MainShell> {
                 onTap: (i) => setState(() => _currentIndex = i),
                 items: [
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.book),
-                      label: AppLocalizations.of(context).navDiary),
+                      icon: const Icon(Icons.home_outlined),
+                      label: 'Home'),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
                       label: AppLocalizations.of(context).navLessons),
+                  BottomNavigationBarItem(
+                      icon: const Icon(Icons.book),
+                      label: AppLocalizations.of(context).navDiary),
                 ],
               ),
             ],

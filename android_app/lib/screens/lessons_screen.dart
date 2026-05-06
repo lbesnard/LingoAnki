@@ -110,6 +110,45 @@ class _LessonsScreenState extends State<LessonsScreen> {
     }).toList();
   }
 
+  Widget _buildLessonIcon(Map<String, dynamic> lesson) {
+    final base = lesson['base'] as String? ?? '';
+    final srs = lesson['srs'] as Map<String, dynamic>?;
+
+    if (srs != null) {
+      final total = (srs['total'] as int?) ?? 0;
+      final mastered = (srs['mastered'] as int?) ?? 0;
+      if (total > 0 && mastered == total) {
+        return const Icon(Icons.star, color: Colors.amber);
+      }
+      if (mastered > 0) {
+        return const Icon(Icons.check_circle_outline, color: Colors.blue);
+      }
+    }
+
+    return _syncedBases.contains(base)
+        ? const Icon(Icons.check_circle, color: Colors.green)
+        : const Icon(Icons.radio_button_unchecked, color: Colors.grey);
+  }
+
+  Widget _buildLessonSubtitle(
+      Map<String, dynamic> lesson, Map<String, dynamic> variants) {
+    final srs = lesson['srs'] as Map<String, dynamic>?;
+    final variantStr = variants.keys.join(' · ');
+
+    if (srs != null) {
+      final total = (srs['total'] as int?) ?? 0;
+      final mastered = (srs['mastered'] as int?) ?? 0;
+      return Text(
+        '$variantStr  ·  $mastered/$total mastered',
+        style: const TextStyle(fontSize: 12, color: Colors.grey),
+      );
+    }
+    return Text(
+      variantStr,
+      style: const TextStyle(fontSize: 12, color: Colors.grey),
+    );
+  }
+
   void _openLesson(Map<String, dynamic> lesson) {
     Navigator.push(
       context,
@@ -176,18 +215,9 @@ class _LessonsScreenState extends State<LessonsScreen> {
                           final variants =
                               lesson['variants'] as Map<String, dynamic>? ?? {};
                           return ListTile(
-                            leading: _syncedBases.contains(
-                                    lesson['base'] as String? ?? '')
-                                ? const Icon(Icons.check_circle,
-                                    color: Colors.green)
-                                : const Icon(Icons.radio_button_unchecked,
-                                    color: Colors.grey),
+                            leading: _buildLessonIcon(lesson),
                             title: Text(lesson['display'] as String),
-                            subtitle: Text(
-                              variants.keys.join(' · '),
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
-                            ),
+                            subtitle: _buildLessonSubtitle(lesson, variants),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _openLesson(lesson),
                           );

@@ -1,4 +1,40 @@
 {% extends "diary.html" %} {% block content %}
-<h2>{{ _('Diary HTML') }}</h2>
-<div>{{ content|safe }}</div>
+<h2>{{ _('Diary') }}</h2>
+
+{% if diary_data and diary_data.diaries %}
+  {% for day in diary_data.diaries %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>{{ day.date }}</strong>
+      {% if day.title %}<span class="text-muted">{{ day.title }}</span>{% endif %}
+    </div>
+    <div class="card-body p-0">
+      <div class="accordion" id="acc-{{ loop.index }}">
+        {% for entry in day.entries %}
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed py-2" type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#entry-{{ loop.index0 }}-{{ loop.index }}">
+              <small class="text-muted me-2">#{{ entry.index + 1 }}</small>
+              {{ entry.input_language_sentence }}
+              {% set status = entry.lessons.reviewing.status %}
+              <span class="badge ms-2 {% if status == 'mastered' %}bg-success{% elif status == 'learning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ status }}</span>
+            </button>
+          </h2>
+          <div id="entry-{{ loop.index0 }}-{{ loop.index }}" class="accordion-collapse collapse">
+            <div class="accordion-body">
+              <p><strong>{{ _('Translation') }}:</strong> {{ entry.output_language_translation }}</p>
+              {% if entry.tips %}<p class="text-muted small"><strong>{{ _('Tips') }}:</strong> {{ entry.tips }}</p>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div>{{ content|safe }}</div>
+{% endif %}
 {% endblock %}

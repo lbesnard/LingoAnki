@@ -1,7 +1,55 @@
 {% extends "diary.html" %} {% block content %}
-<h2>{{ _('TPRS Markdown') }}</h2>
-<div>{{ tprs_content|safe }}</div>
+<h2>{{ _('TPRS Lessons') }}</h2>
+
+{% if diary_data and diary_data.diaries %}
+  <div class="mb-3">
+    <div class="btn-group" role="group" id="variantTabs">
+      {% for v in ['original','enhanced','future','present'] %}
+      <input type="radio" class="btn-check" name="variant" id="v-{{ v }}"
+        value="{{ v }}" {% if loop.first %}checked{% endif %} onchange="filterVariant(this.value)">
+      <label class="btn btn-outline-primary btn-sm" for="v-{{ v }}">{{ v }}</label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% for day in diary_data.diaries %}
+  <div class="card mb-3">
+    <div class="card-header"><strong>{{ day.date }}</strong> {% if day.title %}— {{ day.title }}{% endif %}</div>
+    <div class="card-body">
+      {% for entry in day.entries %}
+        {% for vname in ['original','enhanced','future','present'] %}
+          {% set variant = entry.lessons[vname] if vname in entry.lessons else None %}
+          {% if variant %}
+          <div class="variant-block mb-3" data-variant="{{ vname }}">
+            <p class="fw-bold text-primary">{{ variant.sentence }}</p>
+            {% for qa in variant.qa %}
+            <p class="mb-1">
+              <span class="text-warning fw-bold">Q:</span> {{ qa.question }}<br>
+              <span class="text-success">A:</span> {{ qa.answer }}
+            </p>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <script>
+  function filterVariant(v) {
+    document.querySelectorAll('.variant-block').forEach(el => {
+      el.style.display = (el.dataset.variant === v) ? '' : 'none';
+    });
+  }
+  document.addEventListener('DOMContentLoaded', () => filterVariant('original'));
+  </script>
+
+{% else %}
+  <div>{{ tprs_content|safe }}</div>
+{% endif %}
+
 <form method="POST" action="/refresh_tprs">
-  <button type="submit">{{ _('Refresh TPRS') }}</button>
+  <button type="submit" class="btn btn-sm btn-outline-secondary mt-2">{{ _('Refresh TPRS') }}</button>
 </form>
 {% endblock %}
