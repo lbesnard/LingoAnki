@@ -13,6 +13,7 @@ echo "==> Backing up custom lib/ and pubspec.yaml …"
 rm -rf "$BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
 cp -r "$APP_DIR/lib" "$BACKUP_DIR/"
+cp -r "$APP_DIR/test" "$BACKUP_DIR/" 2>/dev/null || true
 cp "$APP_DIR/pubspec.yaml" "$BACKUP_DIR/pubspec.yaml"
 cp "$APP_DIR/.gitignore" "$BACKUP_DIR/.gitignore" 2>/dev/null || true
 # Also preserve our customised AndroidManifest.xml
@@ -32,30 +33,13 @@ echo "==> Restoring custom lib/ …"
 rm -rf "$APP_DIR/lib"
 cp -r "$BACKUP_DIR/lib" "$APP_DIR/lib"
 
-echo "==> Merging pubspec.yaml dependencies …"
-python3 - <<PYEOF
-import yaml, os
+echo "==> Restoring custom test/ …"
+rm -rf "$APP_DIR/test"
+cp -r "$BACKUP_DIR/test" "$APP_DIR/test" 2>/dev/null || true
 
-app_dir = "$APP_DIR"
-backup_dir = "$BACKUP_DIR"
-
-with open(f"{app_dir}/pubspec.yaml") as f:
-    generated = yaml.safe_load(f)
-
-with open(f"{backup_dir}/pubspec.yaml") as f:
-    custom = yaml.safe_load(f)
-
-# Merge dependencies (keep generated flutter/cupertino_icons, add ours)
-generated.setdefault("dependencies", {}).update(
-    {k: v for k, v in custom.get("dependencies", {}).items()
-     if k not in ("flutter",)}
-)
-
-with open(f"{app_dir}/pubspec.yaml", "w") as f:
-    yaml.dump(generated, f, default_flow_style=False, allow_unicode=True)
-
-print("pubspec.yaml merged OK")
-PYEOF
+echo "==> Restoring pubspec.yaml …"
+cp "$BACKUP_DIR/pubspec.yaml" "$APP_DIR/pubspec.yaml"
+echo "pubspec.yaml restored OK"
 
 echo "==> Restoring .gitignore …"
 cp "$BACKUP_DIR/.gitignore" "$APP_DIR/.gitignore" 2>/dev/null || true
