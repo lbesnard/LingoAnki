@@ -1,18 +1,35 @@
 """
 audio_timing.py — Per-sentence audio timing backfill.
 
-Re-generates TTS audio for each sentence (and its Q&A) in memory, measures
-durations using pydub, then stores start_ms/end_ms per entry per variant into
-diary.json.  No permanent extra files are created.
+Re-generates TTS audio for each sentence (and its Q&A) in memory using the
+same parameters as the real TPRS audio generation, measures durations, then
+stores start_ms/end_ms per entry per variant into diary.json.
+
+The audio file structure per sentence mirrors _create_audio_for_day_block():
+
+    For each sentence S with Q&A pairs [(Q1,A1), (Q2,A2), ...]:
+        [S  × repeat_tprs] + [pause × repeat_tprs]
+        + [pause × repeat_tprs] + [Q1 × repeat_tprs] + [silence × repeat_tprs]
+        + [A1 × repeat_tprs] + [pause × repeat_tprs]
+        + [pause × repeat_tprs] + [Q2 × repeat_tprs] + ...
+
+    Since actual_pause_duration = config_pause / repeat_tprs, repeating it
+    repeat_tprs times gives exactly config_pause ms of silence.
+    Same logic for answer_silence_duration.
+
+So:
+    entry_start_ms = cumulative offset up to that sentence
+    entry_end_ms   = entry_start_ms + (sentence_tts_ms * repeat_tprs)
+
+JSON is saved after each day so progress is not lost if the script is interrupted.
 
 Usage:
     python -m lingoanki.audio_timing \\
         --config ~/.config/lingoDiary/config.yaml \\
         --json ~/Documents/lingodiary/<user>/diary.json
 
-    # Or call programmatically:
     from lingoanki.audio_timing import backfill_audio_timings
-    backfill_audio_timings(config_path, diary_json_path, variants=None)
+    backfill_audio_timings(config_path, diary_json_path)
 """
 
 from __future__ import annotations
@@ -28,129 +45,90 @@ logger = logging.getLogger(__name__)
 _VARIANT_KEYS = ("original", "enhanced", "future", "present")
 
 
-def _get_audio_duration_ms(text: str, config: dict, tts_model: str) -> int:
-    """
-    Generate TTS for `text` into a temp file, measure duration in ms, delete file.
-
-    Returns 0 if TTS fails or text is empty.
-    """
+def _tts_duration_ms(
+    text: str,
+    tts_plugin,
+    lang: str,
+    voice: str,
+) -> int:
+    """Generate TTS for *text*, measure duration in ms, delete temp file. Returns 0 on failure."""
     if not text or not text.strip():
         return 0
-
-    tmp_path = None
+    tmp_path = os.path.join(
+        tempfile.gettempdir(), f"_timing_{abs(hash(text)) % 10**9}.wav"
+    )
     try:
         from pydub import AudioSegment  # type: ignore
 
-        if tts_model == "gtts":
-            from gtts import gTTS  # type: ignore
-
-            tts = gTTS(
-                text=text,
-                lang=config["languages"]["study_language_code"],
-            )
-            tmp_path = os.path.join(
-                tempfile.gettempdir(), f"_timing_{abs(hash(text))}.mp3"
-            )
-            tts.save(tmp_path)
-            seg = AudioSegment.from_mp3(tmp_path)
-
-        elif tts_model == "piper":
-            from ovos_plugin_manager.tts import load_tts_plugin  # type: ignore
-
-            piper_cfg = config["tts"]["piper"]
-            TTSClass = load_tts_plugin("ovos-tts-plugin-piper")
-            tts = TTSClass(
-                config={
-                    "module": "ovos-tts-plugin-piper",
-                    "ovos-tts-plugin-piper": {"voice": piper_cfg["voice"]},
-                }
-            )
-            tts.length_scale = piper_cfg.get("piper_length_scale_diary", 1.0)
-            tmp_path = os.path.join(
-                tempfile.gettempdir(), f"_timing_{abs(hash(text))}.wav"
-            )
-            tts.get_tts(
-                text,
-                tmp_path,
-                lang=config["languages"]["study_language_code"],
-                voice=piper_cfg["voice"],
-            )
-            seg = AudioSegment.from_wav(tmp_path)
-
-        elif tts_model == "melo":
-            from ovos_plugin_manager.tts import load_tts_plugin  # type: ignore
-
-            melo_cfg = config["tts"]["melo"]
-            TTSClass = load_tts_plugin(melo_cfg["module"])
-            tts = TTSClass(config=melo_cfg)
-            tmp_path = os.path.join(
-                tempfile.gettempdir(), f"_timing_{abs(hash(text))}.wav"
-            )
-            tts.tts_to_file(
-                text=text,
-                filename=tmp_path,
-                speaker_ids=melo_cfg["speaker_ids"],
-                speed=melo_cfg["speed"],
-            )
-            seg = AudioSegment.from_wav(tmp_path)
-
-        else:
-            logger.warning(
-                f"TTS model '{tts_model}' not supported for timing; skipping."
-            )
-            return 0
-
+        tts_plugin.get_tts(text, tmp_path, lang=lang, voice=voice)
+        seg = AudioSegment.from_wav(tmp_path)
         return len(seg)
-
     except Exception as exc:
-        logger.warning(f"TTS duration failed for text '{text[:40]}': {exc}")
+        logger.warning(f"TTS failed for '{text[:50]}': {exc}")
         return 0
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except OSError:
                 pass
 
 
-def _measure_variant_timings(
+def _compute_day_timings(
     entries: list,
     variant_key: str,
-    config: dict,
-    tts_model: str,
+    tts_plugin,
+    lang: str,
+    voice: str,
+    repeat_tprs: int,
+    pause_ms: int,
+    answer_silence_ms: int,
 ) -> list[tuple[int, int]]:
     """
-    Compute (start_ms, end_ms) for each entry's sentence in the given variant.
+    Compute (start_ms, end_ms) for each entry's sentence in the audio file.
 
-    The cumulative offset accounts for sentence + all Q&A segments that come
-    before each entry, mirroring the structure of the real TTS audio file.
+    Mirrors the exact segment order in _create_audio_for_day_block():
+      [sentence * R] + [pause * R]
+      + per Q&A: [pause * R] + [question * R] + [silence * R] + [answer * R] + [pause * R]
 
-    Returns a list of (start_ms, end_ms) tuples, one per entry, or an empty
-    list if the variant has no data.
+    Since actual_pause = pause_ms/R repeated R times = pause_ms total,
+    we just add pause_ms and answer_silence_ms directly (no TTS needed for pauses).
+
+    Returns list of (start_ms, end_ms) per entry, or [] if variant has no data.
     """
-    cumulative_ms = 0
+    R = max(1, repeat_tprs)
+    cumulative = 0
     timings: list[tuple[int, int]] = []
     has_any = False
 
     for entry in entries:
         variant = entry.lessons.get_variant(variant_key)
         if not variant.sentence:
-            timings.append((cumulative_ms, cumulative_ms))
+            # No data for this variant/entry — still must track position
+            # if other entries exist; push a zero-range placeholder
+            timings.append((cumulative, cumulative))
             continue
 
         has_any = True
-        entry_start = cumulative_ms
 
-        # Measure the sentence itself
-        sentence_dur = _get_audio_duration_ms(variant.sentence, config, tts_model)
-        entry_end = entry_start + sentence_dur
+        # ── Sentence ──────────────────────────────────────────────────────
+        entry_start = cumulative
+        s_dur = _tts_duration_ms(variant.sentence, tts_plugin, lang, voice)
+        entry_end = entry_start + s_dur * R
         timings.append((entry_start, entry_end))
 
-        # Advance cursor past sentence + all Q&A for this entry
-        cumulative_ms = entry_end
+        # Advance cursor past sentence + its pause
+        cumulative = entry_end + pause_ms
+
+        # ── Q&A pairs ─────────────────────────────────────────────────────
         for qa in variant.qa:
-            cumulative_ms += _get_audio_duration_ms(qa.question, config, tts_model)
-            cumulative_ms += _get_audio_duration_ms(qa.answer, config, tts_model)
+            cumulative += pause_ms  # pause before question
+            q_dur = _tts_duration_ms(qa.question, tts_plugin, lang, voice)
+            cumulative += q_dur * R
+            cumulative += answer_silence_ms  # silence for user to answer
+            a_dur = _tts_duration_ms(qa.answer, tts_plugin, lang, voice)
+            cumulative += a_dur * R
+            cumulative += pause_ms  # pause after answer
 
     return timings if has_any else []
 
@@ -162,21 +140,17 @@ def backfill_audio_timings(
     overwrite_existing: bool = False,
 ) -> None:
     """
-    Compute and store per-sentence audio timings for all variant lessons.
-
-    For each diary day and each requested variant, generates TTS for every
-    sentence (and Q&A), measures duration with pydub, and stores
-    ``audio_timing.start_ms`` / ``audio_timing.end_ms`` into diary.json.
+    Compute and store per-sentence audio timings for all TPRS variant lessons.
 
     Args:
         config_path:         Path to the user's config.yaml.
-        diary_json_path:     Path to diary.json (will be updated in-place).
-        variants:            Variant keys to process.  Defaults to all four:
-                             ``["original", "enhanced", "future", "present"]``.
+        diary_json_path:     Path to diary.json (updated in-place, saved per day).
+        variants:            Variant keys to process. Defaults to all four.
         overwrite_existing:  If False (default), skip entries that already have
-                             non-zero audio timings.
+                             non-zero timings.
     """
     import yaml  # type: ignore
+    from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
 
     from lingoanki.diary_json import AudioTiming, load_diary_json, save_diary_json
 
@@ -190,51 +164,92 @@ def backfill_audio_timings(
     with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    tts_model = config.get("tts", {}).get("model", "piper")
-    logger.info(f"TTS model: {tts_model}")
+    tts_cfg = config.get("tts", {})
+    piper_cfg = tts_cfg.get("piper", {})
+    lang = config["languages"]["study_language_code"]
+    voice = piper_cfg["voice"]
+    length_scale = piper_cfg.get("piper_length_scale_tprs", 1.0)
+    repeat_tprs = max(1, tts_cfg.get("repeat_sentence_tprs", 1) or 1)
+    pause_ms = int(tts_cfg.get("pause_between_sentences_duration", 500))
+    answer_silence_ms = int(tts_cfg.get("answer_silence_duration", 3000))
+
+    logger.info(
+        f"Config: voice={voice}, length_scale={length_scale}, "
+        f"repeat={repeat_tprs}, pause={pause_ms}ms, silence={answer_silence_ms}ms"
+    )
+
+    tts_plugin = PiperTTSPlugin()
+    tts_plugin.length_scale = length_scale
 
     diary = load_diary_json(diary_json_path)
     total_days = len(diary.diaries)
     logger.info(f"Processing {total_days} diary days…")
 
-    for day_idx, day in enumerate(diary.diaries, 1):
-        logger.info(f"Day {day_idx}/{total_days}: {day.date} — {day.title}")
+    try:
+        for day_idx, day in enumerate(diary.diaries, 1):
+            logger.info(f"Day {day_idx}/{total_days}: {day.date} — {day.title}")
+            day_modified = False
 
-        for variant_key in variants:
-            # Check if already populated (variant has content when sentence != "")
-            populated_entries = [
-                entry
-                for entry in day.entries
-                if entry.lessons.get_variant(variant_key).sentence
-            ]
-            if not overwrite_existing:
-                already_done = all(
-                    entry.lessons.get_variant(variant_key).audio_timing.end_ms > 0
-                    for entry in populated_entries
-                )
-                if already_done and populated_entries:
-                    logger.debug(f"  {variant_key}: already timed, skipping.")
+            for variant_key in variants:
+                populated = [
+                    e
+                    for e in day.entries
+                    if e.lessons.get_variant(variant_key).sentence
+                ]
+                if not populated:
+                    logger.debug(f"  {variant_key}: no entries, skipping.")
                     continue
 
-            timings = _measure_variant_timings(
-                day.entries, variant_key, config, tts_model
-            )
-            if not timings:
-                logger.debug(f"  {variant_key}: no entries, skipping.")
-                continue
+                if not overwrite_existing:
+                    already_done = all(
+                        e.lessons.get_variant(variant_key).audio_timing.end_ms > 0
+                        for e in populated
+                    )
+                    if already_done:
+                        logger.info(f"  {variant_key}: already timed, skipping.")
+                        continue
 
-            for entry, (start_ms, end_ms) in zip(day.entries, timings):
-                variant = entry.lessons.get_variant(variant_key)
-                if variant.sentence:
-                    variant.audio_timing = AudioTiming(start_ms=start_ms, end_ms=end_ms)
+                logger.info(
+                    f"  {variant_key}: timing {len(populated)} entries "
+                    f"(repeat×{repeat_tprs})…"
+                )
+                timings = _compute_day_timings(
+                    day.entries,
+                    variant_key,
+                    tts_plugin,
+                    lang,
+                    voice,
+                    repeat_tprs,
+                    pause_ms,
+                    answer_silence_ms,
+                )
+                if not timings:
+                    continue
 
-            logger.info(
-                f"  {variant_key}: timed {len(timings)} sentences "
-                f"(last end_ms={timings[-1][1]}ms)"
-            )
+                for entry, (start_ms, end_ms) in zip(day.entries, timings):
+                    v = entry.lessons.get_variant(variant_key)
+                    if v.sentence:
+                        v.audio_timing = AudioTiming(start_ms=start_ms, end_ms=end_ms)
+                        day_modified = True
 
-    save_diary_json(diary, diary_json_path)
-    logger.info(f"Audio timings saved to {diary_json_path}")
+                if timings:
+                    logger.info(
+                        f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
+                        f"(~{timings[-1][1]//1000}s)"
+                    )
+
+            # Save after each day so progress is not lost on interruption
+            if day_modified:
+                save_diary_json(diary, diary_json_path)
+                logger.info(f"  Saved progress for {day.date}.")
+
+    finally:
+        try:
+            tts_plugin.stop()
+        except Exception:
+            pass
+
+    logger.info(f"Audio timing backfill complete: {diary_json_path}")
 
 
 def _setup_logging() -> None:
@@ -251,29 +266,23 @@ def main(argv: list[str] | None = None) -> int:
         description="Backfill per-sentence audio timings into diary.json"
     )
     parser.add_argument(
-        "--config",
-        required=True,
-        metavar="PATH",
-        help="Path to the user's config.yaml",
+        "--config", required=True, metavar="PATH", help="Path to user config.yaml"
     )
     parser.add_argument(
-        "--json",
-        required=True,
-        metavar="PATH",
-        help="Path to diary.json",
+        "--json", required=True, metavar="PATH", help="Path to diary.json"
     )
     parser.add_argument(
         "--variants",
         nargs="+",
         metavar="VARIANT",
         default=None,
-        help=f"Variant keys to process (default: all). Choices: {_VARIANT_KEYS}",
+        help=f"Variants to process (default: all). Choices: {_VARIANT_KEYS}",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
         default=False,
-        help="Overwrite existing timings (default: skip already timed entries)",
+        help="Overwrite existing timings",
     )
     args = parser.parse_args(argv)
 
