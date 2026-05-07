@@ -15,11 +15,17 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.lingoanki.audio',
-    androidNotificationChannelName: 'LingoAnki Audio',
-    androidNotificationOngoing: true,
-  );
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.lingoanki.audio',
+      androidNotificationChannelName: 'LingoAnki Audio',
+      androidNotificationOngoing: true,
+    );
+  } catch (e) {
+    // Background audio init failed (e.g. Android version restrictions).
+    // App continues without background audio notification support.
+    debugPrint('JustAudioBackground init failed: $e');
+  }
   runApp(const LingoDiaryApp());
 }
 
