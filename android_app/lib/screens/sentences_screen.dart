@@ -247,28 +247,29 @@ class _SentencesScreenState extends State<SentencesScreen> {
     final item = _sentences[_currentIndex];
     final date = item['date'] as String? ?? '';
     final entryIndex = item['entry_index'] as int? ?? 0;
+
+    // Save locally first — progress is never lost regardless of connectivity.
+    int localId = 0;
     try {
-      await ApiService.scoreEntry(date, entryIndex, score);
-      // Server received it — mark synced
-      await LocalDbService.saveSrsScore(
+      localId = await LocalDbService.saveSrsScore(
         date: date,
         entryIndex: entryIndex,
         score: score,
-        synced: true,
+        synced: false,
       );
-    } catch (_) {
-      // Offline — save locally for replay on next sync
-      try {
-        await LocalDbService.saveSrsScore(
-          date: date,
-          entryIndex: entryIndex,
-          score: score,
-          synced: false,
-        );
-      } catch (_) {}
-    }
+    } catch (_) {}
+
+    // Advance immediately — don't wait for the network.
     setState(() => _scoring = false);
     _next();
+
+    // Fire API in background; mark synced on success so it won't replay.
+    final savedId = localId;
+    ApiService.scoreEntry(date, entryIndex, score).then((_) {
+      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
+    }).catchError((_) {
+      // Will be replayed on next sync via _syncPendingScores().
+    });
   }
 
   Widget _scoreButton(String label, int score, Color color) {

@@ -173,25 +173,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Load audio (best-effort — file may not be synced yet).
     await _tryLoadAudio(variantName);
 
-    // Fetch structured entries (timings + translations) from server.
-    if (_lessonDate != null && _sentenceEntries.isEmpty) {
+    // Fetch structured entries (timings + translations).
+    // Strategy: load local diary.json immediately (instant), then try the API
+    // in the background and update if fresher data arrives.
+    if (_lessonDate != null) {
       final variantKey = _variantToApiKey(variantName);
-      bool loaded = false;
-      try {
-        final data = await ApiService.getLessonEntries(_lessonDate!, variantKey);
+
+      // Local-first: instant display from cached diary.json.
+      if (_sentenceEntries.isEmpty) {
+        await _loadEntriesFromLocalJson(variantKey);
+      }
+
+      // Background API refresh (does not block UI or delay text display).
+      ApiService.getLessonEntries(_lessonDate!, variantKey).then((data) {
         final entries =
             (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         if (mounted && entries.isNotEmpty) {
           _applyEntries(entries);
-          loaded = true;
         }
-      } catch (_) {
-        // Server unreachable — try local diary.json cache
-      }
-
-      if (!loaded) {
-        await _loadEntriesFromLocalJson(variantKey);
-      }
+      }).catchError((_) {
+        // Server unreachable — local data already shown, nothing to do.
+      });
     }
   }
 
@@ -772,21 +774,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() => _scoredSentenceIndex = entryIndex);
 
+    // Save locally first — progress is never lost regardless of connectivity.
+    int localId = 0;
     try {
-      final result = await ApiService.scoreEntry(_lessonDate!, idx, score);
-      final reviewing = result['reviewing'] as Map<String, dynamic>?;
-      final nextReview = reviewing?['next_review']; // ignore: unused_local_variable
-      final intervalDays = reviewing?['interval_days'] as int?;
-
-      // Mark synced=true since the server already received it
-      await LocalDbService.saveSrsScore(
+      localId = await LocalDbService.saveSrsScore(
         date: _lessonDate!,
         entryIndex: idx,
         score: score,
-        synced: true,
+        synced: false,
       );
+    } catch (_) {}
 
+    // Fire API in background; mark synced and show interval if server replies.
+    final savedId = localId;
+    ApiService.scoreEntry(_lessonDate!, idx, score).then((result) {
+      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
       if (mounted) {
+        final reviewing = result['reviewing'] as Map<String, dynamic>?;
+        final intervalDays = reviewing?['interval_days'] as int?;
         const scoreLabels = ['Again', '', 'Hard', 'Good', '', 'Easy'];
         final scoreLabel =
             score < scoreLabels.length ? scoreLabels[score] : '$score';
@@ -799,25 +804,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         );
       }
-    } catch (e) {
-      // Save locally (synced=false) so it can be replayed when back online
-      try {
-        await LocalDbService.saveSrsScore(
-          date: _lessonDate!,
-          entryIndex: idx,
-          score: score,
-          synced: false,
-        );
-      } catch (_) {}
+    }).catchError((_) {
+      // Score already saved locally; will sync via _syncPendingScores().
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Score saved locally (server unreachable)'),
+            content: Text('Score saved (will sync when online)'),
             duration: Duration(seconds: 2),
           ),
         );
       }
-    }
+    });
   }
 
   // ── Input Diary renderer ──────────────────────────────────────────────────────

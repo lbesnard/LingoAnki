@@ -147,14 +147,14 @@ class LocalDbService {
 
   // ---- SRS scores ----
 
-  static Future<void> saveSrsScore({
+  static Future<int> saveSrsScore({
     required String date,
     required int entryIndex,
     required int score,
     bool synced = false,
   }) async {
     final database = await db;
-    await database.insert('srs_scores', {
+    return database.insert('srs_scores', {
       'date': date,
       'entry_index': entryIndex,
       'score': score,
