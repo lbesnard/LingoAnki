@@ -97,11 +97,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onSyncChanged() {
     if (!SyncManager.instance.isSyncing && mounted) {
-      if (_currentTab != _kInputDiaryTab) {
-        _loadVariant(_currentTab);
-      } else {
-        _loadDiaryContent();
+      // After sync completes: only try to load audio if it wasn't ready.
+      // Never reload or clear entries — they are still valid from the initial load.
+      if (_currentTab != _kInputDiaryTab && !_audioReady) {
+        _tryLoadAudio(_currentTab);
       }
+    }
+  }
+
+  /// Attempt to load audio for [variantName] without touching text entries.
+  Future<void> _tryLoadAudio(String variantName) async {
+    if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
+    final filename = _variants[variantName] as String? ?? '';
+    if (filename.isEmpty) return;
+    final mp3Path = await SyncService.localPath('TPRS/$filename');
+    final audioFile = File(mp3Path);
+    if (!await audioFile.exists()) return;
+
+    bool audioSet = false;
+    try {
+      final lessonTitle = widget.lesson['title'] as String? ?? variantName;
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.file(mp3Path),
+          tag: MediaItem(id: mp3Path, title: lessonTitle, artist: variantName),
+        ),
+      );
+      audioSet = true;
+    } catch (_) {
+      try {
+        await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
+        audioSet = true;
+      } catch (_) {}
+    }
+    if (audioSet && mounted) {
+      setState(() => _audioReady = true);
+      _startPositionListener();
     }
   }
 
@@ -129,12 +160,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadVariant(String variantName) async {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
-    final filename = _variants[variantName] as String? ?? '';
-    final mp3Path = await SyncService.localPath('TPRS/$filename');
 
     await _player.stop();
-    // Reset audio state, but keep entries visible while we reload so the UI
-    // does not flash to "Content not available" during a sync-triggered reload.
     setState(() {
       _audioReady = false;
       _activeEntryIndex = -1;
@@ -145,38 +172,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _stickyEntryIndex = -1;
     });
 
-    final audioFile = File(mp3Path);
-    if (await audioFile.exists()) {
-      bool audioSet = false;
-      try {
-        final lessonTitle = widget.lesson['title'] as String? ?? variantName;
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(mp3Path),
-            tag: MediaItem(
-              id: mp3Path,
-              title: lessonTitle,
-              artist: variantName,
-            ),
-          ),
-        );
-        audioSet = true;
-      } catch (_) {
-        // MediaItem tag may fail if JustAudioBackground is not initialised —
-        // retry without the tag so audio still works.
-        try {
-          await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
-          audioSet = true;
-        } catch (_) {}
-      }
-      if (audioSet && mounted) {
-        setState(() => _audioReady = true);
-        _startPositionListener();
-      }
-    }
+    // Load audio (best-effort — file may not be synced yet).
+    await _tryLoadAudio(variantName);
 
-    // Fetch structured entries (timings + translations) from server only when
-    // we do not already have them, to avoid the UI blanking during sync reloads.
+    // Fetch structured entries (timings + translations) from server.
     if (_lessonDate != null && _sentenceEntries.isEmpty) {
       final variantKey = _variantToApiKey(variantName);
       bool loaded = false;
