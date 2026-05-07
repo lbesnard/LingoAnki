@@ -81,7 +81,7 @@ class AudioTiming:
 
     @classmethod
     def from_dict(cls, d: dict) -> "AudioTiming":
-        return cls(start_ms=d.get("start_ms", 0), end_ms=d.get("end_ms", 0))
+        return cls(start_ms=int(d.get("start_ms", 0)), end_ms=int(d.get("end_ms", 0)))
 
 
 @dataclass

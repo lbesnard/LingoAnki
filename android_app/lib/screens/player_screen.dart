@@ -23,6 +23,16 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
+  /// Safe int coercion: handles JSON values that may arrive as double (e.g.
+  /// audio_timing.start_ms / end_ms were stored as floats in older diary.json
+  /// files produced by audio_timing.py before the int-cast fix).
+  static int _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.round();
+    if (v is num) return v.round();
+    return 0;
+  }
+
   late final AudioPlayer _player;
   bool _audioReady = false;
   StreamSubscription<Duration>? _positionSub;
@@ -224,8 +234,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted && entries.isNotEmpty) {
         _applyEntries(entries);
       }
-    } catch (_) {
-      // Corrupt or missing local cache — show nothing
+    } catch (e, st) {
+      // Corrupt or missing local cache — show nothing (error logged for debugging)
+      debugPrint('_loadEntriesFromLocalJson error: $e\n$st');
     }
   }
 
@@ -255,8 +266,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     for (var i = 0; i < _sentenceEntries.length; i++) {
       final entry = _sentenceEntries[i];
       final st = entry['audio_timing'] as Map<String, dynamic>?;
-      int blockStart = (st?['start_ms'] as int?) ?? 0;
-      int blockEnd = (st?['end_ms'] as int?) ?? 0;
+      int blockStart = _toInt(st?['start_ms']);
+      int blockEnd = _toInt(st?['end_ms']);
 
       if (st != null && blockEnd > 0) {
         segs.add({'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
@@ -264,15 +275,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       for (var j = 0; j < qa.length; j++) {
         final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
-        if (qt != null && (qt['end_ms'] as int? ?? 0) > 0) {
+        if (qt != null && _toInt(qt['end_ms']) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
-          final end = qt['end_ms'] as int? ?? 0;
+          final end = _toInt(qt['end_ms']);
           if (end > blockEnd) blockEnd = end;
         }
         final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
-        if (at != null && (at['end_ms'] as int? ?? 0) > 0) {
+        if (at != null && _toInt(at['end_ms']) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
-          final end = at['end_ms'] as int? ?? 0;
+          final end = _toInt(at['end_ms']);
           if (end > blockEnd) blockEnd = end;
         }
       }
@@ -311,8 +322,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       bool isQ = false;
       for (final seg in _segments) {
         final t = seg['timing'] as Map<String, dynamic>;
-        final start = (t['start_ms'] as int?) ?? 0;
-        final end = (t['end_ms'] as int?) ?? 0;
+        final start = _toInt(t['start_ms']);
+        final end = _toInt(t['end_ms']);
         if (end > start && ms >= start && ms < end) {
           qaIdx = seg['qaIdx'] as int;
           isQ = seg['isQuestion'] as bool;
