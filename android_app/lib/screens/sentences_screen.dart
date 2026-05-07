@@ -31,11 +31,19 @@ class _SentencesScreenState extends State<SentencesScreen> {
   bool _showQA = false;
   bool _scoring = false;
 
+  // Sentence audio player
   late AudioPlayer _player;
   bool _audioLoaded = false;
   bool _audioPlaying = false;
   bool _audioDownloading = false;
   bool _audioUnavailable = false;
+
+  // Q&A audio player
+  late AudioPlayer _qaPlayer;
+  bool _qaPlaying = false;
+  String? _activeQaKey; // e.g. '0_q', '1_a'
+  bool _qaDownloading = false;
+  String? _qaDownloadingKey;
 
   @override
   void initState() {
@@ -43,15 +51,30 @@ class _SentencesScreenState extends State<SentencesScreen> {
     _player = AudioPlayer();
     _player.playerStateStream.listen((state) {
       if (mounted) {
-        setState(() => _audioPlaying = state.playing);
+        // Show play icon (not stop) once the clip finishes naturally
+        final done = state.processingState == ProcessingState.completed;
+        setState(() => _audioPlaying = state.playing && !done);
       }
     });
+
+    _qaPlayer = AudioPlayer();
+    _qaPlayer.playerStateStream.listen((state) {
+      if (mounted) {
+        final done = state.processingState == ProcessingState.completed;
+        setState(() {
+          _qaPlaying = state.playing && !done;
+          if (done) _activeQaKey = null;
+        });
+      }
+    });
+
     _loadSentences();
   }
 
   @override
   void dispose() {
     _player.dispose();
+    _qaPlayer.dispose();
     super.dispose();
   }
 
@@ -68,7 +91,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
           _currentIndex = 0;
           _loading = false;
         });
-        _loadAudio();
+        _loadAudio(autoPlay: true);
       }
     } catch (e) {
       if (mounted) {
@@ -80,7 +103,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
     }
   }
 
-  Future<void> _loadAudio() async {
+  Future<void> _loadAudio({bool autoPlay = false}) async {
     if (_sentences.isEmpty) return;
     final item = _sentences[_currentIndex];
     final audioPath = item['sentence_audio_path'] as String? ?? '';
@@ -94,7 +117,6 @@ class _SentencesScreenState extends State<SentencesScreen> {
     try {
       final localFile = await SyncService.localPath(audioPath);
       if (!File(localFile).existsSync()) {
-        // File not cached — auto-download it
         setState(() {
           _audioDownloading = true;
           _audioLoaded = false;
@@ -112,18 +134,64 @@ class _SentencesScreenState extends State<SentencesScreen> {
         setState(() => _audioDownloading = false);
       }
       await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
-      if (mounted) setState(() { _audioLoaded = true; _audioUnavailable = false; });
+      if (mounted) {
+        setState(() { _audioLoaded = true; _audioUnavailable = false; });
+        if (autoPlay) _player.play();
+      }
     } catch (_) {
       if (mounted) setState(() { _audioLoaded = false; _audioDownloading = false; _audioUnavailable = true; });
     }
   }
 
-  void _playAudio() {
-    if (_audioLoaded) _player.play();
+  void _playAudio() async {
+    if (!_audioLoaded) return;
+    // Stop any Q&A playback first
+    if (_qaPlaying) {
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+    }
+    // If clip already played to end, seek back to start
+    if (_player.processingState == ProcessingState.completed) {
+      await _player.seek(Duration.zero);
+    }
+    _player.play();
+  }
+
+  /// Play a Q&A audio clip. Downloads the file if not cached.
+  Future<void> _playQaAudio(int pairIndex, String type, String? audioPath) async {
+    if (audioPath == null || audioPath.isEmpty) return;
+    final key = '${pairIndex}_$type';
+
+    // If already playing this clip → stop it
+    if (_activeQaKey == key && _qaPlaying) {
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      return;
+    }
+
+    // Stop main sentence player
+    if (_audioPlaying) await _player.stop();
+
+    try {
+      final localFile = await SyncService.localPath(audioPath);
+      if (!File(localFile).existsSync()) {
+        setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
+        final ok = await SyncService.downloadFile(audioPath);
+        if (!mounted) return;
+        setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+        if (!ok) return;
+      }
+      setState(() { _activeQaKey = key; _qaPlaying = true; });
+      await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      _qaPlayer.play();
+    } catch (_) {
+      if (mounted) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+    }
   }
 
   void _next() {
     _player.stop();
+    _qaPlayer.stop();
     if (_currentIndex < _sentences.length - 1) {
       setState(() {
         _currentIndex++;
@@ -132,8 +200,12 @@ class _SentencesScreenState extends State<SentencesScreen> {
         _audioLoaded = false;
         _audioDownloading = false;
         _audioUnavailable = false;
+        _qaPlaying = false;
+        _activeQaKey = null;
+        _qaDownloading = false;
+        _qaDownloadingKey = null;
       });
-      _loadAudio();
+      _loadAudio(autoPlay: true);
     } else {
       // All done — reload a fresh batch
       _loadSentences();
@@ -460,6 +532,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: qa.asMap().entries.map((e) {
+                              final idx = e.key;
                               final qaPair = e.value;
                               final question =
                                   qaPair['question'] as String? ?? '';
@@ -468,52 +541,106 @@ class _SentencesScreenState extends State<SentencesScreen> {
                                   qaPair['question_input'] as String? ?? '';
                               final answerInput =
                                   qaPair['answer_input'] as String? ?? '';
+                              final qAudioPath =
+                                  qaPair['question_audio_path'] as String? ?? '';
+                              final aAudioPath =
+                                  qaPair['answer_audio_path'] as String? ?? '';
+
+                              Widget qaPlayBtn(String type, String path) {
+                                final key = '${idx}_$type';
+                                final isActive = _activeQaKey == key;
+                                final isLoading = _qaDownloading && _qaDownloadingKey == key;
+                                if (path.isEmpty) return const SizedBox.shrink();
+                                return GestureDetector(
+                                  onTap: isLoading ? null : () => _playQaAudio(idx, type, path),
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(right: 4, top: 2),
+                                    child: isLoading
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                                          )
+                                        : Icon(
+                                            isActive && _qaPlaying
+                                                ? Icons.stop_circle_outlined
+                                                : Icons.play_circle_outline,
+                                            size: 16,
+                                            color: isActive && _qaPlaying
+                                                ? Theme.of(context).colorScheme.primary
+                                                : Colors.grey.shade500,
+                                          ),
+                                  ),
+                                );
+                              }
+
                               return Padding(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 6),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      question,
-                                      style: const TextStyle(
-                                        color: Color(0xFFE65100),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    if (_showTranslation &&
-                                        questionInput.isNotEmpty)
-                                      Text(
-                                        questionInput,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade500,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                          left: 12, top: 2),
-                                      child: Text(
-                                        answer,
-                                        style: const TextStyle(
-                                            color: Color(0xFF2E7D32)),
-                                      ),
-                                    ),
-                                    if (_showTranslation &&
-                                        answerInput.isNotEmpty)
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(left: 12),
-                                        child: Text(
-                                          answerInput,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500,
-                                            fontStyle: FontStyle.italic,
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        qaPlayBtn('q', qAudioPath),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                question,
+                                                style: const TextStyle(
+                                                  color: Color(0xFFE65100),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              if (_showTranslation &&
+                                                  questionInput.isNotEmpty)
+                                                Text(
+                                                  questionInput,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey.shade500,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 4, top: 2),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          qaPlayBtn('a', aAudioPath),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  answer,
+                                                  style: const TextStyle(
+                                                      color: Color(0xFF2E7D32)),
+                                                ),
+                                                if (_showTranslation &&
+                                                    answerInput.isNotEmpty)
+                                                  Text(
+                                                    answerInput,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.grey.shade500,
+                                                      fontStyle: FontStyle.italic,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    ),
                                   ],
                                 ),
                               );
