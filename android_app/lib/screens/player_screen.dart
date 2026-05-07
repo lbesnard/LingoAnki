@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -23,16 +24,12 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   late final AudioPlayer _player;
-  String _markdownContent = '';
   bool _audioReady = false;
 
   /// All tab names: TPRS variants + synthetic "Input Diary" at the end.
   late List<String> _tabNames;
   late String _currentTab;
   late Map<String, dynamic> _variants;
-
-  // TPRS rendering keywords
-  String _kwSentence = 'SETNING:';
   String _kwQuestion = 'SPØRSMÅL:';
   String _kwAnswer = 'SVAR:';
 
@@ -109,7 +106,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _loadKeywords() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _kwSentence = prefs.getString('tprs_sentence') ?? 'SETNING:';
       _kwQuestion = prefs.getString('tprs_question') ?? 'SPØRSMÅL:';
       _kwAnswer = prefs.getString('tprs_answer') ?? 'SVAR:';
       _fontSize = prefs.getDouble('player_font_size') ?? 14.0;
@@ -133,13 +129,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
     final filename = _variants[variantName] as String? ?? '';
     final mp3Path = await SyncService.localPath('TPRS/$filename');
-    final mdPath =
-        mp3Path.replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '.md');
 
     await _player.stop();
     setState(() {
       _audioReady = false;
-      _markdownContent = '';
       _sentenceEntries = [];
       _segments = [];
       _entrySpans = {};
@@ -174,37 +167,85 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    final mdFile = File(mdPath);
-    if (await mdFile.exists()) {
-      final content = mdFile.readAsStringSync();
-      if (mounted) setState(() => _markdownContent = content);
-    }
-
     // Fetch structured entries (timings + translations) from server
     if (_lessonDate != null) {
+      final variantKey = _variantToApiKey(variantName);
+      bool loaded = false;
       try {
-        final variantKey = _variantToApiKey(variantName);
         final data = await ApiService.getLessonEntries(_lessonDate!, variantKey);
         final entries =
             (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-        if (mounted) {
-          setState(() {
-            _sentenceEntries = entries;
-            _expandedTranslations.clear();
-            _activeEntryIndex = -1;
-            _activeQaIndex = -1;
-            _activeIsQuestion = false;
-            _sentenceKeys.clear();
-            for (var i = 0; i < entries.length; i++) {
-              _sentenceKeys[i] = GlobalKey();
-            }
-          });
-          _buildSegmentList();
+        if (mounted && entries.isNotEmpty) {
+          _applyEntries(entries);
+          loaded = true;
         }
       } catch (_) {
-        // Server unreachable — fall back to markdown-only display
+        // Server unreachable — try local diary.json cache
+      }
+
+      if (!loaded) {
+        await _loadEntriesFromLocalJson(variantKey);
       }
     }
+  }
+
+  /// Parse entries for [variantKey] from the locally cached diary.json.
+  Future<void> _loadEntriesFromLocalJson(String variantKey) async {
+    if (_lessonDate == null) return;
+    try {
+      final jsonPath = await SyncService.localPath('diary.json');
+      final jsonFile = File(jsonPath);
+      if (!await jsonFile.exists()) return;
+
+      final data = json.decode(await jsonFile.readAsString()) as Map<String, dynamic>;
+      final diaries = (data['diaries'] as List?) ?? [];
+
+      // diary.json dates are stored as YYYY/MM/DD; _lessonDate is YYYY-MM-DD
+      final lessonDateSlash = _lessonDate!.replaceAll('-', '/');
+      Map<String, dynamic>? day;
+      for (final d in diaries) {
+        if ((d as Map<String, dynamic>)['date'] == lessonDateSlash) {
+          day = d;
+          break;
+        }
+      }
+      if (day == null) return;
+
+      final rawEntries = (day['entries'] as List?) ?? [];
+      final entries = rawEntries.map((e) {
+        final em = e as Map<String, dynamic>;
+        final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
+            as Map<String, dynamic>? ?? {};
+        return <String, dynamic>{
+          'sentence': lesson['sentence'] ?? '',
+          'input_language_sentence': em['input_language_sentence'] ?? '',
+          'output_language_translation': em['output_language_translation'] ?? '',
+          'audio_timing': lesson['audio_timing'],
+          'qa': lesson['qa'] ?? [],
+        };
+      }).cast<Map<String, dynamic>>().toList();
+
+      if (mounted && entries.isNotEmpty) {
+        _applyEntries(entries);
+      }
+    } catch (_) {
+      // Corrupt or missing local cache — show nothing
+    }
+  }
+
+  void _applyEntries(List<Map<String, dynamic>> entries) {
+    setState(() {
+      _sentenceEntries = entries;
+      _expandedTranslations.clear();
+      _activeEntryIndex = -1;
+      _activeQaIndex = -1;
+      _activeIsQuestion = false;
+      _sentenceKeys.clear();
+      for (var i = 0; i < entries.length; i++) {
+        _sentenceKeys[i] = GlobalKey();
+      }
+    });
+    _buildSegmentList();
   }
 
   String _variantToApiKey(String variantName) {
@@ -428,10 +469,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_sentenceEntries.isNotEmpty) {
       return _buildStructuredContent();
     }
-    if (_markdownContent.isEmpty) {
-      return const Center(child: Text('No content — tap Sync to download.'));
-    }
-    return _buildMarkdownFallback();
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              'Content not available.\nSync the lesson to view it offline.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStructuredContent() {
@@ -598,80 +652,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
     );
-  }
-
-  Widget _buildMarkdownFallback() {
-    final blocks = _markdownContent.split(RegExp(r'\n{2,}'));
-    final blockWidgets = <Widget>[];
-
-    for (final block in blocks) {
-      if (block.trim().isEmpty) continue;
-      final lines = block.trim().split('\n');
-      final lineWidgets = <Widget>[];
-      for (final rawLine in lines) {
-        final line = rawLine.trim();
-        if (line.isEmpty) continue;
-        lineWidgets.add(_buildTprsLine(line));
-      }
-      if (lineWidgets.isNotEmpty) {
-        blockWidgets.add(Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: lineWidgets,
-        ));
-        blockWidgets.add(const SizedBox(height: 16));
-      }
-    }
-
-    return SelectionArea(
-      child: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16),
-        children: blockWidgets,
-      ),
-    );
-  }
-
-  Widget _buildTprsLine(String line) {
-    if (line.startsWith(_kwSentence)) {
-      final text = line.substring(_kwSentence.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Text(
-          '$_kwSentence $text',
-          style: TextStyle(
-              color: const Color(0xFF3F51B5),
-              fontWeight: FontWeight.bold,
-              fontSize: _fontSize + 1),
-        ),
-      );
-    } else if (line.startsWith(_kwQuestion)) {
-      final text = line.substring(_kwQuestion.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 2, top: 4),
-        child: Text(
-          '$_kwQuestion $text',
-          style: TextStyle(
-              color: const Color(0xFFE65100),
-              fontWeight: FontWeight.bold,
-              fontSize: _fontSize),
-        ),
-      );
-    } else if (line.startsWith(_kwAnswer)) {
-      final text = line.substring(_kwAnswer.length).trim();
-      return Padding(
-        padding: const EdgeInsets.only(left: 12, bottom: 4),
-        child: Text(
-          '$_kwAnswer $text',
-          style: TextStyle(color: const Color(0xFF2E7D32), fontSize: _fontSize),
-        ),
-      );
-    } else {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Text(line,
-            style: TextStyle(color: Colors.grey, fontSize: _fontSize - 1)),
-      );
-    }
   }
 
   // ── Scoring bar ───────────────────────────────────────────────────────────────

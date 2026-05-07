@@ -295,15 +295,28 @@ def edit_diary():
 @app.route("/diary_html")
 @login_required
 def diary_html():
-    content = ""
-
     diary_file = session["diary_file"]
     output_folder = session["output_folder"]
-    if os.path.exists(diary_file):
+
+    # Primary: render from diary.json
+    json_path = os.path.join(output_folder, "diary.json")
+    diary_data = None
+    if os.path.exists(json_path):
+        try:
+            from lingoanki.diary_json import load_diary_json
+
+            diary_data = load_diary_json(json_path)
+        except Exception:
+            diary_data = None
+
+    # Fallback: render markdown (only when diary.json is absent / unreadable)
+    content = ""
+    if diary_data is None and os.path.exists(diary_file):
         with open(diary_file) as f:
             content = markdown.markdown(
                 f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
             )
+
     files = [
         f
         for f in os.listdir(output_folder)
@@ -312,17 +325,6 @@ def diary_html():
         and not f.endswith("zip")
         and not f.endswith("log")
     ]
-
-    # Try JSON-based render
-    json_path = output_folder and os.path.join(output_folder, "diary.json")
-    diary_data = None
-    if json_path and os.path.exists(json_path):
-        try:
-            from lingoanki.diary_json import load_diary_json
-
-            diary_data = load_diary_json(json_path)
-        except Exception:
-            diary_data = None
 
     return render_template(
         "diary_html.html",
@@ -338,26 +340,25 @@ def diary_html():
 def view_tprs():
     tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
-    if request.method == "POST":
-        pass
-    if os.path.exists(tprs_file):
-        with open(tprs_file) as f:
-            tprs_content = markdown.markdown(
-                f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
-            )
-    else:
-        tprs_content = None
 
-    # Try JSON-based render
-    json_path = output_folder and os.path.join(output_folder, "diary.json")
+    # Primary: render from diary.json
+    json_path = os.path.join(output_folder, "diary.json")
     diary_data = None
-    if json_path and os.path.exists(json_path):
+    if os.path.exists(json_path):
         try:
             from lingoanki.diary_json import load_diary_json
 
             diary_data = load_diary_json(json_path)
         except Exception:
             diary_data = None
+
+    # Fallback: render markdown (only when diary.json is absent / unreadable)
+    tprs_content = None
+    if diary_data is None and os.path.exists(tprs_file):
+        with open(tprs_file) as f:
+            tprs_content = markdown.markdown(
+                f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
+            )
 
     files = [
         f
@@ -387,37 +388,29 @@ def generate_lessons():
 
         app.logger.debug("Starting generate_lessons process.")
 
-        # Call the standalone script
         try:
             user_config_path = session["user_config_path"]
-
             main_diary_tprs(config_path=user_config_path)
-            # # some issues with sqlite when calling PiperTTS. requires flask to run with app.run(debug=True, use_reloader=False)
-            # diary_instance = DiaryHandler(config_path=user_config_path)
-            # diary_instance.diary_complete_translations()
-            # diary_instance.convert_diary_entries_to_ankideck()
-            # diary_instance.stop()
-            #
-            # tprs_instance = TprsCreation(config_path=user_config_path)
-            # tprs_instance.check_missing_sentences_from_existing_tprs()
-            # tprs_instance.add_missing_tprs()
-            # tprs_instance.add_missing_tprs_enhanced()
-            # tprs_instance.add_missing_tprs_future()
-            # tprs_instance.add_missing_tprs_present()
-            #
-            # tprs_instance.convert_tts_tprs_entries()
-            # tprs_instance.convert_tts_tprs_enhanced_entries()
-            # tprs_instance.convert_tts_tprs_future_entries()
-            # tprs_instance.convert_tts_tprs_present_entries()
-            #
-            # tprs_instance.stop()
-            #
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             app.logger.error("generate_tprs.py failed")
 
-        app.logger.debug("Completed generate_lessons process.")
+        # Auto-update diary.json so it stays in sync with newly generated content
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
 
-        app.logger.debug("Completed TPRS creation process.")
+            json_path = os.path.join(output_folder, "diary.json")
+            migrate_to_json(
+                config_path=session["user_config_path"],
+                output_json_path=json_path,
+                overwrite=True,
+            )
+            app.logger.debug("diary.json updated after generation.")
+        except Exception as exc:
+            app.logger.warning(f"diary.json update failed: {exc}")
+
+        app.logger.debug("Completed generate_lessons process.")
 
     user_config_path = session["user_config_path"]
     files = [
@@ -1005,12 +998,27 @@ def api_generate():
     from flask import g as _g
 
     config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
 
     def _run():
         try:
             main_diary_tprs(config_path=config_path)
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
+        # Auto-update diary.json after generation
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
+
+            json_path = os.path.join(output_folder, "diary.json")
+            migrate_to_json(
+                config_path=config_path,
+                output_json_path=json_path,
+                overwrite=True,
+            )
+        except Exception as exc:
+            app.logger.warning(f"diary.json auto-update failed: {exc}")
 
     t = Thread(target=_run, daemon=True)
     t.start()
