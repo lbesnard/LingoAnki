@@ -273,11 +273,43 @@ class _SentencesScreenState extends State<SentencesScreen> {
   Future<void> _syncCurrentLessonAudio() async {
     if (_sentences.isEmpty || _syncing) return;
     final item = _sentences[_currentIndex];
-    final paths = <String>[];
+    await _syncItemAudio(item);
+    if (mounted) {
+      setState(() => _syncing = false);
+      _loadAudio();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Audio synced'), duration: Duration(seconds: 2)),
+      );
+    }
+  }
 
+  /// Downloads audio for all remaining sentences in the review queue.
+  Future<void> _syncAllAudio() async {
+    if (_sentences.isEmpty || _syncing) return;
+    setState(() => _syncing = true);
+    int count = 0;
+    for (var i = _currentIndex; i < _sentences.length; i++) {
+      if (!mounted) return;
+      await _syncItemAudio(_sentences[i]);
+      count++;
+    }
+    if (mounted) {
+      setState(() => _syncing = false);
+      _loadAudio();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Synced audio for $count sentences'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// Helper: collect and download all audio paths for [item].
+  Future<void> _syncItemAudio(Map<String, dynamic> item) async {
+    final paths = <String>[];
     final sentAudio = item['sentence_audio_path'] as String? ?? '';
     if (sentAudio.isNotEmpty) paths.add(sentAudio);
-
     final qa = (item['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     for (final pair in qa) {
       final q = pair['question_audio_path'] as String? ?? '';
@@ -285,20 +317,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
       if (q.isNotEmpty) paths.add(q);
       if (a.isNotEmpty) paths.add(a);
     }
-
-    setState(() => _syncing = true);
     for (final p in paths) {
       await SyncService.downloadFile(p);
-    }
-    if (mounted) {
-      setState(() => _syncing = false);
-      _loadAudio();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Audio synced'),
-          duration: Duration(seconds: 2),
-        ),
-      );
     }
   }
 
@@ -447,7 +467,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
       appBar: AppBar(
         title: const Text('Sentence Review'),
         actions: [
-          // Sync current sentence audio
+          // Sync options popup
           _syncing
               ? const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12),
@@ -457,10 +477,34 @@ class _SentencesScreenState extends State<SentencesScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 )
-              : IconButton(
-                  tooltip: 'Sync audio for this sentence',
+              : PopupMenuButton<String>(
                   icon: const Icon(Icons.download_outlined),
-                  onPressed: _syncCurrentLessonAudio,
+                  tooltip: 'Sync audio',
+                  onSelected: (value) {
+                    if (value == 'current') _syncCurrentLessonAudio();
+                    if (value == 'all') _syncAllAudio();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'current',
+                      child: ListTile(
+                        leading: Icon(Icons.audio_file_outlined),
+                        title: Text('Sync current sentence'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'all',
+                      child: ListTile(
+                        leading: const Icon(Icons.cloud_download_outlined),
+                        title: Text(
+                            'Sync all (${_sentences.length - _currentIndex} sentences)'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                  ],
                 ),
           // Stats
           IconButton(
@@ -806,8 +850,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
                                                   fontWeight: FontWeight.w500,
                                                 ),
                                               ),
-                                              if (_showTranslation &&
-                                                  questionInput.isNotEmpty)
+                                              if (questionInput.isNotEmpty)
                                                 Text(
                                                   questionInput,
                                                   style: TextStyle(
@@ -836,8 +879,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
                                                   style: const TextStyle(
                                                       color: Color(0xFF2E7D32)),
                                                 ),
-                                                if (_showTranslation &&
-                                                    answerInput.isNotEmpty)
+                                                if (answerInput.isNotEmpty)
                                                   Text(
                                                     answerInput,
                                                     style: TextStyle(
