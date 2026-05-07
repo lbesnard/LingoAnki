@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
@@ -46,6 +47,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Loop
   bool _loopEnabled = false;
+  // Block repeat
+  bool _loopBlock = false;
 
   // Sentence timing + highlighting
   List<Map<String, dynamic>> _sentenceEntries = [];
@@ -56,6 +59,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _activeEntryIndex = -1;
   int _activeQaIndex = -1; // -1 = sentence is active
   bool _activeIsQuestion = false;
+  // Sticky: keep last Q/A highlighted during inter-segment pauses
+  int _stickyQaIndex = -1;
+  bool _stickyIsQuestion = false;
+  int _stickyEntryIndex = -1;
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _sentenceKeys = {};
 
@@ -140,13 +147,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeEntryIndex = -1;
       _activeQaIndex = -1;
       _activeIsQuestion = false;
+      _stickyQaIndex = -1;
+      _stickyIsQuestion = false;
+      _stickyEntryIndex = -1;
       _sentenceKeys.clear();
     });
 
     final audioFile = File(mp3Path);
     if (await audioFile.exists()) {
       try {
-        await _player.setFilePath(mp3Path);
+        final lessonTitle = widget.lesson['title'] as String? ?? variantName;
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.file(mp3Path),
+            tag: MediaItem(
+              id: mp3Path,
+              title: lessonTitle,
+              artist: variantName,
+            ),
+          ),
+        );
       } catch (_) {}
       if (mounted) {
         setState(() => _audioReady = true);
@@ -230,6 +250,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
       final ms = pos.inMilliseconds;
 
+      // Block repeat: if enabled, loop the current active entry block
+      if (_loopBlock && _activeEntryIndex >= 0) {
+        final span = _entrySpans[_activeEntryIndex];
+        if (span != null && ms >= span['end']!) {
+          _player.seek(Duration(milliseconds: span['start']!));
+          return;
+        }
+      }
+
       // Container highlight: based on full entry block span (stays on during pauses)
       int entryIdx = -1;
       for (final e in _entrySpans.entries) {
@@ -253,16 +282,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       }
 
+      // Sticky: during pauses between Q/A segments, keep the last Q/A highlighted
+      // instead of reverting to the sentence.
+      if (qaIdx >= 0) {
+        // A real segment is active — update sticky state
+        _stickyQaIndex = qaIdx;
+        _stickyIsQuestion = isQ;
+        _stickyEntryIndex = entryIdx;
+      } else if (entryIdx >= 0 && entryIdx == _stickyEntryIndex && _stickyQaIndex >= 0) {
+        // In a pause within the same entry after at least one Q/A played — hold last state
+        qaIdx = _stickyQaIndex;
+        isQ = _stickyIsQuestion;
+      } else if (entryIdx != _stickyEntryIndex) {
+        // Moved to a new entry — reset sticky
+        _stickyQaIndex = -1;
+        _stickyIsQuestion = false;
+        _stickyEntryIndex = entryIdx;
+      }
+
       if (entryIdx != _activeEntryIndex ||
           qaIdx != _activeQaIndex ||
           isQ != _activeIsQuestion) {
+        final prevEntryIdx = _activeEntryIndex;
         setState(() {
           _activeEntryIndex = entryIdx;
           _activeQaIndex = qaIdx;
           _activeIsQuestion = isQ;
         });
         // Scroll to entry when sentence block starts
-        if (entryIdx >= 0 && entryIdx != _activeEntryIndex) {
+        if (entryIdx >= 0 && entryIdx != prevEntryIdx) {
           _scrollToSentence(entryIdx);
         }
       }
@@ -280,6 +328,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
       curve: Curves.easeInOut,
       alignment: 0.3,
     );
+  }
+
+  void _prevBlock() {
+    final ms = _player.position.inMilliseconds;
+    int? target;
+    for (final e in _entrySpans.entries) {
+      final start = e.value['start']!;
+      if (start < ms - 500) {
+        if (target == null || start > _entrySpans[target]!['start']!) {
+          target = e.key;
+        }
+      }
+    }
+    final seekMs = target != null ? _entrySpans[target]!['start']! : 0;
+    _player.seek(Duration(milliseconds: seekMs));
+    if (target != null) _scrollToSentence(target);
+  }
+
+  void _nextBlock() {
+    final ms = _player.position.inMilliseconds;
+    int? target;
+    for (final e in _entrySpans.entries) {
+      final start = e.value['start']!;
+      if (start > ms) {
+        if (target == null || start < _entrySpans[target]!['start']!) {
+          target = e.key;
+        }
+      }
+    }
+    if (target == null) return;
+    _player.seek(Duration(milliseconds: _entrySpans[target]!['start']!));
+    _scrollToSentence(target);
+  }
+
+  void _toggleLoopBlock() {
+    setState(() => _loopBlock = !_loopBlock);
   }
 
   /// Load the Input Diary content: try local cache first, then server.
@@ -923,6 +1007,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
+                        tooltip: 'Previous block',
+                        icon: const Icon(Icons.skip_previous),
+                        onPressed: _audioReady && _entrySpans.isNotEmpty
+                            ? _prevBlock
+                            : null,
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.replay_10),
                         onPressed: _audioReady
                             ? () => _player.seek(_player.position -
@@ -951,6 +1042,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ? () => _player.seek(_player.position +
                                 const Duration(seconds: 10))
                             : null,
+                      ),
+                      IconButton(
+                        tooltip: 'Next block',
+                        icon: const Icon(Icons.skip_next),
+                        onPressed: _audioReady && _entrySpans.isNotEmpty
+                            ? _nextBlock
+                            : null,
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
+                        icon: Icon(
+                          Icons.repeat_one,
+                          color: _loopBlock
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
+                        ),
+                        onPressed: _audioReady ? _toggleLoopBlock : null,
                       ),
                     ],
                   ),

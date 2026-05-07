@@ -513,6 +513,71 @@ class DiaryHandler:
         with open(markdown_path, "r", encoding="utf-8") as file:
             return self.clean_joplin_markdown(file.read())
 
+    def read_tprs_day_block(self, day_block):
+        """Parses a block of TPRS markdown text for a single day.
+
+        Extracts the date, title, and TPRS questions and answers.
+        The TPRS Q&A are structured as a dictionary where keys are sentences
+        and values are lists of (question, answer) tuples.
+
+        Args:
+            day_block (str): The markdown text block for a single day's TPRS entries.
+
+        Returns:
+            tuple: A tuple containing:
+                - collections.defaultdict(list) or None: A dictionary of TPRS Q&A
+                  for the day, or None if the block is empty.
+                - str or None: The date string (YYYY/MM/DD) for the block, or None.
+        """
+        if not day_block.strip():
+            return None, None
+
+        # pattern where ## from .split()
+        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
+
+        # normal full pattern
+        if not day_match:
+            day_match = re.match(r"^## (\d{4}/\d{2}/\d{2})(.*)", day_block)
+
+        ## pattern with title
+        if not day_match:
+            day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
+            if not day_match:
+                return None, None
+
+        date = day_match.group(1)
+        title = day_match.group(2).replace(":", "").strip()
+
+        self.logging.info(f"Processing day: {date} - {title}")
+
+        result = defaultdict(list)
+        current_setning = None
+        current_question = None
+
+        for line in day_block.split("\n"):
+            line = line.strip()
+            if line.startswith(self.config["template_tprs"]["sentence"]):
+                current_setning = line[
+                    len(self.config["template_tprs"]["sentence"]) :
+                ].strip()
+            elif (
+                line.startswith(self.config["template_tprs"]["question"])
+                and current_setning
+            ):
+                current_question = line[
+                    len(self.config["template_tprs"]["question"]) :
+                ].strip()
+            elif (
+                line.startswith(self.config["template_tprs"]["answer"])
+                and current_setning
+                and current_question
+            ):
+                answer = line[len(self.config["template_tprs"]["answer"]) :].strip()
+                result[current_setning].append((current_question, answer))
+                current_question = None  # Reset question after storing the pair
+
+        return result, date
+
     def clean_joplin_markdown(self, content: str):
         """Removes Joplin-specific metadata from markdown content.
 
@@ -2377,71 +2442,6 @@ class TprsCreation(DiaryHandler):
                     date = day_match.group(1)
                     title = day_match.group(2).replace(":", "").strip()
                     self.titles_diary_dict[datetime.strptime(date, "%Y/%m/%d")] = title
-
-    def read_tprs_day_block(self, day_block):
-        """Parses a block of TPRS markdown text for a single day.
-
-        Extracts the date, title, and TPRS questions and answers.
-        The TPRS Q&A are structured as a dictionary where keys are sentences
-        and values are lists of (question, answer) tuples.
-
-        Args:
-            day_block (str): The markdown text block for a single day's TPRS entries.
-
-        Returns:
-            tuple: A tuple containing:
-                - collections.defaultdict(list) or None: A dictionary of TPRS Q&A
-                  for the day, or None if the block is empty.
-                - str or None: The date string (YYYY/MM/DD) for the block, or None.
-        """
-        if not day_block.strip():
-            return None, None
-
-        # pattern where ## from .split()
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        # normal full pattern
-        if not day_match:
-            day_match = re.match(r"^## (\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        ## pattern with title
-        if not day_match:
-            day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
-            if not day_match:
-                return None, None
-
-        date = day_match.group(1)
-        title = day_match.group(2).replace(":", "").strip()
-
-        self.logging.info(f"Processing day: {date} - {title}")
-
-        result = defaultdict(list)
-        current_setning = None
-        current_question = None
-
-        for line in day_block.split("\n"):
-            line = line.strip()
-            if line.startswith(self.config["template_tprs"]["sentence"]):
-                current_setning = line[
-                    len(self.config["template_tprs"]["sentence"]) :
-                ].strip()
-            elif (
-                line.startswith(self.config["template_tprs"]["question"])
-                and current_setning
-            ):
-                current_question = line[
-                    len(self.config["template_tprs"]["question"]) :
-                ].strip()
-            elif (
-                line.startswith(self.config["template_tprs"]["answer"])
-                and current_setning
-                and current_question
-            ):
-                answer = line[len(self.config["template_tprs"]["answer"]) :].strip()
-                result[current_setning].append((current_question, answer))
-                current_question = None  # Reset question after storing the pair
-
-        return result, date
 
     def openai_tprs_enhanced(self, study_language_sentence, qa_org_dict):
         """Generates an enhanced TPRS teaching block using OpenAI.

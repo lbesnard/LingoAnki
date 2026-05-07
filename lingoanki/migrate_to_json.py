@@ -25,7 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from lingoanki.diary import DiaryHandler, TprsCreation
+from lingoanki.diary import DiaryHandler
 from lingoanki.diary_json import (
     DiaryEntry,
     DiaryJson,
@@ -41,13 +41,13 @@ from lingoanki.diary_json import (
 
 logger = logging.getLogger(__name__)
 
-# Maps TprsVariantHandler.variant_name → JSON variant key
-_VARIANT_NAME_MAP = {
-    "Standard": "original",
-    "Enhanced": "enhanced",
-    "Future": "future",
-    "Present": "present",
-}
+# Maps variant display name → (json_key, file_suffix)
+_VARIANTS: list[tuple[str, str, str]] = [
+    ("Standard", "original", ""),
+    ("Enhanced", "enhanced", "_enhanced"),
+    ("Future", "future", "_future"),
+    ("Present", "present", "_present"),
+]
 
 
 def _date_obj_to_str(date_obj) -> str:
@@ -55,6 +55,111 @@ def _date_obj_to_str(date_obj) -> str:
     if isinstance(date_obj, datetime):
         return date_obj.strftime("%Y/%m/%d")
     return date_obj.strftime("%Y/%m/%d")
+
+
+# Suffixes used by non-standard variants — used to filter Standard files
+_VARIANT_SUFFIXES = ("_enhanced", "_future", "_present")
+
+
+def _read_per_day_variant_files(
+    diary_handler: DiaryHandler,
+    config: dict,
+    file_suffix: str,
+    display_name: str,
+) -> dict:
+    """
+    Read per-day TPRS markdown files from the TPRS/ subdirectory.
+
+    Prefers files that have a matching .mp3 (audio-first), which are guaranteed
+    to match what was actually spoken.  Falls back to a config-name glob if no
+    audio-matched files exist.
+
+    Does NOT instantiate TprsCreation — avoids triggering any content regeneration.
+
+    Returns {date_obj: ordered_list_of_(sentence, qa_raw_dict)}.
+    """
+    import glob as glob_module
+
+    tprs_dir = os.path.join(config.get("output_dir", ""), "TPRS")
+
+    if not os.path.isdir(tprs_dir):
+        logger.warning(f"  TPRS dir not found for '{display_name}' — no Q&A data.")
+        return {}
+
+    # ── Strategy 1: files with a matching .mp3 ────────────────────────────────
+    if file_suffix:
+        all_md = sorted(
+            glob_module.glob(os.path.join(tprs_dir, f"*_TPRS_*{file_suffix}.md"))
+        )
+    else:
+        all_md = sorted(glob_module.glob(os.path.join(tprs_dir, "*_TPRS_*.md")))
+        all_md = [
+            f
+            for f in all_md
+            if not any(
+                os.path.basename(f).endswith(f"{s}.md") for s in _VARIANT_SUFFIXES
+            )
+        ]
+
+    audio_matched = [
+        f for f in all_md if os.path.exists(os.path.splitext(f)[0] + ".mp3")
+    ]
+
+    if audio_matched:
+        logger.info(
+            f"  '{display_name}': {len(audio_matched)} audio-matched files found."
+        )
+        chosen = audio_matched
+    else:
+        # ── Strategy 2: fall back to config lesson-name glob ──────────────────
+        lesson_name = config.get("tprs_lesson_name", "")
+        if file_suffix:
+            pattern = os.path.join(
+                tprs_dir, f"{glob_module.escape(lesson_name)}_TPRS_*{file_suffix}.md"
+            )
+        else:
+            pattern = os.path.join(
+                tprs_dir, f"{glob_module.escape(lesson_name)}_TPRS_*.md"
+            )
+        chosen = sorted(glob_module.glob(pattern))
+        if not file_suffix:
+            chosen = [
+                f
+                for f in chosen
+                if not any(
+                    os.path.basename(f).endswith(f"{s}.md") for s in _VARIANT_SUFFIXES
+                )
+            ]
+        if chosen:
+            logger.info(
+                f"  '{display_name}': {len(chosen)} config-name files (no audio match)."
+            )
+        else:
+            logger.warning(
+                f"  '{display_name}': no per-day files found — variant will have no Q&A."
+            )
+            return {}
+
+    result: dict = {}
+    for filepath in chosen:
+        try:
+            content = diary_handler.read_markdown_file(filepath)
+            parsed, date_str = diary_handler.read_tprs_day_block(content)
+            if not parsed or not date_str:
+                continue
+            date_obj = datetime.strptime(date_str, "%Y/%m/%d")
+            ordered = []
+            for sentence, qa_tuples in parsed.items():
+                qa_raw = {
+                    str(i + 1): {"question": q, "answer": a}
+                    for i, (q, a) in enumerate(qa_tuples)
+                }
+                ordered.append((sentence, qa_raw))
+            result[date_obj] = ordered
+        except Exception as exc:
+            logger.warning(f"  Failed to parse {filepath}: {exc}")
+
+    return result
 
 
 def migrate_markdown_to_json(
@@ -93,24 +198,19 @@ def migrate_markdown_to_json(
     entry_count = sum(len(v["sentences"]) for v in diary_dict.values())
     logger.info(f"  Found {len(diary_dict)} days, {entry_count} sentences.")
 
-    # ── Step 2: Parse all TPRS variant files ──────────────────────────────────
+    # ── Step 2: Parse all TPRS variant files (no TprsCreation — avoids side effects) ──
     logger.info("Step 2: Parsing TPRS variant Markdown files…")
-    tprs_creation = TprsCreation(config_path=str(config_path))
+    config = diary_handler.config
 
-    variant_dicts: dict[str, dict] = {}  # json_key → {date_obj: {sentence: qa_dict}}
-    for variant_handler in tprs_creation.variants:
-        json_key = _VARIANT_NAME_MAP.get(variant_handler.variant_name)
-        if json_key is None:
-            logger.warning(
-                f"  Unknown variant name '{variant_handler.variant_name}', skipping."
-            )
-            continue
-        tprs_data = variant_handler._read_variant_tprs_to_dict()
+    variant_dicts: dict[str, dict] = {}
+    for display_name, json_key, file_suffix in _VARIANTS:
+        tprs_data = _read_per_day_variant_files(
+            diary_handler, config, file_suffix, display_name
+        )
         day_count = len(tprs_data)
         qa_count = sum(len(sentences) for sentences in tprs_data.values())
         logger.info(
-            f"  Variant '{variant_handler.variant_name}' ({json_key}): "
-            f"{day_count} days, {qa_count} sentences with Q&A."
+            f"  Variant '{display_name}' ({json_key}): {day_count} days, {qa_count} sentences with Q&A."
         )
         variant_dicts[json_key] = tprs_data
 
@@ -128,8 +228,12 @@ def migrate_markdown_to_json(
         for json_key, tprs_date_dict in variant_dicts.items():
             for tprs_date_obj, tprs_sentences in tprs_date_dict.items():
                 if _date_obj_to_str(tprs_date_obj) == date_str:
-                    # ordered list of (sentence_text, qa_raw_dict)
-                    day_tprs_by_variant[json_key] = list(tprs_sentences.items())
+                    # already a list of (sentence_text, qa_raw_dict)
+                    day_tprs_by_variant[json_key] = (
+                        tprs_sentences
+                        if isinstance(tprs_sentences, list)
+                        else list(tprs_sentences.items())
+                    )
                     break
 
         entries: list[DiaryEntry] = []

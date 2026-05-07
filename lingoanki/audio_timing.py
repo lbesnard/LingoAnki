@@ -1,31 +1,30 @@
 """
 audio_timing.py — Per-sentence audio timing backfill.
 
-Re-generates TTS audio for each sentence (and its Q&A) in memory using the
-same parameters as the real TPRS audio generation, measures durations, then
-stores start_ms/end_ms per entry per variant into diary.json.
+Generates individual TTS audio segments (sentence, questions, answers) for each
+TPRS variant, measuring their exact WAV durations to build precise start/end_ms
+timings, then exports each segment as MP3.
 
-The audio file structure per sentence mirrors _create_audio_for_day_block():
+Segment files are kept permanently in:
+    output_dir/TPRS/SEGMENTS/{YYYY-MM-DD}_{variant}/
+        {entry_idx}_s.mp3        <- sentence (single copy, pre-repeat)
+        {entry_idx}_q{j}.mp3     <- question j
+        {entry_idx}_a{j}.mp3     <- answer j
 
-    For each sentence S with Q&A pairs [(Q1,A1), (Q2,A2), ...]:
-        [S  × repeat_tprs] + [pause × repeat_tprs]
-        + [pause × repeat_tprs] + [Q1 × repeat_tprs] + [silence × repeat_tprs]
-        + [A1 × repeat_tprs] + [pause × repeat_tprs]
-        + [pause × repeat_tprs] + [Q2 × repeat_tprs] + ...
+All paths and timings are written back into diary.json.
 
-    Since actual_pause_duration = config_pause / repeat_tprs, repeating it
-    repeat_tprs times gives exactly config_pause ms of silence.
-    Same logic for answer_silence_duration.
+No proportional scaling is needed because segment durations are measured from the
+actual generated WAV files (same TTS call as _create_audio_for_day_block).
 
-So:
-    entry_start_ms = cumulative offset up to that sentence
-    entry_end_ms   = entry_start_ms + (sentence_tts_ms * repeat_tprs)
+Audio structure (per sentence S, R = repeat_tprs):
+    [S x R] + [pause x R]
+    per Q&A: [pause x R] + [Q x R] + [silence x R] + [A x R] + [pause x R]
 
-JSON is saved after each day so progress is not lost if the script is interrupted.
+Pauses/silences are computed from config (not stored as separate files).
 
 Usage:
-    python -m lingoanki.audio_timing \\
-        --config ~/.config/lingoDiary/config.yaml \\
+    python -m lingoanki.audio_timing \
+        --config ~/.config/lingoDiary/config.yaml \
         --json ~/Documents/lingodiary/<user>/diary.json
 
     from lingoanki.audio_timing import backfill_audio_timings
@@ -37,41 +36,102 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _VARIANT_KEYS = ("original", "enhanced", "future", "present")
+_KEY_TO_SUFFIX = {
+    "original": "",
+    "enhanced": "_enhanced",
+    "future": "_future",
+    "present": "_present",
+}
 
 
-def _tts_duration_ms(
+def _generate_segment(
     text: str,
+    out_path: str,
     tts_plugin,
     lang: str,
     voice: str,
 ) -> int:
-    """Generate TTS for *text*, measure duration in ms, delete temp file. Returns 0 on failure."""
+    """
+    Generate TTS for *text* -> temp WAV -> measure duration -> export as MP3 to *out_path*.
+
+    Returns duration in ms (measured from WAV before conversion). Returns 0 on failure.
+    The intermediate WAV is always deleted; only the MP3 is kept.
+    """
     if not text or not text.strip():
         return 0
-    tmp_path = os.path.join(
-        tempfile.gettempdir(), f"_timing_{abs(hash(text)) % 10**9}.wav"
-    )
+
+    tmp_wav = out_path.replace(".mp3", "_tmp.wav")
+    dur_ms = 0
     try:
         from pydub import AudioSegment  # type: ignore
 
-        tts_plugin.get_tts(text, tmp_path, lang=lang, voice=voice)
-        seg = AudioSegment.from_wav(tmp_path)
-        return len(seg)
+        tts_plugin.get_tts(text, tmp_wav, lang=lang, voice=voice)
+        seg = AudioSegment.from_wav(tmp_wav)
+        dur_ms = len(seg)
+        seg.export(out_path, format="mp3")
+        return dur_ms
     except Exception as exc:
         logger.warning(f"TTS failed for '{text[:50]}': {exc}")
         return 0
     finally:
-        if os.path.exists(tmp_path):
+        if os.path.exists(tmp_wav):
             try:
-                os.remove(tmp_path)
+                os.remove(tmp_wav)
             except OSError:
                 pass
+
+
+def _find_day_mp3(tprs_dir: str, date_str: str, file_suffix: str) -> str | None:
+    """
+    Find the full-lesson MP3 for a specific day+variant, preferring audio-matched files.
+    date_str is 'YYYY/MM/DD', file_suffix is '' or '_enhanced' etc.
+    """
+    import glob as g
+
+    date_dash = date_str.replace("/", "-")
+    if file_suffix:
+        pattern = os.path.join(tprs_dir, f"*_TPRS_{date_dash}*{file_suffix}.mp3")
+    else:
+        pattern = os.path.join(tprs_dir, f"*_TPRS_{date_dash}*.mp3")
+
+    candidates = sorted(g.glob(pattern))
+    if not file_suffix:
+        candidates = [
+            c
+            for c in candidates
+            if not any(
+                os.path.basename(c).endswith(f"{s}.mp3")
+                for s in ("_enhanced", "_future", "_present")
+            )
+        ]
+    return candidates[0] if candidates else None
+
+
+def _segments_dir(output_dir: str, date_str: str, variant_key: str) -> str:
+    """Return the SEGMENTS subdirectory path for a given day/variant."""
+    date_dash = date_str.replace("/", "-")
+    return os.path.join(output_dir, "TPRS", "SEGMENTS", f"{date_dash}_{variant_key}")
+
+
+def _segments_complete(segs_dir: str, entries: list, variant_key: str) -> bool:
+    """Return True if all expected MP3 segment files already exist."""
+    for idx, entry in enumerate(entries):
+        variant = entry.lessons.get_variant(variant_key)
+        if not variant.sentence:
+            continue
+        if not os.path.exists(os.path.join(segs_dir, f"{idx}_s.mp3")):
+            return False
+        for j in range(len(variant.qa)):
+            if not os.path.exists(os.path.join(segs_dir, f"{idx}_q{j}.mp3")):
+                return False
+            if not os.path.exists(os.path.join(segs_dir, f"{idx}_a{j}.mp3")):
+                return False
+    return True
 
 
 def _compute_day_timings(
@@ -83,26 +143,27 @@ def _compute_day_timings(
     repeat_tprs: int,
     pause_ms: int,
     answer_silence_ms: int,
+    output_dir: str,
+    date_str: str,
 ) -> list[tuple[int, int]]:
     """
-    Compute (start_ms, end_ms) for each entry's sentence in the audio file.
+    Generate individual MP3 segments for each sentence/Q/A, measure exact durations,
+    store files in TPRS/SEGMENTS/{date}_{variant}/, update audio paths in entries.
 
-    Mirrors the exact segment order in _create_audio_for_day_block():
-      [sentence * R] + [pause * R]
-      + per Q&A: [pause * R] + [question * R] + [silence * R] + [answer * R] + [pause * R]
-
-    Since actual_pause = pause_ms/R repeated R times = pause_ms total,
-    we just add pause_ms and answer_silence_ms directly (no TTS needed for pauses).
-
-    Returns list of (start_ms, end_ms) per entry, or [] if variant has no data.
-    Q&A timings are stored directly onto each QA object (question_timing/answer_timing).
+    Returns list of (start_ms, end_ms) per entry for the sentence block start/end.
+    Q&A timings are stored directly onto each QA object.
     """
+    from lingoanki.diary_json import AudioTiming  # type: ignore
+
     R = max(1, repeat_tprs)
+    segs_dir = _segments_dir(output_dir, date_str, variant_key)
+    os.makedirs(segs_dir, exist_ok=True)
+
     cumulative = 0
     timings: list[tuple[int, int]] = []
     has_any = False
 
-    for entry in entries:
+    for idx, entry in enumerate(entries):
         variant = entry.lessons.get_variant(variant_key)
         if not variant.sentence:
             timings.append((cumulative, cumulative))
@@ -110,34 +171,43 @@ def _compute_day_timings(
 
         has_any = True
 
-        # ── Sentence ──────────────────────────────────────────────────────
+        # -- Sentence ------------------------------------------------------
         entry_start = cumulative
-        s_dur = _tts_duration_ms(variant.sentence, tts_plugin, lang, voice)
+        s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
+        s_dur = _generate_segment(variant.sentence, s_path, tts_plugin, lang, voice)
         entry_end = entry_start + s_dur * R
         timings.append((entry_start, entry_end))
+        variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
 
-        # Advance cursor past sentence + its pause
+        # Advance past sentence + its trailing pause
         cumulative = entry_end + pause_ms
 
-        # ── Q&A pairs — compute and store individual timings ──────────────
-        for qa in variant.qa:
-            from lingoanki.diary_json import AudioTiming  # type: ignore
-
+        # -- Q&A pairs -----------------------------------------------------
+        for j, qa in enumerate(variant.qa):
             cumulative += pause_ms  # pause before question
+
+            q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
             q_start = cumulative
-            q_dur = _tts_duration_ms(qa.question, tts_plugin, lang, voice)
+            q_dur = _generate_segment(qa.question, q_path, tts_plugin, lang, voice)
             cumulative += q_dur * R
             qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
+            qa.question_audio_path = os.path.relpath(q_path, output_dir)
 
             cumulative += answer_silence_ms  # silence for user to answer
+
+            a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
             a_start = cumulative
-            a_dur = _tts_duration_ms(qa.answer, tts_plugin, lang, voice)
+            a_dur = _generate_segment(qa.answer, a_path, tts_plugin, lang, voice)
             cumulative += a_dur * R
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
+            qa.answer_audio_path = os.path.relpath(a_path, output_dir)
 
             cumulative += pause_ms  # pause after answer
 
-    return timings if has_any else []
+    if not has_any:
+        return []
+
+    return timings
 
 
 def backfill_audio_timings(
@@ -147,14 +217,15 @@ def backfill_audio_timings(
     overwrite_existing: bool = False,
 ) -> None:
     """
-    Compute and store per-sentence audio timings for all TPRS variant lessons.
+    Generate individual segment MP3s and store per-sentence audio timings for
+    all TPRS variant lessons.
 
     Args:
         config_path:         Path to the user's config.yaml.
         diary_json_path:     Path to diary.json (updated in-place, saved per day).
         variants:            Variant keys to process. Defaults to all four.
-        overwrite_existing:  If False (default), skip entries that already have
-                             non-zero timings.
+        overwrite_existing:  If False (default), skip days where segment files
+                             are already complete.
     """
     import yaml  # type: ignore
     from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
@@ -179,6 +250,8 @@ def backfill_audio_timings(
     repeat_tprs = max(1, tts_cfg.get("repeat_sentence_tprs", 1) or 1)
     pause_ms = int(tts_cfg.get("pause_between_sentences_duration", 500))
     answer_silence_ms = int(tts_cfg.get("answer_silence_duration", 3000))
+    output_dir = config.get("output_dir", "")
+    tprs_dir = os.path.join(output_dir, "TPRS")
 
     logger.info(
         f"Config: voice={voice}, length_scale={length_scale}, "
@@ -190,12 +263,22 @@ def backfill_audio_timings(
 
     diary = load_diary_json(diary_json_path)
     total_days = len(diary.diaries)
-    logger.info(f"Processing {total_days} diary days…")
+    logger.info(f"Processing {total_days} diary days...")
 
     try:
         for day_idx, day in enumerate(diary.diaries, 1):
-            logger.info(f"Day {day_idx}/{total_days}: {day.date} — {day.title}")
+            logger.info(f"Day {day_idx}/{total_days}: {day.date} -- {day.title}")
             day_modified = False
+
+            # Fill lesson_audio_paths for this day
+            for variant_key in variants:
+                suffix = _KEY_TO_SUFFIX.get(variant_key, "")
+                mp3_path = _find_day_mp3(tprs_dir, day.date, suffix)
+                if mp3_path and variant_key not in day.lesson_audio_paths:
+                    day.lesson_audio_paths[variant_key] = os.path.relpath(
+                        mp3_path, output_dir
+                    )
+                    day_modified = True
 
             for variant_key in variants:
                 populated = [
@@ -207,18 +290,41 @@ def backfill_audio_timings(
                     logger.debug(f"  {variant_key}: no entries, skipping.")
                     continue
 
-                if not overwrite_existing:
-                    already_done = all(
-                        e.lessons.get_variant(variant_key).audio_timing.end_ms > 0
-                        for e in populated
+                segs_dir = _segments_dir(output_dir, day.date, variant_key)
+
+                if not overwrite_existing and _segments_complete(
+                    segs_dir, day.entries, variant_key
+                ):
+                    logger.info(
+                        f"  {variant_key}: segments already complete, skipping."
                     )
-                    if already_done:
-                        logger.info(f"  {variant_key}: already timed, skipping.")
-                        continue
+                    # Still fill paths if they're missing from the JSON
+                    for idx, entry in enumerate(day.entries):
+                        v = entry.lessons.get_variant(variant_key)
+                        if not v.sentence:
+                            continue
+                        s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
+                        if v.sentence_audio_path == "" and os.path.exists(s_path):
+                            v.sentence_audio_path = os.path.relpath(s_path, output_dir)
+                            day_modified = True
+                        for j, qa in enumerate(v.qa):
+                            q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
+                            a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
+                            if qa.question_audio_path == "" and os.path.exists(q_path):
+                                qa.question_audio_path = os.path.relpath(
+                                    q_path, output_dir
+                                )
+                                day_modified = True
+                            if qa.answer_audio_path == "" and os.path.exists(a_path):
+                                qa.answer_audio_path = os.path.relpath(
+                                    a_path, output_dir
+                                )
+                                day_modified = True
+                    continue
 
                 logger.info(
-                    f"  {variant_key}: timing {len(populated)} entries "
-                    f"(repeat×{repeat_tprs})…"
+                    f"  {variant_key}: generating segments for {len(populated)} entries "
+                    f"(repeat x{repeat_tprs})..."
                 )
                 timings = _compute_day_timings(
                     day.entries,
@@ -229,6 +335,8 @@ def backfill_audio_timings(
                     repeat_tprs,
                     pause_ms,
                     answer_silence_ms,
+                    output_dir=output_dir,
+                    date_str=day.date,
                 )
                 if not timings:
                     continue
@@ -239,11 +347,10 @@ def backfill_audio_timings(
                         v.audio_timing = AudioTiming(start_ms=start_ms, end_ms=end_ms)
                         day_modified = True
 
-                if timings:
-                    logger.info(
-                        f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
-                        f"(~{timings[-1][1]//1000}s)"
-                    )
+                logger.info(
+                    f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
+                    f"(~{timings[-1][1]//1000}s)"
+                )
 
             # Save after each day so progress is not lost on interruption
             if day_modified:
@@ -270,7 +377,7 @@ def _setup_logging() -> None:
 def main(argv: list[str] | None = None) -> int:
     _setup_logging()
     parser = argparse.ArgumentParser(
-        description="Backfill per-sentence audio timings into diary.json"
+        description="Backfill per-sentence audio timings and segment MP3s into diary.json"
     )
     parser.add_argument(
         "--config", required=True, metavar="PATH", help="Path to user config.yaml"
@@ -289,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         "--overwrite",
         action="store_true",
         default=False,
-        help="Overwrite existing timings",
+        help="Overwrite existing segment files and timings",
     )
     args = parser.parse_args(argv)
 

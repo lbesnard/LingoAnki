@@ -2,13 +2,17 @@
 diary_json.py — JSON schema, serialisation helpers, and SM-2 SRS algorithm
 for the LingoAnki diary database.
 
-Schema (schema_version 1.0.0):
+Schema (schema_version 1.1.0):
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "diaries": [
     {
       "date": "2026/01/21",          # YYYY/MM/DD
       "title": "...",
+      "lesson_audio_paths": {        # full lesson MP3, relative to output_dir
+        "original": "TPRS/….mp3",
+        "enhanced": "TPRS/…_enhanced.mp3"
+      },
       "entries": [
         {
           "index": 0,
@@ -27,8 +31,15 @@ Schema (schema_version 1.0.0):
             },
             "original": {
               "sentence": "...",
+              "sentence_audio_path": "TPRS/SEGMENTS/2026-01-21_original/0_s.mp3",
               "audio_timing": {"start_ms": 0, "end_ms": 0},
-              "qa": [{"question": "...", "answer": "..."}]
+              "qa": [{
+                "question": "...", "answer": "...",
+                "question_audio_path": "TPRS/SEGMENTS/2026-01-21_original/0_q0.mp3",
+                "answer_audio_path":   "TPRS/SEGMENTS/2026-01-21_original/0_a0.mp3",
+                "question_timing": {"start_ms": 0, "end_ms": 0},
+                "answer_timing":   {"start_ms": 0, "end_ms": 0}
+              }]
             },
             "enhanced": {...},
             "present":  {...},
@@ -51,7 +62,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 VARIANTS = ("original", "enhanced", "present", "future")
 
 
@@ -77,6 +88,10 @@ class QA:
     answer: str = ""
     question_timing: AudioTiming = field(default_factory=AudioTiming)
     answer_timing: AudioTiming = field(default_factory=AudioTiming)
+    question_audio_path: str = (
+        ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_q0.mp3"
+    )
+    answer_audio_path: str = ""  # relative to output_dir
 
     def to_dict(self) -> dict:
         return {
@@ -84,6 +99,8 @@ class QA:
             "answer": self.answer,
             "question_timing": self.question_timing.to_dict(),
             "answer_timing": self.answer_timing.to_dict(),
+            "question_audio_path": self.question_audio_path,
+            "answer_audio_path": self.answer_audio_path,
         }
 
     @classmethod
@@ -93,6 +110,8 @@ class QA:
             answer=d.get("answer", ""),
             question_timing=AudioTiming.from_dict(d.get("question_timing", {})),
             answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
+            question_audio_path=d.get("question_audio_path", ""),
+            answer_audio_path=d.get("answer_audio_path", ""),
         )
 
 
@@ -101,12 +120,16 @@ class VariantLesson:
     sentence: str = ""
     audio_timing: AudioTiming = field(default_factory=AudioTiming)
     qa: list[QA] = field(default_factory=list)
+    sentence_audio_path: str = (
+        ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_s.mp3"
+    )
 
     def to_dict(self) -> dict:
         return {
             "sentence": self.sentence,
             "audio_timing": self.audio_timing.to_dict(),
             "qa": [q.to_dict() for q in self.qa],
+            "sentence_audio_path": self.sentence_audio_path,
         }
 
     @classmethod
@@ -115,6 +138,7 @@ class VariantLesson:
             sentence=d.get("sentence", ""),
             audio_timing=AudioTiming.from_dict(d.get("audio_timing", {})),
             qa=[QA.from_dict(q) for q in d.get("qa", [])],
+            sentence_audio_path=d.get("sentence_audio_path", ""),
         )
 
 
@@ -220,11 +244,15 @@ class DiaryDay:
     date: str = ""  # "YYYY/MM/DD"
     title: str = ""
     entries: list[DiaryEntry] = field(default_factory=list)
+    lesson_audio_paths: dict = field(
+        default_factory=dict
+    )  # variant → relative path to full lesson MP3
 
     def to_dict(self) -> dict:
         return {
             "date": self.date,
             "title": self.title,
+            "lesson_audio_paths": self.lesson_audio_paths,
             "entries": [e.to_dict() for e in self.entries],
         }
 
@@ -234,6 +262,7 @@ class DiaryDay:
             date=d.get("date", ""),
             title=d.get("title", ""),
             entries=[DiaryEntry.from_dict(e) for e in d.get("entries", [])],
+            lesson_audio_paths=d.get("lesson_audio_paths", {}),
         )
 
 
