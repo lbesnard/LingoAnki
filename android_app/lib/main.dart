@@ -195,6 +195,7 @@ class _MainShellState extends State<MainShell> {
               BottomNavigationBar(
                 currentIndex: _currentIndex,
                 onTap: (i) => setState(() => _currentIndex = i),
+                type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.home_outlined),
