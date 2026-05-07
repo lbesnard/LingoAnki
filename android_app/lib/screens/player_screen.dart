@@ -767,10 +767,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final nextReview = reviewing?['next_review']; // ignore: unused_local_variable
       final intervalDays = reviewing?['interval_days'] as int?;
 
+      // Mark synced=true since the server already received it
       await LocalDbService.saveSrsScore(
         date: _lessonDate!,
         entryIndex: idx,
         score: score,
+        synced: true,
       );
 
       if (mounted) {
@@ -787,12 +789,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       }
     } catch (e) {
-      // Save locally even when server is unreachable
+      // Save locally (synced=false) so it can be replayed when back online
       try {
         await LocalDbService.saveSrsScore(
           date: _lessonDate!,
           entryIndex: idx,
           score: score,
+          synced: false,
         );
       } catch (_) {}
       if (mounted) {

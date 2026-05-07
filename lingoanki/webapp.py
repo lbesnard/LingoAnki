@@ -1170,7 +1170,10 @@ def api_sync_file(rel_path):
 @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
 @_jwt_required
 def api_sync_lesson_manifest(base):
-    """Return manifest filtered to files belonging to a single lesson (by base name)."""
+    """Return manifest filtered to files belonging to a single lesson (by base name).
+
+    Always includes diary.json so the app can read lesson text offline.
+    """
     from flask import g as _g
 
     output_folder = _g.api_output_folder
@@ -1185,7 +1188,8 @@ def api_sync_lesson_manifest(base):
                 continue
             full = os.path.join(root, fname)
             rel = os.path.relpath(full, output_folder)
-            if base not in rel:
+            # Always include diary.json so lesson text is available offline
+            if base not in rel and rel != "diary.json":
                 continue
             stat = os.stat(full)
             manifest.append(

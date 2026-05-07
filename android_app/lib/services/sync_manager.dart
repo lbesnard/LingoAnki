@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'api_service.dart';
+import 'local_db_service.dart';
 import 'sync_service.dart';
 
 /// Global singleton that manages sync state across all screens.
@@ -21,6 +23,7 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingScores();
       final count = await SyncService.syncLesson(
         base,
         onProgress: (msg) {
@@ -52,6 +55,7 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingScores();
       final count = await SyncService.syncFromServer(
         onProgress: (msg) {
           message = msg;
@@ -85,5 +89,24 @@ class SyncManager extends ChangeNotifier {
     message = initialMessage;
     filesDownloaded = 0;
     notifyListeners();
+  }
+
+  /// Replay any locally saved scores that weren't sent to the server yet.
+  /// Stops silently on network error so the main sync can still proceed.
+  Future<void> _syncPendingScores() async {
+    final pending = await LocalDbService.getUnsyncedScores();
+    for (final row in pending) {
+      if (_cancelled) break;
+      try {
+        await ApiService.scoreEntry(
+          row['date'] as String,
+          row['entry_index'] as int,
+          row['score'] as int,
+        );
+        await LocalDbService.markScoreSynced(row['id'] as int);
+      } catch (_) {
+        break; // Server unreachable — try again on next sync
+      }
+    }
   }
 }

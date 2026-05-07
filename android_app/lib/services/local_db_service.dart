@@ -151,6 +151,7 @@ class LocalDbService {
     required String date,
     required int entryIndex,
     required int score,
+    bool synced = false,
   }) async {
     final database = await db;
     await database.insert('srs_scores', {
@@ -158,7 +159,7 @@ class LocalDbService {
       'entry_index': entryIndex,
       'score': score,
       'scored_at': DateTime.now().toIso8601String(),
-      'synced': 0,
+      'synced': synced ? 1 : 0,
     });
   }
 

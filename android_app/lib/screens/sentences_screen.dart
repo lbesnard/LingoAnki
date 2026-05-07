@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import '../services/sync_service.dart';
 
 /// Anki-style sentence review screen.
@@ -30,6 +33,9 @@ class _SentencesScreenState extends State<SentencesScreen> {
   bool _showTranslation = false;
   bool _showQA = false;
   bool _scoring = false;
+  bool _offlineMode = false;
+
+  static const _cacheKey = 'sentences_due_cache';
 
   // Sentence audio player
   late AudioPlayer _player;
@@ -82,9 +88,13 @@ class _SentencesScreenState extends State<SentencesScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _offlineMode = false;
     });
     try {
       final sentences = await ApiService.getDueSentences(limit: 20);
+      // Cache for offline use
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, jsonEncode(sentences));
       if (mounted) {
         setState(() {
           _sentences = sentences;
@@ -93,11 +103,30 @@ class _SentencesScreenState extends State<SentencesScreen> {
         });
         _loadAudio(autoPlay: true);
       }
-    } catch (e) {
+    } catch (_) {
+      // Try offline cache
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString(_cacheKey);
+        if (cached != null) {
+          final sentences =
+              List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+          if (mounted) {
+            setState(() {
+              _sentences = sentences;
+              _currentIndex = 0;
+              _loading = false;
+              _offlineMode = true;
+            });
+            _loadAudio(autoPlay: true);
+          }
+          return;
+        }
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString();
+          _error = 'Offline — sync the app when connected to load new sentences.';
         });
       }
     }
@@ -216,14 +245,27 @@ class _SentencesScreenState extends State<SentencesScreen> {
     if (_scoring) return;
     setState(() => _scoring = true);
     final item = _sentences[_currentIndex];
+    final date = item['date'] as String? ?? '';
+    final entryIndex = item['entry_index'] as int? ?? 0;
     try {
-      await ApiService.scoreEntry(
-        item['date'] as String,
-        item['entry_index'] as int,
-        score,
+      await ApiService.scoreEntry(date, entryIndex, score);
+      // Server received it — mark synced
+      await LocalDbService.saveSrsScore(
+        date: date,
+        entryIndex: entryIndex,
+        score: score,
+        synced: true,
       );
     } catch (_) {
-      // Non-fatal — we'll still advance
+      // Offline — save locally for replay on next sync
+      try {
+        await LocalDbService.saveSrsScore(
+          date: date,
+          entryIndex: entryIndex,
+          score: score,
+          synced: false,
+        );
+      } catch (_) {}
     }
     setState(() => _scoring = false);
     _next();
@@ -332,6 +374,26 @@ class _SentencesScreenState extends State<SentencesScreen> {
       ),
       body: Column(
         children: [
+          // Offline mode banner
+          if (_offlineMode)
+            Material(
+              color: Colors.orange.shade700,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_off, size: 14, color: Colors.white),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Offline — showing cached review. Scores will sync when connected.',
+                        style: TextStyle(fontSize: 11, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           // Progress bar
           LinearProgressIndicator(
             value: _sentences.isEmpty
