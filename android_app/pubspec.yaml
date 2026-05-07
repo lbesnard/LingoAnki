@@ -7,6 +7,11 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   flutter_markdown: ^0.7.6
   http: ^1.2.0
+  # just_audio: plain package only — do NOT add just_audio_background or
+  # audio_service without thorough real-device testing. Even a caught
+  # init() failure leaves just_audio_background in a partial state that
+  # intercepts all AudioPlayer method-channel calls (stop, setAudioSource),
+  # silently corrupting audio playback AND text entry display (v1.0 regression).
   just_audio: ^0.9.39
   path: ^1.9.0
   path_provider: ^2.1.2
