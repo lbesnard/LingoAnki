@@ -34,6 +34,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
   late AudioPlayer _player;
   bool _audioLoaded = false;
   bool _audioPlaying = false;
+  bool _audioDownloading = false;
+  bool _audioUnavailable = false;
 
   @override
   void initState() {
@@ -83,19 +85,36 @@ class _SentencesScreenState extends State<SentencesScreen> {
     final item = _sentences[_currentIndex];
     final audioPath = item['sentence_audio_path'] as String? ?? '';
     if (audioPath.isEmpty) {
-      setState(() => _audioLoaded = false);
+      setState(() {
+        _audioLoaded = false;
+        _audioUnavailable = false;
+      });
       return;
     }
     try {
       final localFile = await SyncService.localPath(audioPath);
-      if (File(localFile).existsSync()) {
-        await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
-        setState(() => _audioLoaded = true);
-      } else {
-        setState(() => _audioLoaded = false);
+      if (!File(localFile).existsSync()) {
+        // File not cached — auto-download it
+        setState(() {
+          _audioDownloading = true;
+          _audioLoaded = false;
+          _audioUnavailable = false;
+        });
+        final ok = await SyncService.downloadFile(audioPath);
+        if (!mounted) return;
+        if (!ok) {
+          setState(() {
+            _audioDownloading = false;
+            _audioUnavailable = true;
+          });
+          return;
+        }
+        setState(() => _audioDownloading = false);
       }
+      await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      if (mounted) setState(() { _audioLoaded = true; _audioUnavailable = false; });
     } catch (_) {
-      setState(() => _audioLoaded = false);
+      if (mounted) setState(() { _audioLoaded = false; _audioDownloading = false; _audioUnavailable = true; });
     }
   }
 
@@ -111,6 +130,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
         _showTranslation = false;
         _showQA = false;
         _audioLoaded = false;
+        _audioDownloading = false;
+        _audioUnavailable = false;
       });
       _loadAudio();
     } else {
@@ -299,24 +320,54 @@ class _SentencesScreenState extends State<SentencesScreen> {
                           // Audio playback row
                           Row(
                             children: [
-                              IconButton(
-                                onPressed: _audioLoaded ? _playAudio : null,
-                                icon: Icon(
-                                  _audioPlaying
-                                      ? Icons.stop_circle_outlined
-                                      : Icons.play_circle_outline,
-                                  size: 32,
-                                  color: _audioLoaded
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Colors.grey.shade400,
+                              if (_audioDownloading)
+                                const SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: Padding(
+                                    padding: EdgeInsets.all(6),
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              else
+                                IconButton(
+                                  onPressed: _audioLoaded
+                                      ? (_audioPlaying ? () => _player.stop() : _playAudio)
+                                      : null,
+                                  icon: Icon(
+                                    _audioPlaying
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.play_circle_outline,
+                                    size: 32,
+                                    color: _audioLoaded
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.grey.shade400,
+                                  ),
                                 ),
-                              ),
-                              if (!_audioLoaded)
+                              if (_audioDownloading)
                                 const Text(
-                                  'Audio not synced',
-                                  style: TextStyle(
-                                      fontSize: 11, color: Colors.grey),
-                                ),
+                                  'Downloading audio…',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                )
+                              else if (_audioUnavailable)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'Audio unavailable',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                    IconButton(
+                                      onPressed: _loadAudio,
+                                      icon: const Icon(Icons.refresh, size: 16, color: Colors.grey),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ],
+                                )
+                              else if (!_audioLoaded)
+                                const SizedBox.shrink(),
                             ],
                           ),
                           const SizedBox(height: 8),
