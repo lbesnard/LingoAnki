@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
 
 import '../services/api_service.dart';
 import '../services/sync_service.dart';
@@ -90,18 +89,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
     try {
       final localFile = await SyncService.localPath(audioPath);
       if (File(localFile).existsSync()) {
-        final title = item['sentence'] as String? ?? '';
-        final date = item['date'] as String? ?? '';
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(localFile),
-            tag: MediaItem(
-              id: '$date-${item['entry_index']}',
-              title: title.isNotEmpty ? title : 'Sentence',
-              album: 'LingoDiary',
-            ),
-          ),
-        );
+        await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
         setState(() => _audioLoaded = true);
       } else {
         setState(() => _audioLoaded = false);

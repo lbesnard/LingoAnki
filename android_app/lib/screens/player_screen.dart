@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
@@ -116,20 +115,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     bool audioSet = false;
     try {
-      final lessonTitle = widget.lesson['title'] as String? ?? variantName;
-      await _player.setAudioSource(
-        AudioSource.uri(
-          Uri.file(mp3Path),
-          tag: MediaItem(id: mp3Path, title: lessonTitle, artist: variantName),
-        ),
-      );
+      await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
       audioSet = true;
-    } catch (_) {
-      try {
-        await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
-        audioSet = true;
-      } catch (_) {}
-    }
+    } catch (_) {}
     if (audioSet && mounted) {
       setState(() => _audioReady = true);
       _startPositionListener();
