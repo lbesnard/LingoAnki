@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   late final AudioPlayer _player;
   bool _audioReady = false;
+  StreamSubscription<Duration>? _positionSub;
 
   /// All tab names: TPRS variants + synthetic "Input Diary" at the end.
   late List<String> _tabNames;
@@ -131,23 +133,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final mp3Path = await SyncService.localPath('TPRS/$filename');
 
     await _player.stop();
+    // Reset audio state, but keep entries visible while we reload so the UI
+    // does not flash to "Content not available" during a sync-triggered reload.
     setState(() {
       _audioReady = false;
-      _sentenceEntries = [];
-      _segments = [];
-      _entrySpans = {};
-      _expandedTranslations.clear();
       _activeEntryIndex = -1;
       _activeQaIndex = -1;
       _activeIsQuestion = false;
       _stickyQaIndex = -1;
       _stickyIsQuestion = false;
       _stickyEntryIndex = -1;
-      _sentenceKeys.clear();
     });
 
     final audioFile = File(mp3Path);
     if (await audioFile.exists()) {
+      bool audioSet = false;
       try {
         final lessonTitle = widget.lesson['title'] as String? ?? variantName;
         await _player.setAudioSource(
@@ -160,15 +160,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
         );
-      } catch (_) {}
-      if (mounted) {
+        audioSet = true;
+      } catch (_) {
+        // MediaItem tag may fail if JustAudioBackground is not initialised —
+        // retry without the tag so audio still works.
+        try {
+          await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
+          audioSet = true;
+        } catch (_) {}
+      }
+      if (audioSet && mounted) {
         setState(() => _audioReady = true);
         _startPositionListener();
       }
     }
 
-    // Fetch structured entries (timings + translations) from server
-    if (_lessonDate != null) {
+    // Fetch structured entries (timings + translations) from server only when
+    // we do not already have them, to avoid the UI blanking during sync reloads.
+    if (_lessonDate != null && _sentenceEntries.isEmpty) {
       final variantKey = _variantToApiKey(variantName);
       bool loaded = false;
       try {
@@ -287,7 +296,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _startPositionListener() {
-    _player.positionStream.listen((pos) {
+    _positionSub?.cancel();
+    _positionSub = _player.positionStream.listen((pos) {
       if (!mounted) return;
       final ms = pos.inMilliseconds;
 
@@ -407,12 +417,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _loopBlock = !_loopBlock);
   }
 
-  /// Load the Input Diary content: try local cache first, then server.
+  /// Load the Input Diary content.
+  ///
+  /// Priority:
+  ///   1. input_language_sentence from already-loaded entries (fastest, offline)
+  ///   2. Local cache file (offline)
+  ///   3. Fetch from server via /api/lessons/entries using the first available variant
   Future<void> _loadDiaryContent() async {
     if (_lessonDate == null) {
       setState(() => _diaryContent = '(No date found in lesson name)');
       return;
     }
+
+    // If we already have entries loaded from any TPRS variant, just show them.
+    if (_sentenceEntries.isNotEmpty) {
+      final buf = StringBuffer();
+      for (var i = 0; i < _sentenceEntries.length; i++) {
+        final s = _sentenceEntries[i]['input_language_sentence'] as String? ?? '';
+        if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
+      }
+      if (buf.isNotEmpty) {
+        setState(() => _diaryContent = buf.toString().trim());
+        return;
+      }
+    }
+
     final base = widget.lesson['base'] as String? ?? '';
     final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
     final cacheFile = File(cachePath);
@@ -422,18 +451,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    // Not cached — fetch from server
+    // Not cached — fetch entries from any available variant to get sentences.
     setState(() {
       _diaryLoading = true;
       _diaryContent = '';
     });
     try {
-      final content = await ApiService.getDiaryEntryByDate(_lessonDate!);
+      final firstVariant = _variants.keys.isNotEmpty
+          ? _variantToApiKey(_variants.keys.first)
+          : 'original';
+      final data = await ApiService.getLessonEntries(_lessonDate!, firstVariant);
+      final entries = (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final buf = StringBuffer();
+      for (var i = 0; i < entries.length; i++) {
+        final s = entries[i]['input_language_sentence'] as String? ?? '';
+        if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
+      }
+      final content = buf.toString().trim();
       if (content.isNotEmpty) {
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }
-      if (mounted) setState(() => _diaryContent = content);
+      if (mounted) setState(() => _diaryContent = content.isNotEmpty ? content : '(No diary entries found)');
     } catch (e) {
       if (mounted) {
         setState(() => _diaryContent =
@@ -452,6 +491,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     SyncManager.instance.removeListener(_onSyncChanged);
+    _positionSub?.cancel();
     _player.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -953,6 +993,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     setState(() {
                       _currentTab = tab;
                       _audioReady = false;
+                      // Clear entries when switching variants so stale content
+                      // from the previous tab is not shown.
+                      _sentenceEntries = [];
+                      _segments = [];
+                      _entrySpans = {};
+                      _expandedTranslations.clear();
+                      _sentenceKeys.clear();
                     });
                     if (tab == _kInputDiaryTab) {
                       _player.stop();
