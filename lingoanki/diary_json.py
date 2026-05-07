@@ -2,9 +2,9 @@
 diary_json.py — JSON schema, serialisation helpers, and SM-2 SRS algorithm
 for the LingoAnki diary database.
 
-Schema (schema_version 1.1.0):
+Schema (schema_version 1.2.0):
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "diaries": [
     {
       "date": "2026/01/21",          # YYYY/MM/DD
@@ -35,6 +35,8 @@ Schema (schema_version 1.1.0):
               "audio_timing": {"start_ms": 0, "end_ms": 0},
               "qa": [{
                 "question": "...", "answer": "...",
+                "question_input": "...",   # question translated to primary/input language
+                "answer_input": "...",     # answer translated to primary/input language
                 "question_audio_path": "TPRS/SEGMENTS/2026-01-21_original/0_q0.mp3",
                 "answer_audio_path":   "TPRS/SEGMENTS/2026-01-21_original/0_a0.mp3",
                 "question_timing": {"start_ms": 0, "end_ms": 0},
@@ -62,7 +64,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 VARIANTS = ("original", "enhanced", "present", "future")
 
 
@@ -86,6 +88,8 @@ class AudioTiming:
 class QA:
     question: str = ""
     answer: str = ""
+    question_input: str = ""  # question translated to primary/input language
+    answer_input: str = ""  # answer translated to primary/input language
     question_timing: AudioTiming = field(default_factory=AudioTiming)
     answer_timing: AudioTiming = field(default_factory=AudioTiming)
     question_audio_path: str = (
@@ -97,6 +101,8 @@ class QA:
         return {
             "question": self.question,
             "answer": self.answer,
+            "question_input": self.question_input,
+            "answer_input": self.answer_input,
             "question_timing": self.question_timing.to_dict(),
             "answer_timing": self.answer_timing.to_dict(),
             "question_audio_path": self.question_audio_path,
@@ -108,6 +114,8 @@ class QA:
         return cls(
             question=d.get("question", ""),
             answer=d.get("answer", ""),
+            question_input=d.get("question_input", ""),
+            answer_input=d.get("answer_input", ""),
             question_timing=AudioTiming.from_dict(d.get("question_timing", {})),
             answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
             question_audio_path=d.get("question_audio_path", ""),

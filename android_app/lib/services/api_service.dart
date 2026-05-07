@@ -229,4 +229,31 @@ class ApiService {
     }
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
+
+  /// Fetch sentences due for review (Anki-style).
+  static Future<List<Map<String, dynamic>>> getDueSentences({
+    int limit = 20,
+    String variant = 'original',
+  }) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final uri = Uri.parse('$base/api/sentences/due').replace(
+      queryParameters: {'limit': '$limit', 'variant': variant},
+    );
+    final resp = await http.get(uri, headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get due sentences');
+    }
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(data['sentences'] as List);
+  }
+
+  /// Trigger Q&A translation backfill (background job on server).
+  static Future<void> triggerQaTranslationBackfill() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    await http
+        .post(Uri.parse('$base/api/backfill/qa_translations'), headers: headers)
+        .timeout(_timeout);
+  }
 }

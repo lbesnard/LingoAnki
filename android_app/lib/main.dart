@@ -7,6 +7,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
+import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'services/auth_service.dart';
@@ -97,6 +98,7 @@ class _MainShellState extends State<MainShell> {
 
   final List<Widget> _screens = const [
     HomeScreen(),
+    SentencesScreen(),
     LessonsScreen(),
     DiaryScreen(),
   ];
@@ -197,6 +199,9 @@ class _MainShellState extends State<MainShell> {
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.home_outlined),
                       label: 'Home'),
+                  BottomNavigationBarItem(
+                      icon: const Icon(Icons.quiz_outlined),
+                      label: 'Review'),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
                       label: AppLocalizations.of(context).navLessons),

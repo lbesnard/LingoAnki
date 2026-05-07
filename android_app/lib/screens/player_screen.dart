@@ -604,6 +604,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final qaPair = e.value;
                   final question = qaPair['question'] as String? ?? '';
                   final answer = qaPair['answer'] as String? ?? '';
+                  final questionInput = qaPair['question_input'] as String? ?? '';
+                  final answerInput = qaPair['answer_input'] as String? ?? '';
                   final isQActive =
                       isEntryActive && _activeQaIndex == j && _activeIsQuestion;
                   final isAActive =
@@ -625,6 +627,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             fontSize: _fontSize,
                           ),
                         ),
+                        if (isExpanded && questionInput.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, bottom: 1),
+                            child: Text(
+                              questionInput,
+                              style: TextStyle(
+                                fontSize: _fontSize - 2,
+                                color: Colors.grey.shade500,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
                         Padding(
                           padding: const EdgeInsets.only(left: 12),
                           child: Text(
@@ -640,6 +654,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ),
                           ),
                         ),
+                        if (isExpanded && answerInput.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 16, bottom: 1),
+                            child: Text(
+                              answerInput,
+                              style: TextStyle(
+                                fontSize: _fontSize - 2,
+                                color: Colors.grey.shade500,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   );

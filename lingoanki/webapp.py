@@ -1019,10 +1019,45 @@ def api_generate():
             )
         except Exception as exc:
             app.logger.warning(f"diary.json auto-update failed: {exc}")
+        # Backfill any missing Q&A translations
+        try:
+            from lingoanki.diary import TprsCreation
+
+            tprs = TprsCreation(config_path=config_path)
+            json_path = os.path.join(output_folder, "diary.json")
+            tprs.backfill_qa_translations(json_path)
+            tprs.stop()
+        except Exception as exc:
+            app.logger.warning(f"Q&A translation backfill failed: {exc}")
 
     t = Thread(target=_run, daemon=True)
     t.start()
     return jsonify({"ok": True, "message": "Generation started"})
+
+
+@app.route("/api/backfill/qa_translations", methods=["POST"])
+@_jwt_required
+def api_backfill_qa_translations():
+    """Background job: translate all Q&A pairs to the primary language."""
+    from flask import g as _g
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    def _run():
+        try:
+            from lingoanki.diary import TprsCreation
+
+            tprs = TprsCreation(config_path=config_path)
+            json_path = os.path.join(output_folder, "diary.json")
+            tprs.backfill_qa_translations(json_path)
+            tprs.stop()
+        except Exception as exc:
+            app.logger.error(f"Q&A translation backfill error: {exc}")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
 
 
 @app.route("/api/generate/status", methods=["GET"])
@@ -1355,8 +1390,50 @@ def api_migrate():
     return jsonify({"ok": True, "message": "Migration started"})
 
 
+@app.route("/api/sentences/due", methods=["GET"])
 @_jwt_required
-def api_get_diary_by_date(date_str):
+def api_sentences_due():
+    """Return due (or new) sentences for Anki-style review.
+
+    Query params:
+      limit  (int, default 20)  — max sentences to return
+      variant (str, default "original") — which variant lesson to pull sentence/qa from
+    """
+    from flask import g as _g
+    from lingoanki.diary_json import load_diary_json, get_due_entries
+
+    limit = int(request.args.get("limit", 20))
+    variant = request.args.get("variant", "original")
+
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    due_pairs = get_due_entries(diary)[:limit]
+    sentences = []
+    for day, entry in due_pairs:
+        vl = getattr(entry.lessons, variant, None)
+        if vl is None:
+            continue
+        sentences.append(
+            {
+                "date": day.date,
+                "title": day.title,
+                "entry_index": entry.index,
+                "variant": variant,
+                "input_language_sentence": entry.input_language_sentence,
+                "output_language_translation": entry.output_language_translation,
+                "tips": entry.tips,
+                "sentence": vl.sentence,
+                "sentence_audio_path": vl.sentence_audio_path,
+                "audio_timing": vl.audio_timing.to_dict(),
+                "qa": [qa.to_dict() for qa in vl.qa],
+                "reviewing": entry.lessons.reviewing.to_dict(),
+            }
+        )
+    return jsonify({"sentences": sentences, "total": len(sentences)})
+
     """Return the diary section for a specific date.
 
     date_str format: YYYY-MM-DD (as embedded in lesson base names).
