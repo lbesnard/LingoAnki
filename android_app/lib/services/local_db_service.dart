@@ -174,6 +174,71 @@ class LocalDbService {
         where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Returns review statistics for the stats/streak screen.
+  static Future<Map<String, dynamic>> getReviewStats() async {
+    final database = await db;
+
+    // Total reviews
+    final totalResult =
+        await database.rawQuery('SELECT COUNT(*) as c FROM srs_scores');
+    final total = (totalResult.first['c'] as int?) ?? 0;
+
+    // Today's reviews (using local time)
+    final todayResult = await database.rawQuery(
+      "SELECT COUNT(*) as c FROM srs_scores "
+      "WHERE date(scored_at, 'localtime') = date('now', 'localtime')",
+    );
+    final todayCount = (todayResult.first['c'] as int?) ?? 0;
+
+    // Score distribution
+    final distResult = await database.rawQuery(
+      'SELECT score, COUNT(*) as c FROM srs_scores GROUP BY score ORDER BY score',
+    );
+    final distribution = <int, int>{};
+    for (final row in distResult) {
+      distribution[(row['score'] as int?) ?? 0] = (row['c'] as int?) ?? 0;
+    }
+
+    // Streak: fetch all distinct review days, ordered descending
+    final daysResult = await database.rawQuery(
+      "SELECT DISTINCT date(scored_at, 'localtime') as d "
+      'FROM srs_scores ORDER BY d DESC',
+    );
+    final days = daysResult.map((r) => r['d'] as String).toList();
+
+    int streak = 0;
+    if (days.isNotEmpty) {
+      final today = DateTime.now();
+      final todayStr =
+          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final yesterdayDt = today.subtract(const Duration(days: 1));
+      final yesterdayStr =
+          '${yesterdayDt.year}-${yesterdayDt.month.toString().padLeft(2, '0')}-${yesterdayDt.day.toString().padLeft(2, '0')}';
+
+      // Streak starts only if reviewed today or yesterday
+      if (days.first == todayStr || days.first == yesterdayStr) {
+        DateTime cursor = days.first == todayStr ? today : yesterdayDt;
+        for (final d in days) {
+          final curStr =
+              '${cursor.year}-${cursor.month.toString().padLeft(2, '0')}-${cursor.day.toString().padLeft(2, '0')}';
+          if (d == curStr) {
+            streak++;
+            cursor = cursor.subtract(const Duration(days: 1));
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    return {
+      'total': total,
+      'today': todayCount,
+      'streak': streak,
+      'distribution': distribution,
+    };
+  }
+
   /// Deletes all rows from all cache tables.
   static Future<void> clearAll() async {
     final database = await db;

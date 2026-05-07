@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_service.dart';
+import 'stats_screen.dart';
 
 /// Anki-style sentence review screen.
 ///
@@ -34,6 +35,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
   bool _showQA = false;
   bool _scoring = false;
   bool _offlineMode = false;
+  bool _playingAllQa = false;
+  bool _syncing = false;
 
   static const _cacheKey = 'sentences_due_cache';
 
@@ -218,9 +221,91 @@ class _SentencesScreenState extends State<SentencesScreen> {
     }
   }
 
+  /// Play all Q&A audio clips for the current sentence in sequence.
+  /// Calling again while playing stops playback.
+  Future<void> _playAllQa(List<Map<String, dynamic>> qa) async {
+    if (_playingAllQa) {
+      setState(() => _playingAllQa = false);
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      return;
+    }
+    setState(() => _playingAllQa = true);
+    if (_audioPlaying) await _player.stop();
+
+    for (var i = 0; i < qa.length; i++) {
+      for (final type in ['q', 'a']) {
+        if (!_playingAllQa || !mounted) return;
+        final path = type == 'q'
+            ? qa[i]['question_audio_path'] as String? ?? ''
+            : qa[i]['answer_audio_path'] as String? ?? '';
+        if (path.isEmpty) continue;
+
+        final localFile = await SyncService.localPath(path);
+        if (!File(localFile).existsSync()) {
+          final ok = await SyncService.downloadFile(path);
+          if (!ok || !mounted) continue;
+        }
+
+        if (!_playingAllQa || !mounted) return;
+        final key = '${i}_$type';
+        setState(() { _activeQaKey = key; _qaPlaying = true; });
+        await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+        await _qaPlayer.seek(Duration.zero);
+        _qaPlayer.play();
+
+        // Wait for this clip to complete before playing the next one.
+        await _qaPlayer.playerStateStream.firstWhere(
+          (s) =>
+              s.processingState == ProcessingState.completed ||
+              s.processingState == ProcessingState.idle ||
+              (!s.playing && s.processingState != ProcessingState.buffering),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() { _playingAllQa = false; _qaPlaying = false; _activeQaKey = null; });
+    }
+  }
+
+  /// Downloads all audio files for the current sentence (sentence + Q&A).
+  Future<void> _syncCurrentLessonAudio() async {
+    if (_sentences.isEmpty || _syncing) return;
+    final item = _sentences[_currentIndex];
+    final paths = <String>[];
+
+    final sentAudio = item['sentence_audio_path'] as String? ?? '';
+    if (sentAudio.isNotEmpty) paths.add(sentAudio);
+
+    final qa = (item['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    for (final pair in qa) {
+      final q = pair['question_audio_path'] as String? ?? '';
+      final a = pair['answer_audio_path'] as String? ?? '';
+      if (q.isNotEmpty) paths.add(q);
+      if (a.isNotEmpty) paths.add(a);
+    }
+
+    setState(() => _syncing = true);
+    for (final p in paths) {
+      await SyncService.downloadFile(p);
+    }
+    if (mounted) {
+      setState(() => _syncing = false);
+      _loadAudio();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Audio synced'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _next() {
     _player.stop();
     _qaPlayer.stop();
+    setState(() => _playingAllQa = false);
     if (_currentIndex < _sentences.length - 1) {
       setState(() {
         _currentIndex++;
@@ -362,6 +447,30 @@ class _SentencesScreenState extends State<SentencesScreen> {
       appBar: AppBar(
         title: const Text('Sentence Review'),
         actions: [
+          // Sync current sentence audio
+          _syncing
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  tooltip: 'Sync audio for this sentence',
+                  icon: const Icon(Icons.download_outlined),
+                  onPressed: _syncCurrentLessonAudio,
+                ),
+          // Stats
+          IconButton(
+            tooltip: 'Stats & Streak',
+            icon: const Icon(Icons.bar_chart_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StatsScreen()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -559,35 +668,74 @@ class _SentencesScreenState extends State<SentencesScreen> {
                     ),
                   ),
 
-                  // Reveal translation button
-                  if (!_showTranslation)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () =>
-                              setState(() => _showTranslation = true),
-                          icon: const Icon(Icons.visibility_outlined, size: 16),
-                          label: const Text('Show translation'),
+                  // Reveal / hide translation button
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            setState(() => _showTranslation = !_showTranslation),
+                        icon: Icon(
+                          _showTranslation
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 16,
                         ),
+                        label: Text(_showTranslation
+                            ? 'Hide translation'
+                            : 'Show translation'),
                       ),
                     ),
+                  ),
 
                   const SizedBox(height: 12),
 
                   // Q&A section
                   if (qa.isNotEmpty) ...[
-                    if (!_showQA)
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () => setState(() => _showQA = true),
-                          icon: const Icon(Icons.quiz_outlined, size: 16),
-                          label: Text('Show Q&A (${qa.length} pairs)'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => setState(() => _showQA = !_showQA),
+                            icon: Icon(
+                              _showQA
+                                  ? Icons.expand_less
+                                  : Icons.quiz_outlined,
+                              size: 16,
+                            ),
+                            label: Text(_showQA
+                                ? 'Hide Q&A'
+                                : 'Show Q&A (${qa.length} pairs)'),
+                          ),
                         ),
-                      )
-                    else
+                        if (_showQA) ...[
+                          const SizedBox(width: 8),
+                          // Play all Q&A in sequence
+                          OutlinedButton.icon(
+                            onPressed: () => _playAllQa(qa),
+                            icon: Icon(
+                              _playingAllQa
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.play_circle_outline,
+                              size: 16,
+                              color: _playingAllQa
+                                  ? Colors.red
+                                  : Theme.of(context).colorScheme.primary,
+                            ),
+                            label: Text(
+                              _playingAllQa ? 'Stop' : 'Play all',
+                              style: TextStyle(
+                                color: _playingAllQa
+                                    ? Colors.red
+                                    : Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_showQA)
                       Card(
                         color: Colors.grey.shade50,
                         child: Padding(
