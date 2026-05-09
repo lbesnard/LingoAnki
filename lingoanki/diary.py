@@ -2277,7 +2277,15 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
             ],
             response_format={"type": "json_object"},
         )
-        raw = _json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        if not content:
+            finish_reason = response.choices[0].finish_reason
+            logger.warning(
+                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
+                f"Skipping batch."
+            )
+            return []
+        raw = _json.loads(content)
         try:
             return [raw[str(i + 1)] for i in range(len(qa_items))]
         except (KeyError, TypeError) as exc:
