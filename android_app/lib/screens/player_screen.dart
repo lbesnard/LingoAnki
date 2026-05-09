@@ -1125,7 +1125,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       IconButton(
                         tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
                         icon: Icon(
-                          Icons.repeat_one,
+                          _loopBlock ? Icons.repeat_one : Icons.repeat,
                           color: _loopBlock
                               ? Theme.of(context).colorScheme.primary
                               : null,
