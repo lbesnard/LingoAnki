@@ -1077,15 +1077,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       StreamBuilder<PlayerState>(
                         stream: _player.playerStateStream,
                         builder: (_, snap) {
-                          final playing = snap.data?.playing ?? false;
+                          final state = snap.data;
+                          final playing = state?.playing ?? false;
+                          final completed = state?.processingState ==
+                              ProcessingState.completed;
                           return IconButton(
                             iconSize: 48,
-                            icon: Icon(playing
-                                ? Icons.pause_circle
-                                : Icons.play_circle),
+                            icon: Icon(completed
+                                ? Icons.replay_circle_filled
+                                : playing
+                                    ? Icons.pause_circle
+                                    : Icons.play_circle),
                             onPressed: _audioReady
-                                ? () =>
-                                    playing ? _player.pause() : _player.play()
+                                ? () async {
+                                    if (completed) {
+                                      await _player.seek(Duration.zero);
+                                      await _player.play();
+                                    } else if (playing) {
+                                      await _player.pause();
+                                    } else {
+                                      await _player.play();
+                                    }
+                                  }
                                 : null,
                           );
                         },
