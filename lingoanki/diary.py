@@ -2244,17 +2244,30 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
     model = config["openai"]["model"]
 
     def _translate_batch(qa_items):
+        """Translate a list of Q&A pairs and return them as a list in the same order.
+
+        Uses numbered-dict output format ({"1": {...}, "2": {...}}) to match the
+        existing OpenAI prompt conventions in this codebase — avoids the fragile
+        array-unwrapping that caused non-deterministic failures with json_object mode.
+        """
+        numbered_input = {str(i + 1): item for i, item in enumerate(qa_items)}
         prompt = (
             f"You are a translator. Translate each Q&A pair from {study} into {primary}.\n\n"
-            f'Input JSON has items with "question" and "answer" fields in {study}.\n'
-            f"Return a JSON array with the same number of items, each having:\n"
+            f"Input is a JSON object where each key is a number and each value has "
+            f'"question" and "answer" fields in {study}.\n\n'
+            f"Return a JSON object with the same numbered keys, each value having:\n"
             f'- "question_input": the question translated into {primary}\n'
             f'- "answer_input": the answer translated into {primary}\n\n'
             f"Rules:\n"
             f"- Preserve meaning exactly; do not add or remove content.\n"
             f"- Keep the same natural, spoken tone as the original.\n"
-            f"- Return ONLY a valid JSON array, no extra text.\n\n"
-            f"Input:\n{_json.dumps(qa_items, ensure_ascii=False)}"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": {{"question": "Hvem var der?", "answer": "Vi var der."}}, '
+            f'"2": {{"question": "Hva skjedde?", "answer": "Vi spiste middag."}}}}\n'
+            f'Output: {{"1": {{"question_input": "Who was there?", "answer_input": "We were there."}}, '
+            f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
+            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
         )
         response = client.chat.completions.create(
             model=model,
@@ -2265,24 +2278,30 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
             response_format={"type": "json_object"},
         )
         raw = _json.loads(response.choices[0].message.content)
-        if isinstance(raw, list):
-            return raw
-        for v in raw.values():
-            if isinstance(v, list):
-                return v
-        return []
+        try:
+            return [raw[str(i + 1)] for i in range(len(qa_items))]
+        except (KeyError, TypeError) as exc:
+            logger.warning(
+                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
+            )
+            return []
 
     logger.info(f"Starting Q&A translation backfill for {json_path}")
     db = load_diary_json(json_path)
     changed = False
+    total_translated = 0
 
     for day in db.diaries:
         day_changed = False
+        day_translated = 0
         for entry in day.entries:
             for variant_name in ("original", "enhanced", "present", "future"):
                 vl = getattr(entry.lessons, variant_name, None)
-                if vl is None:
+                if vl is None or not vl.qa:
                     continue
+                already_done = sum(
+                    1 for qa in vl.qa if qa.question_input and qa.answer_input
+                )
                 missing_indices = [
                     j
                     for j, qa in enumerate(vl.qa)
@@ -2290,35 +2309,47 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
                 ]
                 if not missing_indices:
                     continue
+                logger.info(
+                    f"  [{day.date}] entry {entry.index} {variant_name}: "
+                    f"{len(missing_indices)} missing, {already_done} already translated"
+                )
                 qa_items = [
                     {"question": vl.qa[j].question, "answer": vl.qa[j].answer}
                     for j in missing_indices
                 ]
                 try:
                     translations = _translate_batch(qa_items)
+                    written = 0
                     for k, j in enumerate(missing_indices):
                         if k < len(translations):
-                            vl.qa[j].question_input = translations[k].get(
-                                "question_input", ""
-                            )
-                            vl.qa[j].answer_input = translations[k].get(
-                                "answer_input", ""
-                            )
+                            t = translations[k]
+                            vl.qa[j].question_input = t.get("question_input", "")
+                            vl.qa[j].answer_input = t.get("answer_input", "")
+                            if t.get("question_input") and t.get("answer_input"):
+                                written += 1
+                    logger.info(
+                        f"    → wrote {written}/{len(missing_indices)} translations"
+                    )
+                    day_translated += written
                     day_changed = True
                 except Exception as exc:
                     logger.warning(
-                        f"Q&A translation failed for {day.date} {variant_name}: {exc}"
+                        f"  Q&A translation failed for {day.date} entry {entry.index} "
+                        f"{variant_name}: {exc}"
                     )
 
         if day_changed:
             save_diary_json(db, json_path)
             changed = True
-            logger.info(f"  Saved translations for {day.date}")
+            total_translated += day_translated
+            logger.info(f"  Saved {day_translated} new translations for {day.date}")
 
     if not changed:
         logger.info("Q&A translation backfill: nothing to update.")
     else:
-        logger.info("Q&A translation backfill complete.")
+        logger.info(
+            f"Q&A translation backfill complete — {total_translated} pairs translated."
+        )
 
 
 class TprsCreation(DiaryHandler):
