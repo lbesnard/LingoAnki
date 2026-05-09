@@ -94,6 +94,32 @@ class LocalDbService {
         where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Returns all unsynced diary entries as structured {id, date, sentences} maps.
+  /// Content format expected: "[YYYY-MM-DD]\n- sentence1\n- sentence2"
+  static Future<List<Map<String, dynamic>>> getUnsyncedDiaryEntries() async {
+    final database = await db;
+    final rows =
+        await database.query('diary_cache', where: 'synced = 0', orderBy: 'id ASC');
+    final result = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final content = row['content'] as String? ?? '';
+      // Extract date from "[YYYY-MM-DD]" header line.
+      final dateMatch = RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(content);
+      if (dateMatch == null) continue;
+      final date = dateMatch.group(1)!;
+      // Extract sentences from "- sentence" lines.
+      final sentences = content
+          .split('\n')
+          .where((l) => l.startsWith('- '))
+          .map((l) => l.substring(2).trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (sentences.isEmpty) continue;
+      result.add({'id': row['id'] as int, 'date': date, 'sentences': sentences});
+    }
+    return result;
+  }
+
   // ---- Lessons ----
 
   static Future<void> saveLessons(List<Map<String, dynamic>> lessons) async {

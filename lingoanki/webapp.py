@@ -618,7 +618,8 @@ def save_diary_entry():
     user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
     diary_instance = DiaryHandler(config_path=user_config_path)
     org_diary_dict = diary_instance.markdown_diary_to_dict()  # to init some variables
-    updated_diary_dict = user_input_diary_dict | org_diary_dict  # keep the org values
+    # org on left so the new user entry (right) wins for the selected date key
+    updated_diary_dict = org_diary_dict | user_input_diary_dict
     diary_instance.write_diary(updated_diary_dict)
     diary_instance.stop()
 
@@ -1681,7 +1682,8 @@ def api_add_diary_entry():
 
     diary_instance = DiaryHandler(config_path=_g.api_config_path)
     org_diary_dict = diary_instance.markdown_diary_to_dict()
-    updated_diary_dict = user_input_diary_dict | org_diary_dict
+    # org on left so the new entry (right) wins for the submitted date key
+    updated_diary_dict = org_diary_dict | user_input_diary_dict
     diary_instance.write_diary(updated_diary_dict)
     diary_instance.stop()
 

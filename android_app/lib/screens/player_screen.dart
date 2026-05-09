@@ -804,13 +804,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         );
       }
-    }).catchError((_) {
+    }).catchError((e) {
       // Score already saved locally; will sync via _syncPendingScores().
       if (mounted) {
+        final isOffline = e is SocketException || e is TimeoutException;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Score saved (will sync when online)'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(isOffline
+                ? 'Score saved (will sync when online)'
+                : 'Score saved locally — sync error: $e'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
