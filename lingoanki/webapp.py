@@ -40,7 +40,7 @@ from platformdirs import user_config_dir
 from lingoanki.diary import (
     APP_NAME,
     DiaryHandler,
-    TprsCreation,
+    _backfill_qa_translations,
     main as main_diary_tprs,
 )
 
@@ -424,6 +424,97 @@ def generate_lessons():
     return render_template(
         "diary_generate_lessons.html", tab="generate_lessons", files=files
     )
+
+
+@app.route("/backfill/qa_translations", methods=["POST"])
+@login_required
+def web_backfill_qa_translations():
+    """Web UI: background-thread Q&A translation backfill (session auth)."""
+    import yaml
+
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+            app.logger.info("Q&A translation backfill complete.")
+        except Exception as exc:
+            app.logger.error(f"Q&A translation backfill error: {exc}")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+
+
+@app.route("/backfill/audio_timing", methods=["POST"])
+@login_required
+def web_backfill_audio_timing():
+    """Web UI: background-thread audio segment backfill (session auth)."""
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+            app.logger.info("Audio timing backfill complete.")
+        except Exception as exc:
+            app.logger.error(f"Audio timing backfill error: {exc}")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Audio timing backfill started"})
+
+
+@app.route("/backfill/all", methods=["POST"])
+@login_required
+def web_backfill_all():
+    """Web UI: background-thread full backfill — diary.json sync + Q&A + audio (session auth)."""
+    import yaml
+
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
+
+            migrate_to_json(
+                config_path=config_path,
+                output_json_path=json_path,
+                overwrite=True,
+            )
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
+
+        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+
+        app.logger.info("Backfill all: complete")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Full backfill started"})
 
 
 @app.route("/stream_logs")
@@ -996,6 +1087,7 @@ def api_save_diary():
 @_jwt_required
 def api_generate():
     from flask import g as _g
+    import yaml
 
     config_path = _g.api_config_path
     output_folder = _g.api_output_folder
@@ -1006,12 +1098,12 @@ def api_generate():
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
         # Auto-update diary.json after generation
+        json_path = os.path.join(output_folder, "diary.json")
         try:
             from lingoanki.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
-            json_path = os.path.join(output_folder, "diary.json")
             migrate_to_json(
                 config_path=config_path,
                 output_json_path=json_path,
@@ -1019,14 +1111,11 @@ def api_generate():
             )
         except Exception as exc:
             app.logger.warning(f"diary.json auto-update failed: {exc}")
-        # Backfill any missing Q&A translations
+        # Backfill any missing Q&A translations (safe standalone function — no markdown side effects)
         try:
-            from lingoanki.diary import TprsCreation
-
-            tprs = TprsCreation(config_path=config_path)
-            json_path = os.path.join(output_folder, "diary.json")
-            tprs.backfill_qa_translations(json_path)
-            tprs.stop()
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
 
@@ -1038,7 +1127,35 @@ def api_generate():
 @app.route("/api/backfill/qa_translations", methods=["POST"])
 @_jwt_required
 def api_backfill_qa_translations():
-    """Background job: translate all Q&A pairs to the primary language."""
+    """Background job: translate all missing Q&A pairs to the primary language.
+
+    Uses the safe standalone _backfill_qa_translations() — does NOT instantiate
+    TprsCreation, so no markdown files are created or overwritten as side effects.
+    """
+    from flask import g as _g
+    import yaml
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    def _run():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            json_path = os.path.join(output_folder, "diary.json")
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.error(f"Q&A translation backfill error: {exc}")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+
+
+@app.route("/api/backfill/audio_timing", methods=["POST"])
+@_jwt_required
+def api_backfill_audio_timing():
+    """Background job: generate per-sentence audio segments and write timings to diary.json."""
     from flask import g as _g
 
     config_path = _g.api_config_path
@@ -1046,18 +1163,77 @@ def api_backfill_qa_translations():
 
     def _run():
         try:
-            from lingoanki.diary import TprsCreation
+            from lingoanki.audio_timing import backfill_audio_timings
 
-            tprs = TprsCreation(config_path=config_path)
             json_path = os.path.join(output_folder, "diary.json")
-            tprs.backfill_qa_translations(json_path)
-            tprs.stop()
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
-            app.logger.error(f"Q&A translation backfill error: {exc}")
+            app.logger.error(f"Audio timing backfill error: {exc}")
 
     t = Thread(target=_run, daemon=True)
     t.start()
-    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+    return jsonify({"ok": True, "message": "Audio timing backfill started"})
+
+
+@app.route("/api/backfill/all", methods=["POST"])
+@_jwt_required
+def api_backfill_all():
+    """Background job: fill in everything missing — diary.json sync, Q&A translations, audio segments.
+
+    Runs in sequence:
+      1. migrate_to_json  (sync diary.json with current markdown)
+      2. _backfill_qa_translations  (translate missing Q&A pairs)
+      3. backfill_audio_timings  (generate missing segment MP3s + timing data)
+    """
+    from flask import g as _g
+    import yaml
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    def _run():
+        json_path = os.path.join(output_folder, "diary.json")
+
+        app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
+
+            migrate_to_json(
+                config_path=config_path,
+                output_json_path=json_path,
+                overwrite=True,
+            )
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
+
+        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+
+        app.logger.info("Backfill all: complete")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Full backfill started (Q&A translations + audio segments)",
+        }
+    )
 
 
 @app.route("/api/generate/status", methods=["GET"])
