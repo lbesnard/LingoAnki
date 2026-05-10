@@ -625,7 +625,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               fontStyle: FontStyle.italic,
                             ),
                           ),
-                        if (outputTranslation.isNotEmpty &&
+                        // For non-original variants (enhanced/future/present),
+                        // output_language_translation is the *original* sentence —
+                        // not a translation of the variant — so don't show it.
+                        if (_currentTab == 'original' &&
+                            outputTranslation.isNotEmpty &&
                             outputTranslation != sentence)
                           Text(
                             outputTranslation,
