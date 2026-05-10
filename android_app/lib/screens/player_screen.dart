@@ -226,6 +226,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             as Map<String, dynamic>? ?? {};
         return <String, dynamic>{
           'sentence': lesson['sentence'] ?? '',
+          'sentence_input': lesson['sentence_input'] ?? '',
           'input_language_sentence': em['input_language_sentence'] ?? '',
           'output_language_translation': em['output_language_translation'] ?? '',
           'audio_timing': lesson['audio_timing'],
@@ -541,8 +542,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final isExpanded = _expandedTranslations.contains(i);
           final isScored = i == _scoredSentenceIndex;
           final sentence = entry['sentence'] as String? ?? '';
+          final sentenceInput = entry['sentence_input'] as String? ?? '';
           final inputSentence =
               entry['input_language_sentence'] as String? ?? '';
+          // For non-original variants, prefer sentence_input (variant's own
+          // English translation); fall back to inputSentence (original English).
+          final displayInput = (_currentTab != 'original' && sentenceInput.isNotEmpty)
+              ? sentenceInput
+              : inputSentence;
           final outputTranslation =
               entry['output_language_translation'] as String? ?? '';
           final qa =
@@ -609,16 +616,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                 // Translation (hidden until tapped)
                 if (isExpanded &&
-                    (inputSentence.isNotEmpty ||
+                    (displayInput.isNotEmpty ||
                         outputTranslation.isNotEmpty))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (inputSentence.isNotEmpty)
+                        if (displayInput.isNotEmpty)
                           Text(
-                            inputSentence,
+                            displayInput,
                             style: TextStyle(
                               fontSize: _fontSize - 1,
                               color: Colors.grey.shade700,

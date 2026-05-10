@@ -1507,6 +1507,7 @@ def api_lesson_entries(date, variant):
                 "input_language_sentence": entry.input_language_sentence,
                 "output_language_translation": entry.output_language_translation,
                 "sentence": v_obj.sentence,
+                "sentence_input": v_obj.sentence_input,
                 "audio_timing": v_obj.audio_timing.to_dict(),
                 "qa": [q.to_dict() for q in v_obj.qa],
                 "reviewing": entry.lessons.reviewing.to_dict(),

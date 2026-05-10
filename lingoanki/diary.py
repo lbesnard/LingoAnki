@@ -2360,6 +2360,126 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
         )
 
 
+def _backfill_variant_sentence_inputs(
+    config: dict, json_path: str, logger=None
+) -> None:
+    """Standalone backfill — translates each variant sentence into the primary language.
+
+    Fills ``sentence_input`` on every ``VariantLesson`` where it is empty.
+    Skips the ``original`` variant because for that variant ``sentence_input``
+    is the same as the entry-level ``input_language_sentence`` (already stored).
+
+    Safe to call multiple times — already-filled fields are skipped.
+    Saves diary.json after each day that was changed.
+    """
+    import json as _json
+    from openai import OpenAI
+    from lingoanki.diary_json import load_diary_json, save_diary_json
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    primary = config["languages"]["primary_language"]
+    study = config["languages"]["study_language"]
+    client = OpenAI(api_key=config["openai"]["key"])
+    model = config["openai"]["model"]
+
+    def _translate_sentences(sentences: list[str]) -> list[str]:
+        """Translate a list of study-language sentences into the primary language."""
+        numbered_input = {str(i + 1): s for i, s in enumerate(sentences)}
+        prompt = (
+            f"You are a translator. Translate each sentence from {study} into {primary}.\n\n"
+            f"Input is a JSON object where each key is a number and each value is a sentence in {study}.\n\n"
+            f"Return a JSON object with the same numbered keys, each value being the translated sentence in {primary}.\n\n"
+            f"Rules:\n"
+            f"- Preserve meaning exactly; do not add or remove content.\n"
+            f"- Keep the same natural, spoken tone as the original.\n"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": "Jeg dro til stranden i morges.", "2": "Vi spiste middag klokka åtte."}}\n'
+            f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
+            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a helpful translator."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            finish_reason = response.choices[0].finish_reason
+            logger.warning(
+                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
+                f"Skipping batch."
+            )
+            return [""] * len(sentences)
+        raw = _json.loads(content)
+        try:
+            return [raw.get(str(i + 1), "") for i in range(len(sentences))]
+        except (KeyError, TypeError) as exc:
+            logger.warning(
+                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
+            )
+            return [""] * len(sentences)
+
+    logger.info(f"Starting variant sentence_input backfill for {json_path}")
+    db = load_diary_json(json_path)
+    changed = False
+    total_translated = 0
+    # original variant is skipped: its sentence == output_language_translation,
+    # so sentence_input == input_language_sentence (already on the entry level).
+    target_variants = ("enhanced", "present", "future")
+
+    for day in db.diaries:
+        day_changed = False
+        day_translated = 0
+        for entry in day.entries:
+            for variant_name in target_variants:
+                vl = getattr(entry.lessons, variant_name, None)
+                if vl is None or not vl.sentence:
+                    continue
+                if vl.sentence_input:
+                    continue  # already done
+                logger.info(
+                    f"  [{day.date}] entry {entry.index} {variant_name}: translating sentence"
+                )
+                try:
+                    results = _translate_sentences([vl.sentence])
+                    translation = results[0] if results else ""
+                    if translation:
+                        vl.sentence_input = translation
+                        day_translated += 1
+                        day_changed = True
+                        logger.info(f"    → '{translation[:60]}…'")
+                    else:
+                        logger.warning(
+                            f"  Empty translation for {day.date} entry {entry.index} {variant_name}"
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        f"  sentence_input translation failed for {day.date} entry "
+                        f"{entry.index} {variant_name}: {exc}"
+                    )
+
+        if day_changed:
+            save_diary_json(db, json_path)
+            changed = True
+            total_translated += day_translated
+            logger.info(
+                f"  Saved {day_translated} new sentence_input translations for {day.date}"
+            )
+
+    if not changed:
+        logger.info("sentence_input backfill: nothing to update.")
+    else:
+        logger.info(
+            f"sentence_input backfill complete — {total_translated} sentences translated."
+        )
+
+
 class TprsCreation(DiaryHandler):
     def __init__(self, config_path=None):
         """Initializes the TprsCreation class, inheriting from DiaryHandler.

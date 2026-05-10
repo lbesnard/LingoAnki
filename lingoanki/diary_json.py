@@ -126,6 +126,7 @@ class QA:
 @dataclass
 class VariantLesson:
     sentence: str = ""
+    sentence_input: str = ""  # primary-language translation of this variant sentence
     audio_timing: AudioTiming = field(default_factory=AudioTiming)
     qa: list[QA] = field(default_factory=list)
     sentence_audio_path: str = (
@@ -135,6 +136,7 @@ class VariantLesson:
     def to_dict(self) -> dict:
         return {
             "sentence": self.sentence,
+            "sentence_input": self.sentence_input,
             "audio_timing": self.audio_timing.to_dict(),
             "qa": [q.to_dict() for q in self.qa],
             "sentence_audio_path": self.sentence_audio_path,
@@ -144,6 +146,7 @@ class VariantLesson:
     def from_dict(cls, d: dict) -> "VariantLesson":
         return cls(
             sentence=d.get("sentence", ""),
+            sentence_input=d.get("sentence_input", ""),
             audio_timing=AudioTiming.from_dict(d.get("audio_timing", {})),
             qa=[QA.from_dict(q) for q in d.get("qa", [])],
             sentence_audio_path=d.get("sentence_audio_path", ""),
