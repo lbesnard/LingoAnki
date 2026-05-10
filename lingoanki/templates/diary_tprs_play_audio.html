@@ -11,10 +11,10 @@ content %}
   bottom: 0;
   left: 0;
   right: 0;
-  background: white; /* background on container */
+  background: white;
   box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.2);
   padding: 0.5rem 0;
-  z-index: 1000; /* ensure it’s above everything else */
+  z-index: 1000;
 }
 
 .audio-player {
@@ -39,69 +39,42 @@ content %}
 
   <label for="variant_select" style="flex: 1 1 100%;">{{ _('choose version') }}:</label>
   <select id="variant_select" name="variant" style="flex: 1 1 250px;">
-  <option value="Original" {% if selected_variant|lower == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
-  <option value="Enhanced" {% if selected_variant|lower == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
-  <option value="Present" {% if selected_variant|lower == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
-  <option value="Future" {% if selected_variant|lower == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
-
-</select>
-
+    <option value="original" {% if variant == 'original' %}selected{% endif %}>{{ _('Original') }}</option>
+    <option value="enhanced" {% if variant == 'enhanced' %}selected{% endif %}>{{ _('Enhanced') }}</option>
+    <option value="present" {% if variant == 'present' %}selected{% endif %}>{{ _('Present') }}</option>
+    <option value="future" {% if variant == 'future' %}selected{% endif %}>{{ _('Future') }}</option>
+  </select>
 </form>
 
 <script>
-  document.getElementById("variant_select").addEventListener("change", function () {
-    document.getElementById("audioform").requestSubmit();
-  });
-    document.getElementById("base_select").addEventListener("change", function () {
-    document.getElementById("audioform").requestSubmit();
-  });
-</script>
+  const _username = {{ username | tojson }};
 
-<script>
-document.getElementById("audioform").addEventListener("submit", function(event) {
-  event.preventDefault();
-  const base = document.getElementById("base_select").value;
-  const variant = document.getElementById("variant_select").value;
-
-  let filename = base;
-
-  // Add suffix only for these three variants exactly
-  if (variant === "Enhanced") {
-    filename += "_enhanced";
-  } else if (variant === "Present") {
-    filename += "_present";
-  } else if (variant === "Future") {
-    filename += "_future";
+  function _extractDate(base) {
+    const m = base.match(/(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
   }
-  // For "Original", no suffix
-  filename += ".mp3";
 
-  window.location.href = "/view_markdown/" + encodeURIComponent(filename);
-});
-</script>
+  function _navigateToLesson() {
+    const base = document.getElementById("base_select").value;
+    const variant = document.getElementById("variant_select").value;
+    const date = _extractDate(base);
+    if (date && _username) {
+      window.location.href = "/lesson_player/" + encodeURIComponent(_username)
+        + "/" + encodeURIComponent(date)
+        + "/" + encodeURIComponent(variant);
+    }
+  }
 
-<script>
+  document.getElementById("variant_select").addEventListener("change", _navigateToLesson);
+  document.getElementById("base_select").addEventListener("change", _navigateToLesson);
   document.getElementById("audioform").addEventListener("submit", function(event) {
     event.preventDefault();
-    const file = document.getElementById("file_select").value;
-      console.log( file);
-
-    if (file) {
-      window.location.href = "/view_markdown/" + encodeURIComponent(file);
-    }
+    _navigateToLesson();
   });
-</script>
-
-<script>
-  function playselectedfile() {
-    const file = document.getElementById("file_select").value;
-    window.location.href = "/view_markdown/" + encodeURIComponent(file);
-  }
 </script>
 
 {% if filename %}
-<h3>{{ _('now playing') }}: {{ filename }}</h3>
-
+<h3>{{ _('now playing') }}: {% if lesson_title %}{{ lesson_title }}{% else %}{{ filename }}{% endif %}</h3>
 
 <div class="audio-player-container">
 <div class="audio-player">
@@ -110,21 +83,17 @@ document.getElementById("audioform").addEventListener("submit", function(event) 
     Your browser does not support the audio element.
   </audio>
 
-  <!-- Time Display -->
   <div id="time-display" style="font-family: monospace;">00:00 / 00:00</div>
 
-  <!-- Controls -->
   <div style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
-    <button onclick="seek(-5)">⏪ 5s</button>
+    <button onclick="seek(-5)">&#9194; 5s</button>
     <input type="range" id="seekbar" value="0" step="0.1" min="0" max="100" style="flex: 1;">
-    <button onclick="seek(5)">5s ⏩</button>
+    <button onclick="seek(5)">5s &#9193;</button>
   </div>
 
-  <!-- Play / Pause -->
-  <button onclick="togglePlay()" id="playpause" style="font-size: 1.5rem;">▶️</button>
+  <button onclick="togglePlay()" id="playpause" style="font-size: 1.5rem;">&#9654;&#65039;</button>
 </div>
 </div>
-
 
 <script>
   const audio = document.getElementById('audio');
@@ -135,16 +104,16 @@ document.getElementById("audioform").addEventListener("submit", function(event) 
   function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
   }
 
   audio.addEventListener('loadedmetadata', () => {
-    timeDisplay.textContent = `00:00 / ${formatTime(audio.duration)}`;
+    timeDisplay.textContent = '00:00 / ' + formatTime(audio.duration);
   });
 
   audio.addEventListener('timeupdate', () => {
     seekbar.value = (audio.currentTime / audio.duration) * 100;
-    timeDisplay.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+    timeDisplay.textContent = formatTime(audio.currentTime) + ' / ' + formatTime(audio.duration);
   });
 
   seekbar.addEventListener('input', () => {
@@ -158,88 +127,74 @@ document.getElementById("audioform").addEventListener("submit", function(event) 
   function togglePlay() {
     if (audio.paused) {
       audio.play();
-      playpause.textContent = '⏸️';
+      playpause.textContent = '&#9646;&#9646;';
     } else {
       audio.pause();
-      playpause.textContent = '▶️';
+      playpause.textContent = '&#9654;&#65039;';
     }
   }
 
-  // Reset play button on end
   audio.addEventListener('ended', () => {
-    playpause.textContent = '▶️';
+    playpause.textContent = '&#9654;&#65039;';
   });
 
   if ('mediaSession' in navigator) {
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: "{{ filename }}",
-    artist: "LingoDiary",
-    album: "Audio Player",
-    artwork: [
-      { src: "/static/icon.ico", sizes: "192x192", type: "image/x-icon" },
-      { src: "/static/icon.ico", sizes: "512x512", type: "image/x-icon" }
-    ]
-  });
-
-  navigator.mediaSession.setActionHandler('play', () => {
-    audio.play();
-    playpause.textContent = '⏸️';
-  });
-
-  navigator.mediaSession.setActionHandler('pause', () => {
-    audio.pause();
-    playpause.textContent = '▶️';
-  });
-
-  navigator.mediaSession.setActionHandler('seekbackward', () => {
-    seek(-5);
-  });
-
-  navigator.mediaSession.setActionHandler('seekforward', () => {
-    seek(5);
-  });
-}
-
-
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: "{{ lesson_title or filename }}",
+      artist: "LingoDiary",
+      album: "Audio Player",
+      artwork: [
+        { src: "/static/icon.ico", sizes: "192x192", type: "image/x-icon" },
+        { src: "/static/icon.ico", sizes: "512x512", type: "image/x-icon" }
+      ]
+    });
+    navigator.mediaSession.setActionHandler('play', () => { audio.play(); playpause.textContent = '&#9646;&#9646;'; });
+    navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); playpause.textContent = '&#9654;&#65039;'; });
+    navigator.mediaSession.setActionHandler('seekbackward', () => { seek(-5); });
+    navigator.mediaSession.setActionHandler('seekforward', () => { seek(5); });
+  }
 </script>
 
 <p>
-  <a
-    href="{{ url_for('play_audio', filename=filename) }}"
-    download="{{ filename }}"
-    class="btn btn-primary"
-  >
-  {{ _('download this mp3') }}
+  <a href="{{ url_for('play_audio', filename=filename) }}" download="{{ filename }}" class="btn btn-primary">
+    {{ _('download this mp3') }}
   </a>
 </p>
 
-{% if filename %} {% set md_filename = filename.replace('.mp3', '.md') %}
-<p>
-  <a
-    href="{{ url_for('download_markdown', filename=md_filename) }}"
-    download="{{ md_filename }}"
-    class="btn btn-secondary"
-  >
-  {{ _('download markdown') }}
-  </a>
-</p>
+{% if lesson_data %}
+<h3>{{ _('lesson content') }} &mdash; {{ variant_display }}:</h3>
+{% for entry in lesson_data %}
+<div style="border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;">
+  <p><strong>{{ entry.input_sentence }}</strong></p>
+  {% if entry.variant_sentence %}
+  <p>{{ entry.variant_sentence }}</p>
+  {% elif entry.output_sentence %}
+  <p>{{ entry.output_sentence }}</p>
+  {% endif %}
+  {% if entry.tips %}
+  <p style="color: #666; font-size: 0.9em;">{{ entry.tips }}</p>
+  {% endif %}
+  {% if entry.qa %}
+  <details style="margin-top: 0.5rem;">
+    <summary>{{ _('Q&A') }}</summary>
+    {% for qa in entry.qa %}
+    <p><strong>Q:</strong> {{ qa.question }}<br><strong>A:</strong> {{ qa.answer }}</p>
+    {% endfor %}
+  </details>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<p>{{ _('no lesson content available for this date and variant') }}.</p>
 {% endif %}
 
-<!-- show markdown content if exists -->
-{% if content %}
-<h3>{{ _('markdown content') }}:</h3>
-<div>{{ content|safe }}</div>
-{% else %}
-<p>no markdown content available for this file.</p>
-{% endif %} {% endif %}
+{% endif %}
 
-<!-- Add plyer at the bottom-->
 <style>
 .page-bottom-spacer {
-  height: 180px; /* or whatever matches your player height */
+  height: 180px;
 }
 </style>
-
 
 <div class="page-bottom-spacer"></div>
 {% endblock %}

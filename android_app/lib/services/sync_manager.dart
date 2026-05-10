@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'api_service.dart';
+import 'local_db_service.dart';
 import 'sync_service.dart';
 
 /// Global singleton that manages sync state across all screens.
@@ -21,6 +24,8 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingDiaryEntries();
+      await _syncPendingScores();
       final count = await SyncService.syncLesson(
         base,
         onProgress: (msg) {
@@ -52,6 +57,8 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingDiaryEntries();
+      await _syncPendingScores();
       final count = await SyncService.syncFromServer(
         onProgress: (msg) {
           message = msg;
@@ -85,5 +92,47 @@ class SyncManager extends ChangeNotifier {
     message = initialMessage;
     filesDownloaded = 0;
     notifyListeners();
+  }
+
+  /// Replay any locally saved scores that weren't sent to the server yet.
+  /// Continues past individual failures so all pending scores are attempted.
+  Future<void> _syncPendingScores() async {
+    final pending = await LocalDbService.getUnsyncedScores();
+    for (final row in pending) {
+      if (_cancelled) break;
+      try {
+        await ApiService.scoreEntry(
+          row['date'] as String,
+          row['entry_index'] as int,
+          row['score'] as int,
+        );
+        await LocalDbService.markScoreSynced(row['id'] as int);
+      } on SocketException {
+        // Network unreachable — no point continuing, try again on next sync.
+        break;
+      } catch (e) {
+        // Log but continue so remaining scores are still attempted.
+        debugPrint('SyncManager: score sync failed for row ${row['id']}: $e');
+      }
+    }
+  }
+
+  /// Replay any locally saved diary entries that weren't sent to the server yet.
+  Future<void> _syncPendingDiaryEntries() async {
+    final pending = await LocalDbService.getUnsyncedDiaryEntries();
+    for (final row in pending) {
+      if (_cancelled) break;
+      final id = row['id'] as int;
+      final date = row['date'] as String;
+      final sentences = row['sentences'] as List<String>;
+      try {
+        await ApiService.addDiaryEntry(date, sentences);
+        await LocalDbService.markDiarySynced(id);
+      } on SocketException {
+        break; // Network unreachable — retry on next sync.
+      } catch (e) {
+        debugPrint('SyncManager: diary entry sync failed for row $id: $e');
+      }
+    }
   }
 }

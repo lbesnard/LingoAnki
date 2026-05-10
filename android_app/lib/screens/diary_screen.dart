@@ -81,7 +81,9 @@ class _DiaryScreenState extends State<DiaryScreen> {
       // Save locally even when offline
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');
-      setState(() => _error = 'Saved locally (offline). Will sync when connected.\n$e');
+      if (mounted) {
+        setState(() => _error = 'Saved locally (offline). Will sync when connected.\n$e');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

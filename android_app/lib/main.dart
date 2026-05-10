@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'l10n/app_localizations.dart';
 
 import 'screens/login_screen.dart';
@@ -15,11 +14,6 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.lingoanki.audio',
-    androidNotificationChannelName: 'LingoAnki Audio',
-    androidNotificationOngoing: true,
-  );
   runApp(const LingoDiaryApp());
 }
 

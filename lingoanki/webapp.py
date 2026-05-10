@@ -16,7 +16,6 @@ from threading import Thread
 import jwt
 
 import bcrypt
-import markdown
 import yaml
 from flask import (
     Flask,
@@ -40,7 +39,7 @@ from platformdirs import user_config_dir
 from lingoanki.diary import (
     APP_NAME,
     DiaryHandler,
-    TprsCreation,
+    _backfill_qa_translations,
     main as main_diary_tprs,
 )
 
@@ -258,16 +257,51 @@ def edit_diary():
         )
         return redirect(url_for("login"))
 
-    diary_file = session["diary_file"]
     output_folder = session["output_folder"]
-    if request.method == "POST":
-        with open(diary_file, "w") as f:
-            f.write(request.form["content"])
+    json_path = os.path.join(output_folder, "diary.json")
 
-    content = ""
-    if os.path.exists(diary_file):
-        with open(diary_file) as f:
-            content = f.read()
+    if request.method == "POST":
+        # Accept a structured JSON body from the new diary editor UI
+        try:
+            from lingoanki.diary_json import (
+                load_diary_json,
+                save_diary_json,
+                upsert_day,
+                DiaryEntry,
+                LessonsBlock,
+                ReviewingState,
+            )
+
+            posted = request.get_json(silent=True) or {}
+            date_str = posted.get("date", "")
+            sentences = posted.get("sentences", [])
+            if date_str and sentences:
+                date_slash = date_str.replace("-", "/")
+                diary_json = load_diary_json(json_path)
+                entries = [
+                    DiaryEntry(
+                        index=i + 1,
+                        input_language_sentence=s,
+                        lessons=LessonsBlock(reviewing=ReviewingState()),
+                    )
+                    for i, s in enumerate(sentences)
+                ]
+                diary_json = upsert_day(diary_json, date_slash, "", entries)
+                save_diary_json(diary_json, json_path)
+                return jsonify({"ok": True})
+        except Exception as exc:
+            app.logger.error(f"edit_diary POST error: {exc}")
+            return jsonify({"error": str(exc)}), 500
+
+    # GET: load structured diary data from diary.json
+    diary_data = None
+    if os.path.exists(json_path):
+        try:
+            from lingoanki.diary_json import load_diary_json
+
+            diary_data = load_diary_json(json_path)
+        except Exception:
+            diary_data = None
 
     files = [
         f
@@ -282,23 +316,22 @@ def edit_diary():
 
     return render_template(
         "diary.html",
-        content=content,
+        content="",
+        diary_data=diary_data,
         tab="edit",
         files=files,
         diary_entries=diary_entries,
         selected_date=selected_date,
         template_help=template_help_text,
-        username=username,  # Optional: pass to template
+        username=username,
     )
 
 
 @app.route("/diary_html")
 @login_required
 def diary_html():
-    diary_file = session["diary_file"]
     output_folder = session["output_folder"]
 
-    # Primary: render from diary.json
     json_path = os.path.join(output_folder, "diary.json")
     diary_data = None
     if os.path.exists(json_path):
@@ -308,14 +341,6 @@ def diary_html():
             diary_data = load_diary_json(json_path)
         except Exception:
             diary_data = None
-
-    # Fallback: render markdown (only when diary.json is absent / unreadable)
-    content = ""
-    if diary_data is None and os.path.exists(diary_file):
-        with open(diary_file) as f:
-            content = markdown.markdown(
-                f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
-            )
 
     files = [
         f
@@ -328,7 +353,7 @@ def diary_html():
 
     return render_template(
         "diary_html.html",
-        content=content,
+        content="",
         diary_data=diary_data,
         tab="diary_html",
         files=files,
@@ -338,10 +363,8 @@ def diary_html():
 @app.route("/tprs", methods=["GET", "POST"])
 @login_required
 def view_tprs():
-    tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
 
-    # Primary: render from diary.json
     json_path = os.path.join(output_folder, "diary.json")
     diary_data = None
     if os.path.exists(json_path):
@@ -351,14 +374,6 @@ def view_tprs():
             diary_data = load_diary_json(json_path)
         except Exception:
             diary_data = None
-
-    # Fallback: render markdown (only when diary.json is absent / unreadable)
-    tprs_content = None
-    if diary_data is None and os.path.exists(tprs_file):
-        with open(tprs_file) as f:
-            tprs_content = markdown.markdown(
-                f.read(), extensions=["nl2br", "extra", "codehilite", "tables"]
-            )
 
     files = [
         f
@@ -370,7 +385,7 @@ def view_tprs():
     ]
     return render_template(
         "diary_tprs.html",
-        tprs_content=tprs_content,
+        tprs_content=None,
         diary_data=diary_data,
         tab="tprs",
         files=files,
@@ -424,6 +439,97 @@ def generate_lessons():
     return render_template(
         "diary_generate_lessons.html", tab="generate_lessons", files=files
     )
+
+
+@app.route("/backfill/qa_translations", methods=["POST"])
+@login_required
+def web_backfill_qa_translations():
+    """Web UI: background-thread Q&A translation backfill (session auth)."""
+    import yaml
+
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+            app.logger.info("Q&A translation backfill complete.")
+        except Exception as exc:
+            app.logger.error(f"Q&A translation backfill error: {exc}")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+
+
+@app.route("/backfill/audio_timing", methods=["POST"])
+@login_required
+def web_backfill_audio_timing():
+    """Web UI: background-thread audio segment backfill (session auth)."""
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+            app.logger.info("Audio timing backfill complete.")
+        except Exception as exc:
+            app.logger.error(f"Audio timing backfill error: {exc}")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Audio timing backfill started"})
+
+
+@app.route("/backfill/all", methods=["POST"])
+@login_required
+def web_backfill_all():
+    """Web UI: background-thread full backfill — diary.json sync + Q&A + audio (session auth)."""
+    import yaml
+
+    config_path = session["user_config_path"]
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    def _run():
+        app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
+
+            migrate_to_json(
+                config_path=config_path,
+                output_json_path=json_path,
+                overwrite=True,
+            )
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
+
+        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+
+        app.logger.info("Backfill all: complete")
+
+    Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Full backfill started"})
 
 
 @app.route("/stream_logs")
@@ -505,33 +611,36 @@ def save_diary_entry():
         flash("No date or entries to save", "error")
         return redirect(url_for("edit_diary"))
 
-    user_input_diary_dict = {}
-    timestamp_key = datetime.strptime(selected_date, "%Y-%m-%d")
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
 
-    user_input_diary_dict[timestamp_key] = {
-        "title": "",
-        "sentences": {
-            str(i): {
-                "primary_language_sentence": entry["sentence"],
-                "study_language_sentence": "",
-                "study_language_sentence_trial": "",
-                "tips": "",
-            }
+    try:
+        from lingoanki.diary_json import (
+            DiaryEntry,
+            LessonsBlock,
+            ReviewingState,
+            load_diary_json,
+            save_diary_json,
+            upsert_day,
+        )
+
+        date_slash = selected_date.replace("-", "/")
+        diary_json = load_diary_json(json_path)
+        entries = [
+            DiaryEntry(
+                index=i + 1,
+                input_language_sentence=entry["sentence"],
+                lessons=LessonsBlock(reviewing=ReviewingState()),
+            )
             for i, entry in enumerate(diary_entries)
-        },
-    }
+        ]
+        diary_json = upsert_day(diary_json, date_slash, "", entries)
+        save_diary_json(diary_json, json_path)
+        flash("Diary entry saved successfully!", "success")
+    except Exception as exc:
+        app.logger.error(f"save_diary_entry error: {exc}")
+        flash(f"Failed to save diary entry: {exc}", "error")
 
-    print("📘 Diary data structure ready:")
-
-    username = session["username"]
-    user_config_path = os.path.join(CONFIG_ROOT, username, "config.yaml")
-    diary_instance = DiaryHandler(config_path=user_config_path)
-    org_diary_dict = diary_instance.markdown_diary_to_dict()  # to init some variables
-    updated_diary_dict = user_input_diary_dict | org_diary_dict  # keep the org values
-    diary_instance.write_diary(updated_diary_dict)
-    diary_instance.stop()
-
-    flash("Diary entry saved (or printed) successfully!", "success")
     return redirect(url_for("edit_diary"))
 
 
@@ -637,64 +746,109 @@ def extract_date(filename: str) -> str:
         raise ValueError("No date in YYYY-MM-DD format found in the filename.")
 
 
-def find_matching_md_file(date_str: str, search_folder: str) -> Path | None:
-    folder = Path(search_folder)
-    for file in folder.glob(f"*{date_str}*.md"):
-        return file  # Return the first match
-    return None
-
-
 @app.route("/view_markdown/<filename>")
 @login_required
 def view_markdown(filename):
-    md_tprs_filename = filename.replace(".mp3", ".md")
-    md_tprs_file_path = os.path.join(session["tprs_folder"], md_tprs_filename)
+    """Redirect legacy /view_markdown URLs to the new /lesson_player route."""
+    try:
+        date_str = extract_date(filename)
+    except ValueError:
+        return "Could not extract date from filename.", 400
 
-    # Extract base and variant for dropdown repopulation
     match = re.match(
         r"(.+?)(_enhanced|_present|_future)?\.mp3$", filename, re.IGNORECASE
     )
+    variant = "original"
     if match:
-        selected_base, variant_suffix = match.groups()
-        selected_variant = (variant_suffix or "").lstrip("_").title() or "Original"
-    else:
-        selected_base = filename.replace(".mp3", "")
-        selected_variant = "original"
+        variant_suffix = match.group(2) or ""
+        variant = variant_suffix.lstrip("_").lower() or "original"
 
-    # Gather mp3 variants like in play_audio_page
+    username = session.get("username", "")
+    return redirect(
+        url_for("lesson_player", username=username, date=date_str, variant=variant),
+        code=301,
+    )
+
+
+@app.route("/lesson_player/<username>/<date>/<variant>")
+@login_required
+def lesson_player(username, date, variant):
+    """Renders the TPRS lesson player using diary.json data."""
+    output_folder = session["output_folder"]
+    json_path = os.path.join(output_folder, "diary.json")
+
+    _VARIANT_DISPLAY = {
+        "original": "Original",
+        "enhanced": "Enhanced",
+        "future": "Future",
+        "present": "Present",
+    }
+    variant = variant.lower()
+
+    lesson_data = None
+    lesson_title = ""
+    if os.path.exists(json_path):
+        try:
+            from lingoanki.diary_json import load_diary_json
+
+            diary_json = load_diary_json(json_path)
+            date_slash = date.replace("-", "/")
+            day = next((d for d in diary_json.diaries if d.date == date_slash), None)
+            if day:
+                lesson_title = day.title or date
+                lesson_data = []
+                for entry in day.entries:
+                    variant_lesson = entry.lessons.get_variant(variant)
+                    lesson_data.append(
+                        {
+                            "input_sentence": entry.input_language_sentence,
+                            "output_sentence": entry.output_language_translation,
+                            "tips": entry.tips,
+                            "variant_sentence": variant_lesson.sentence,
+                            "qa": [
+                                {"question": qa.question, "answer": qa.answer}
+                                for qa in variant_lesson.qa
+                            ],
+                        }
+                    )
+        except Exception as exc:
+            app.logger.error(f"lesson_player error loading diary.json: {exc}")
+
     display_items = get_mp3_variants(session["tprs_folder"])
 
-    # Read content
-    date = extract_date(md_tprs_filename)
-    match_daily_diary = find_matching_md_file(date, session["daily_audio_folder"])
-    content_daily_diary = ""
-    if match_daily_diary:
-        with open(match_daily_diary, "r") as file:
-            content_daily_diary = file.read()
+    # Find matching mp3 filename for the given date+variant
+    filename = _find_mp3_for_date_variant(session["tprs_folder"], date, variant)
 
-    if os.path.exists(md_tprs_file_path):
-        with open(md_tprs_file_path, "r") as file:
-            content = file.read()
+    return render_template(
+        "diary_tprs_play_audio.html",
+        lesson_data=lesson_data,
+        lesson_title=lesson_title,
+        date=date,
+        variant=variant,
+        variant_display=_VARIANT_DISPLAY.get(variant, variant.title()),
+        filename=filename or "",
+        mp3_variants=display_items,
+        selected_base=filename.replace(".mp3", "") if filename else "",
+        selected_variant=_VARIANT_DISPLAY.get(variant, variant.title()),
+        username=session.get("username", ""),
+    )
 
-        if match_daily_diary:
-            content += content_daily_diary
 
-        html_content = markdown.markdown(
-            content, extensions=["nl2br", "extra", "codehilite", "tables"]
-        )
-        return render_template(
-            "diary_tprs_play_audio.html",
-            content=html_content,
-            filename=filename,
-            mp3_variants=display_items,
-            selected_base=selected_base,
-            selected_variant=selected_variant,
-        )
-    else:
-        return (
-            f"Markdown file for {filename} not found. {selected_base} {selected_variant}",
-            404,
-        )
+def _find_mp3_for_date_variant(tprs_folder: str, date: str, variant: str) -> str | None:
+    """Find the mp3 filename for a given date and variant."""
+    suffix_map = {
+        "original": "",
+        "enhanced": "_enhanced",
+        "future": "_future",
+        "present": "_present",
+    }
+    suffix = suffix_map.get(variant, "")
+    if not os.path.exists(tprs_folder):
+        return None
+    for f in os.listdir(tprs_folder):
+        if f.endswith(f"{suffix}.mp3") and date in f:
+            return f
+    return None
 
 
 def get_mp3_variants(folder):
@@ -730,7 +884,19 @@ def get_mp3_variants(folder):
 @login_required
 def play_audio_page():
     mp3_variants = get_mp3_variants(session["tprs_folder"])
-    return render_template("diary_tprs_play_audio.html", mp3_variants=mp3_variants)
+    return render_template(
+        "diary_tprs_play_audio.html",
+        mp3_variants=mp3_variants,
+        username=session.get("username", ""),
+        lesson_data=None,
+        lesson_title="",
+        date="",
+        variant="original",
+        variant_display="Original",
+        filename="",
+        selected_base="",
+        selected_variant="Original",
+    )
 
 
 @app.route("/download_markdown/<filename>")
@@ -742,28 +908,26 @@ def download_markdown(filename):
 @app.route("/backup/download")
 @login_required
 def backup_download():
-    diary_file = session["diary_file"]
-    tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
     username = session["username"]
     time_now_str = datetime.now().strftime("%Y%m%dT%H%M%S")
     zip_name = f"backup_{username}_{time_now_str}.zip"
 
+    json_path = os.path.join(output_folder, "diary.json")
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zipf:
-        # Diary markdown
-        if os.path.exists(diary_file):
-            zipf.write(diary_file, arcname=f"diary/{os.path.basename(diary_file)}")
-        # TPRS markdown
-        if os.path.exists(tprs_file):
-            zipf.write(tprs_file, arcname=f"tprs/{os.path.basename(tprs_file)}")
-        # Full output folder (mp3s, TPRS/, DAILY_AUDIO/, etc.)
+        # diary.json (primary source of truth)
+        if os.path.exists(json_path):
+            zipf.write(json_path, arcname="diary.json")
+        # Full output folder (mp3s, TPRS/, DAILY_AUDIO/, etc.) — exclude .md files
         for root, _, files in os.walk(output_folder):
             for file in files:
                 if (
                     not file.startswith(".")
                     and not file.endswith(".zip")
                     and not file.endswith(".log")
+                    and not file.endswith(".md")
                 ):
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, output_folder)
@@ -787,8 +951,6 @@ def backup_upload():
         flash("Please upload a .zip backup file.", "error")
         return redirect("/backup")
 
-    diary_file = session["diary_file"]
-    tprs_file = session["tprs_file"]
     output_folder = session["output_folder"]
 
     try:
@@ -797,19 +959,13 @@ def backup_upload():
             restored = []
 
             for name in names:
-                if name.startswith("diary/") and name.endswith(".md"):
+                if name == "diary.json":
                     data = zipf.read(name)
-                    os.makedirs(os.path.dirname(diary_file), exist_ok=True)
-                    with open(diary_file, "wb") as out:
+                    dest = os.path.join(output_folder, "diary.json")
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, "wb") as out:
                         out.write(data)
-                    restored.append("diary")
-
-                elif name.startswith("tprs/") and name.endswith(".md"):
-                    data = zipf.read(name)
-                    os.makedirs(os.path.dirname(tprs_file), exist_ok=True)
-                    with open(tprs_file, "wb") as out:
-                        out.write(data)
-                    restored.append("tprs")
+                    restored.append("diary.json")
 
                 elif name.startswith("output/") and not name.endswith("/"):
                     rel = name[len("output/") :]
@@ -967,35 +1123,36 @@ def api_login():
 @app.route("/api/diary", methods=["GET"])
 @_jwt_required
 def api_get_diary():
-    from flask import g as _g
-
-    diary_file = _g.api_diary_file
-    if not os.path.exists(diary_file):
-        return jsonify({"content": ""})
-    with open(diary_file, "r") as f:
-        return jsonify({"content": f.read()})
+    return (
+        jsonify(
+            {
+                "deprecated": True,
+                "message": "This endpoint is removed. Use /api/diary/json instead.",
+            }
+        ),
+        410,
+    )
 
 
 @app.route("/api/diary", methods=["POST"])
 @_jwt_required
 def api_save_diary():
-    from flask import g as _g
-
-    data = request.get_json(silent=True) or {}
-    content = data.get("content")
-    if content is None:
-        return jsonify({"error": "content field required"}), 400
-    diary_file = _g.api_diary_file
-    os.makedirs(os.path.dirname(diary_file), exist_ok=True)
-    with open(diary_file, "w") as f:
-        f.write(content)
-    return jsonify({"ok": True})
+    return (
+        jsonify(
+            {
+                "deprecated": True,
+                "message": "This endpoint is removed. Use /api/diary/json instead.",
+            }
+        ),
+        410,
+    )
 
 
 @app.route("/api/generate", methods=["POST"])
 @_jwt_required
 def api_generate():
     from flask import g as _g
+    import yaml
 
     config_path = _g.api_config_path
     output_folder = _g.api_output_folder
@@ -1006,12 +1163,12 @@ def api_generate():
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
         # Auto-update diary.json after generation
+        json_path = os.path.join(output_folder, "diary.json")
         try:
             from lingoanki.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
-            json_path = os.path.join(output_folder, "diary.json")
             migrate_to_json(
                 config_path=config_path,
                 output_json_path=json_path,
@@ -1019,14 +1176,11 @@ def api_generate():
             )
         except Exception as exc:
             app.logger.warning(f"diary.json auto-update failed: {exc}")
-        # Backfill any missing Q&A translations
+        # Backfill any missing Q&A translations (safe standalone function — no markdown side effects)
         try:
-            from lingoanki.diary import TprsCreation
-
-            tprs = TprsCreation(config_path=config_path)
-            json_path = os.path.join(output_folder, "diary.json")
-            tprs.backfill_qa_translations(json_path)
-            tprs.stop()
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
 
@@ -1038,7 +1192,35 @@ def api_generate():
 @app.route("/api/backfill/qa_translations", methods=["POST"])
 @_jwt_required
 def api_backfill_qa_translations():
-    """Background job: translate all Q&A pairs to the primary language."""
+    """Background job: translate all missing Q&A pairs to the primary language.
+
+    Uses the safe standalone _backfill_qa_translations() — does NOT instantiate
+    TprsCreation, so no markdown files are created or overwritten as side effects.
+    """
+    from flask import g as _g
+    import yaml
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    def _run():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            json_path = os.path.join(output_folder, "diary.json")
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.error(f"Q&A translation backfill error: {exc}")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+
+
+@app.route("/api/backfill/audio_timing", methods=["POST"])
+@_jwt_required
+def api_backfill_audio_timing():
+    """Background job: generate per-sentence audio segments and write timings to diary.json."""
     from flask import g as _g
 
     config_path = _g.api_config_path
@@ -1046,18 +1228,77 @@ def api_backfill_qa_translations():
 
     def _run():
         try:
-            from lingoanki.diary import TprsCreation
+            from lingoanki.audio_timing import backfill_audio_timings
 
-            tprs = TprsCreation(config_path=config_path)
             json_path = os.path.join(output_folder, "diary.json")
-            tprs.backfill_qa_translations(json_path)
-            tprs.stop()
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
-            app.logger.error(f"Q&A translation backfill error: {exc}")
+            app.logger.error(f"Audio timing backfill error: {exc}")
 
     t = Thread(target=_run, daemon=True)
     t.start()
-    return jsonify({"ok": True, "message": "Q&A translation backfill started"})
+    return jsonify({"ok": True, "message": "Audio timing backfill started"})
+
+
+@app.route("/api/backfill/all", methods=["POST"])
+@_jwt_required
+def api_backfill_all():
+    """Background job: fill in everything missing — diary.json sync, Q&A translations, audio segments.
+
+    Runs in sequence:
+      1. migrate_to_json  (sync diary.json with current markdown)
+      2. _backfill_qa_translations  (translate missing Q&A pairs)
+      3. backfill_audio_timings  (generate missing segment MP3s + timing data)
+    """
+    from flask import g as _g
+    import yaml
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    def _run():
+        json_path = os.path.join(output_folder, "diary.json")
+
+        app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
+        try:
+            from lingoanki.migrate_to_json import (
+                migrate_markdown_to_json as migrate_to_json,
+            )
+
+            migrate_to_json(
+                config_path=config_path,
+                output_json_path=json_path,
+                overwrite=True,
+            )
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
+
+        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            _backfill_qa_translations(config, json_path, app.logger)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        try:
+            from lingoanki.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+
+        app.logger.info("Backfill all: complete")
+
+    t = Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Full backfill started (Q&A translations + audio segments)",
+        }
+    )
 
 
 @app.route("/api/generate/status", methods=["GET"])
@@ -1170,7 +1411,10 @@ def api_sync_file(rel_path):
 @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
 @_jwt_required
 def api_sync_lesson_manifest(base):
-    """Return manifest filtered to files belonging to a single lesson (by base name)."""
+    """Return manifest filtered to files belonging to a single lesson (by base name).
+
+    Always includes diary.json so the app can read lesson text offline.
+    """
     from flask import g as _g
 
     output_folder = _g.api_output_folder
@@ -1185,7 +1429,8 @@ def api_sync_lesson_manifest(base):
                 continue
             full = os.path.join(root, fname)
             rel = os.path.relpath(full, output_folder)
-            if base not in rel:
+            # Always include diary.json so lesson text is available offline
+            if base not in rel and rel != "diary.json":
                 continue
             stat = os.stat(full)
             manifest.append(
@@ -1262,6 +1507,7 @@ def api_lesson_entries(date, variant):
                 "input_language_sentence": entry.input_language_sentence,
                 "output_language_translation": entry.output_language_translation,
                 "sentence": v_obj.sentence,
+                "sentence_input": v_obj.sentence_input,
                 "audio_timing": v_obj.audio_timing.to_dict(),
                 "qa": [q.to_dict() for q in v_obj.qa],
                 "reviewing": entry.lessons.reviewing.to_dict(),
@@ -1480,30 +1726,42 @@ def api_add_diary_entry():
         return jsonify({"error": "date and sentences are required"}), 400
 
     try:
-        timestamp_key = datetime.strptime(selected_date, "%Y-%m-%d")
+        datetime.strptime(selected_date, "%Y-%m-%d")
     except ValueError:
         return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
 
-    user_input_diary_dict = {
-        timestamp_key: {
-            "title": "",
-            "sentences": {
-                str(i): {
-                    "primary_language_sentence": s,
-                    "study_language_sentence": "",
-                    "study_language_sentence_trial": "",
-                    "tips": "",
-                }
-                for i, s in enumerate(sentences)
-            },
-        }
-    }
+    try:
+        import yaml
+        from lingoanki.diary_json import (
+            DiaryEntry,
+            LessonsBlock,
+            ReviewingState,
+            load_diary_json,
+            save_diary_json,
+            upsert_day,
+        )
 
-    diary_instance = DiaryHandler(config_path=_g.api_config_path)
-    org_diary_dict = diary_instance.markdown_diary_to_dict()
-    updated_diary_dict = user_input_diary_dict | org_diary_dict
-    diary_instance.write_diary(updated_diary_dict)
-    diary_instance.stop()
+        with open(_g.api_config_path) as f:
+            user_config = yaml.safe_load(f)
+        json_path = user_config.get("json_diary_path", "")
+        if not json_path:
+            return jsonify({"error": "json_diary_path not configured"}), 500
+
+        date_slash = selected_date.replace("-", "/")
+        diary_json = load_diary_json(json_path)
+        entries = [
+            DiaryEntry(
+                index=i + 1,
+                input_language_sentence=s,
+                lessons=LessonsBlock(reviewing=ReviewingState()),
+            )
+            for i, s in enumerate(sentences)
+        ]
+        diary_json = upsert_day(diary_json, date_slash, "", entries)
+        save_diary_json(diary_json, json_path)
+    except Exception as exc:
+        app.logger.error(f"api_add_diary_entry error: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
     return jsonify(
         {"success": True, "date": selected_date, "sentences_added": len(sentences)}

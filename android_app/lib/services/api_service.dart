@@ -46,27 +46,6 @@ class ApiService {
     return body;
   }
 
-  static Future<String> getDiary() async {
-    final base = await _baseUrl();
-    final headers = await _authHeaders();
-    final resp = await http.get(Uri.parse('$base/api/diary'), headers: headers).timeout(_timeout);
-    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get diary');
-    return (jsonDecode(resp.body) as Map<String, dynamic>)['content'] as String? ?? '';
-  }
-
-  static Future<void> saveDiary(String content) async {
-    final base = await _baseUrl();
-    final headers = await _authHeaders();
-    final resp = await http
-        .post(
-          Uri.parse('$base/api/diary'),
-          headers: headers,
-          body: jsonEncode({'content': content}),
-        )
-        .timeout(_timeout);
-    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to save diary');
-  }
-
   static Future<void> triggerGenerate() async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
@@ -128,18 +107,6 @@ class ApiService {
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get lesson manifest');
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(data['manifest'] as List);
-  }
-
-  static Future<String> getDiaryEntryByDate(String date) async {
-    final base = await _baseUrl();
-    final headers = await _authHeaders();
-    final resp = await http
-        .get(Uri.parse('$base/api/diary/date/$date'), headers: headers)
-        .timeout(_timeout);
-    if (resp.statusCode != 200) {
-      throw ApiException(resp.statusCode, 'Failed to get diary entry for $date');
-    }
-    return (jsonDecode(resp.body) as Map<String, dynamic>)['content'] as String? ?? '';
   }
 
   static Future<void> addDiaryEntry(String date, List<String> sentences) async {

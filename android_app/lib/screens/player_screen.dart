@@ -1,9 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
@@ -23,8 +22,19 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
+  /// Safe int coercion: handles JSON values that may arrive as double (e.g.
+  /// audio_timing.start_ms / end_ms were stored as floats in older diary.json
+  /// files produced by audio_timing.py before the int-cast fix).
+  static int _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.round();
+    if (v is num) return v.round();
+    return 0;
+  }
+
   late final AudioPlayer _player;
   bool _audioReady = false;
+  StreamSubscription<Duration>? _positionSub;
 
   /// All tab names: TPRS variants + synthetic "Input Diary" at the end.
   late List<String> _tabNames;
@@ -46,6 +56,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _loopEnabled = false;
   // Block repeat
   bool _loopBlock = false;
+  // Auto-cycle through all variants when playback completes
+  bool _cycleVariants = false;
+  // Guard: prevent _onPlaybackCompleted from firing multiple times per completion
+  bool _cycleTriggered = false;
+  // Canonical variant order — must match the capitalized keys from the API
+  // (variant_display = variant.lstrip("_").title() in webapp.py)
+  static const _kCanonicalOrder = ['Original', 'Enhanced', 'Present', 'Future'];
 
   // Sentence timing + highlighting
   List<Map<String, dynamic>> _sentenceEntries = [];
@@ -74,7 +91,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     _player = AudioPlayer();
     _variants = widget.lesson['variants'] as Map<String, dynamic>? ?? {};
-    _tabNames = [..._variants.keys, _kInputDiaryTab];
+    // Sort tabs into canonical order; append Input Diary at the end.
+    final orderedVariants = _kCanonicalOrder
+        .where((v) => _variants.containsKey(v))
+        .toList();
+    final extras = _variants.keys.where((v) => !_kCanonicalOrder.contains(v)).toList();
+    _tabNames = [...orderedVariants, ...extras, _kInputDiaryTab];
     _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
     // Extract YYYY-MM-DD from base name (e.g. …_TPRS_2026-01-21_…)
@@ -95,21 +117,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onSyncChanged() {
     if (!SyncManager.instance.isSyncing && mounted) {
-      if (_currentTab != _kInputDiaryTab) {
-        _loadVariant(_currentTab);
-      } else {
-        _loadDiaryContent();
+      // After sync completes: only try to load audio if it wasn't ready.
+      // Never reload or clear entries — they are still valid from the initial load.
+      if (_currentTab != _kInputDiaryTab && !_audioReady) {
+        _tryLoadAudio(_currentTab);
       }
+    }
+  }
+
+  /// Attempt to load audio for [variantName] without touching text entries.
+  Future<void> _tryLoadAudio(String variantName) async {
+    if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
+    final filename = _variants[variantName] as String? ?? '';
+    if (filename.isEmpty) return;
+    final mp3Path = await SyncService.localPath('TPRS/$filename');
+    final audioFile = File(mp3Path);
+    if (!await audioFile.exists()) return;
+
+    bool audioSet = false;
+    try {
+      await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
+      audioSet = true;
+    } catch (_) {}
+    if (audioSet && mounted) {
+      setState(() => _audioReady = true);
+      _startPositionListener();
     }
   }
 
   Future<void> _loadKeywords() async {
     final prefs = await SharedPreferences.getInstance();
+    final loopDefault = prefs.getBool('lesson_loop_default') ?? false;
     setState(() {
       _kwQuestion = prefs.getString('tprs_question') ?? 'SPØRSMÅL:';
       _kwAnswer = prefs.getString('tprs_answer') ?? 'SVAR:';
       _fontSize = prefs.getDouble('player_font_size') ?? 14.0;
+      _loopEnabled = loopDefault;
+      _cycleVariants = prefs.getBool('lesson_cycle_variants') ?? false;
     });
+    _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
   }
 
   void _cycleFontSize() async {
@@ -127,65 +173,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadVariant(String variantName) async {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
-    final filename = _variants[variantName] as String? ?? '';
-    final mp3Path = await SyncService.localPath('TPRS/$filename');
 
     await _player.stop();
     setState(() {
       _audioReady = false;
-      _sentenceEntries = [];
-      _segments = [];
-      _entrySpans = {};
-      _expandedTranslations.clear();
+      _cycleTriggered = false;
       _activeEntryIndex = -1;
       _activeQaIndex = -1;
       _activeIsQuestion = false;
       _stickyQaIndex = -1;
       _stickyIsQuestion = false;
       _stickyEntryIndex = -1;
-      _sentenceKeys.clear();
     });
 
-    final audioFile = File(mp3Path);
-    if (await audioFile.exists()) {
-      try {
-        final lessonTitle = widget.lesson['title'] as String? ?? variantName;
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(mp3Path),
-            tag: MediaItem(
-              id: mp3Path,
-              title: lessonTitle,
-              artist: variantName,
-            ),
-          ),
-        );
-      } catch (_) {}
-      if (mounted) {
-        setState(() => _audioReady = true);
-        _startPositionListener();
-      }
-    }
+    // Load audio (best-effort — file may not be synced yet).
+    await _tryLoadAudio(variantName);
 
-    // Fetch structured entries (timings + translations) from server
+    // Fetch structured entries (timings + translations).
+    // Strategy: load local diary.json immediately (instant), then try the API
+    // in the background and update if fresher data arrives.
     if (_lessonDate != null) {
       final variantKey = _variantToApiKey(variantName);
-      bool loaded = false;
-      try {
-        final data = await ApiService.getLessonEntries(_lessonDate!, variantKey);
+
+      // Local-first: instant display from cached diary.json.
+      if (_sentenceEntries.isEmpty) {
+        await _loadEntriesFromLocalJson(variantKey);
+      }
+
+      // Background API refresh (does not block UI or delay text display).
+      ApiService.getLessonEntries(_lessonDate!, variantKey).then((data) {
         final entries =
             (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
         if (mounted && entries.isNotEmpty) {
           _applyEntries(entries);
-          loaded = true;
         }
-      } catch (_) {
-        // Server unreachable — try local diary.json cache
-      }
-
-      if (!loaded) {
-        await _loadEntriesFromLocalJson(variantKey);
-      }
+      }).catchError((_) {
+        // Server unreachable — local data already shown, nothing to do.
+      });
     }
   }
 
@@ -218,6 +242,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             as Map<String, dynamic>? ?? {};
         return <String, dynamic>{
           'sentence': lesson['sentence'] ?? '',
+          'sentence_input': lesson['sentence_input'] ?? '',
           'input_language_sentence': em['input_language_sentence'] ?? '',
           'output_language_translation': em['output_language_translation'] ?? '',
           'audio_timing': lesson['audio_timing'],
@@ -228,8 +253,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted && entries.isNotEmpty) {
         _applyEntries(entries);
       }
-    } catch (_) {
-      // Corrupt or missing local cache — show nothing
+    } catch (e, st) {
+      // Corrupt or missing local cache — show nothing (error logged for debugging)
+      debugPrint('_loadEntriesFromLocalJson error: $e\n$st');
     }
   }
 
@@ -259,8 +285,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     for (var i = 0; i < _sentenceEntries.length; i++) {
       final entry = _sentenceEntries[i];
       final st = entry['audio_timing'] as Map<String, dynamic>?;
-      int blockStart = (st?['start_ms'] as int?) ?? 0;
-      int blockEnd = (st?['end_ms'] as int?) ?? 0;
+      int blockStart = _toInt(st?['start_ms']);
+      int blockEnd = _toInt(st?['end_ms']);
 
       if (st != null && blockEnd > 0) {
         segs.add({'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
@@ -268,15 +294,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       for (var j = 0; j < qa.length; j++) {
         final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
-        if (qt != null && (qt['end_ms'] as int? ?? 0) > 0) {
+        if (qt != null && _toInt(qt['end_ms']) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
-          final end = qt['end_ms'] as int? ?? 0;
+          final end = _toInt(qt['end_ms']);
           if (end > blockEnd) blockEnd = end;
         }
         final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
-        if (at != null && (at['end_ms'] as int? ?? 0) > 0) {
+        if (at != null && _toInt(at['end_ms']) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
-          final end = at['end_ms'] as int? ?? 0;
+          final end = _toInt(at['end_ms']);
           if (end > blockEnd) blockEnd = end;
         }
       }
@@ -287,7 +313,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _startPositionListener() {
-    _player.positionStream.listen((pos) {
+    _positionSub?.cancel();
+    _positionSub = _player.positionStream.listen((pos) {
       if (!mounted) return;
       final ms = pos.inMilliseconds;
 
@@ -314,8 +341,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       bool isQ = false;
       for (final seg in _segments) {
         final t = seg['timing'] as Map<String, dynamic>;
-        final start = (t['start_ms'] as int?) ?? 0;
-        final end = (t['end_ms'] as int?) ?? 0;
+        final start = _toInt(t['start_ms']);
+        final end = _toInt(t['end_ms']);
         if (end > start && ms >= start && ms < end) {
           qaIdx = seg['qaIdx'] as int;
           isQ = seg['isQuestion'] as bool;
@@ -407,12 +434,67 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _loopBlock = !_loopBlock);
   }
 
-  /// Load the Input Diary content: try local cache first, then server.
+  void _toggleCycleVariants() async {
+    setState(() => _cycleVariants = !_cycleVariants);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('lesson_cycle_variants', _cycleVariants);
+  }
+
+  /// Called when playback reaches the end. If cycle mode is on, advance to
+  /// the next available variant in canonical order; otherwise do nothing
+  /// (the replay icon will appear via the StreamBuilder).
+  Future<void> _onPlaybackCompleted() async {
+    if (!_cycleVariants || _cycleTriggered) return;
+    setState(() => _cycleTriggered = true);
+    // Canonical variant list filtered to only those present in this lesson
+    final available = _kCanonicalOrder
+        .where((v) => _variants.containsKey(v))
+        .toList();
+    if (available.isEmpty) return;
+    final currentIdx = available.indexOf(_currentTab);
+    if (currentIdx < 0 || currentIdx >= available.length - 1) {
+      // Already on the last variant (or not a variant tab) — stop cycling
+      return;
+    }
+    final nextTab = available[currentIdx + 1];
+    setState(() => _currentTab = nextTab);
+    await _loadVariant(nextTab);
+    // Wait for audio to be ready (up to 5 s)
+    for (var i = 0; i < 50; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_audioReady) break;
+    }
+    if (mounted && _audioReady) {
+      await _player.seek(Duration.zero);
+      await _player.play();
+    }
+  }
+
+  /// Load the Input Diary content.
+  ///
+  /// Priority:
+  ///   1. input_language_sentence from already-loaded entries (fastest, offline)
+  ///   2. Local cache file (offline)
+  ///   3. Fetch from server via /api/lessons/entries using the first available variant
   Future<void> _loadDiaryContent() async {
     if (_lessonDate == null) {
       setState(() => _diaryContent = '(No date found in lesson name)');
       return;
     }
+
+    // If we already have entries loaded from any TPRS variant, just show them.
+    if (_sentenceEntries.isNotEmpty) {
+      final buf = StringBuffer();
+      for (var i = 0; i < _sentenceEntries.length; i++) {
+        final s = _sentenceEntries[i]['input_language_sentence'] as String? ?? '';
+        if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
+      }
+      if (buf.isNotEmpty) {
+        setState(() => _diaryContent = buf.toString().trim());
+        return;
+      }
+    }
+
     final base = widget.lesson['base'] as String? ?? '';
     final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
     final cacheFile = File(cachePath);
@@ -422,18 +504,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    // Not cached — fetch from server
+    // Not cached — fetch entries from any available variant to get sentences.
     setState(() {
       _diaryLoading = true;
       _diaryContent = '';
     });
     try {
-      final content = await ApiService.getDiaryEntryByDate(_lessonDate!);
+      final firstVariant = _variants.keys.isNotEmpty
+          ? _variantToApiKey(_variants.keys.first)
+          : 'original';
+      final data = await ApiService.getLessonEntries(_lessonDate!, firstVariant);
+      final entries = (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final buf = StringBuffer();
+      for (var i = 0; i < entries.length; i++) {
+        final s = entries[i]['input_language_sentence'] as String? ?? '';
+        if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
+      }
+      final content = buf.toString().trim();
       if (content.isNotEmpty) {
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }
-      if (mounted) setState(() => _diaryContent = content);
+      if (mounted) setState(() => _diaryContent = content.isNotEmpty ? content : '(No diary entries found)');
     } catch (e) {
       if (mounted) {
         setState(() => _diaryContent =
@@ -452,6 +544,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     SyncManager.instance.removeListener(_onSyncChanged);
+    _positionSub?.cancel();
     _player.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -501,8 +594,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final isExpanded = _expandedTranslations.contains(i);
           final isScored = i == _scoredSentenceIndex;
           final sentence = entry['sentence'] as String? ?? '';
+          final sentenceInput = entry['sentence_input'] as String? ?? '';
           final inputSentence =
               entry['input_language_sentence'] as String? ?? '';
+          // For non-original variants, prefer sentence_input (variant's own
+          // English translation); fall back to inputSentence (original English).
+          final displayInput = (_currentTab.toLowerCase() != 'original' && sentenceInput.isNotEmpty)
+              ? sentenceInput
+              : inputSentence;
           final outputTranslation =
               entry['output_language_translation'] as String? ?? '';
           final qa =
@@ -569,23 +668,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                 // Translation (hidden until tapped)
                 if (isExpanded &&
-                    (inputSentence.isNotEmpty ||
+                    (displayInput.isNotEmpty ||
                         outputTranslation.isNotEmpty))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (inputSentence.isNotEmpty)
+                        if (displayInput.isNotEmpty)
                           Text(
-                            inputSentence,
+                            displayInput,
                             style: TextStyle(
                               fontSize: _fontSize - 1,
                               color: Colors.grey.shade700,
                               fontStyle: FontStyle.italic,
                             ),
                           ),
-                        if (outputTranslation.isNotEmpty &&
+                        // For non-original variants (enhanced/future/present),
+                        // output_language_translation is the *original* sentence —
+                        // not a translation of the variant — so don't show it.
+                        if (_currentTab.toLowerCase() == 'original' &&
+                            outputTranslation.isNotEmpty &&
                             outputTranslation != sentence)
                           Text(
                             outputTranslation,
@@ -734,19 +837,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() => _scoredSentenceIndex = entryIndex);
 
+    // Save locally first — progress is never lost regardless of connectivity.
+    int localId = 0;
     try {
-      final result = await ApiService.scoreEntry(_lessonDate!, idx, score);
-      final reviewing = result['reviewing'] as Map<String, dynamic>?;
-      final nextReview = reviewing?['next_review']; // ignore: unused_local_variable
-      final intervalDays = reviewing?['interval_days'] as int?;
-
-      await LocalDbService.saveSrsScore(
+      localId = await LocalDbService.saveSrsScore(
         date: _lessonDate!,
         entryIndex: idx,
         score: score,
+        synced: false,
       );
+    } catch (_) {}
 
+    // Fire API in background; mark synced and show interval if server replies.
+    final savedId = localId;
+    ApiService.scoreEntry(_lessonDate!, idx, score).then((result) {
+      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
       if (mounted) {
+        final reviewing = result['reviewing'] as Map<String, dynamic>?;
+        final intervalDays = reviewing?['interval_days'] as int?;
         const scoreLabels = ['Again', '', 'Hard', 'Good', '', 'Easy'];
         final scoreLabel =
             score < scoreLabels.length ? scoreLabels[score] : '$score';
@@ -759,24 +867,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         );
       }
-    } catch (e) {
-      // Save locally even when server is unreachable
-      try {
-        await LocalDbService.saveSrsScore(
-          date: _lessonDate!,
-          entryIndex: idx,
-          score: score,
-        );
-      } catch (_) {}
+    }).catchError((e) {
+      // Score already saved locally; will sync via _syncPendingScores().
       if (mounted) {
+        final isOffline = e is SocketException || e is TimeoutException;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Score saved locally (server unreachable)'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(isOffline
+                ? 'Score saved (will sync when online)'
+                : 'Score saved locally — sync error: $e'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
-    }
+    });
   }
 
   // ── Input Diary renderer ──────────────────────────────────────────────────────
@@ -804,29 +908,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    return Markdown(
-      data: _diaryContent,
-      selectable: true,
-      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-        p: TextStyle(fontSize: _fontSize, color: Colors.black87),
-        h2: TextStyle(
-            fontSize: _fontSize + 4,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87),
-        h3: TextStyle(
-            fontSize: _fontSize + 2,
-            fontWeight: FontWeight.bold,
-            color: Colors.black54),
-        strong: TextStyle(
-            fontWeight: FontWeight.bold, color: const Color(0xFF3F51B5)),
-        em: TextStyle(
-            fontStyle: FontStyle.italic, color: Colors.grey.shade700),
-        blockquoteDecoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        _diaryContent,
+        style: TextStyle(fontSize: _fontSize, color: Colors.black87, height: 1.6),
+      ),
     );
   }
 
@@ -857,6 +944,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   : null,
             ),
             onPressed: _toggleLoop,
+          ),
+          IconButton(
+            tooltip: _cycleVariants
+                ? 'Cycle variants: on'
+                : 'Cycle variants: off',
+            icon: Icon(
+              Icons.playlist_play,
+              color: _cycleVariants
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            onPressed: _toggleCycleVariants,
           ),
           ListenableBuilder(
             listenable: SyncManager.instance,
@@ -953,6 +1052,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     setState(() {
                       _currentTab = tab;
                       _audioReady = false;
+                      // Clear entries when switching variants so stale content
+                      // from the previous tab is not shown.
+                      _sentenceEntries = [];
+                      _segments = [];
+                      _entrySpans = {};
+                      _expandedTranslations.clear();
+                      _sentenceKeys.clear();
                     });
                     if (tab == _kInputDiaryTab) {
                       _player.stop();
@@ -1029,16 +1135,48 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       StreamBuilder<PlayerState>(
                         stream: _player.playerStateStream,
                         builder: (_, snap) {
-                          final playing = snap.data?.playing ?? false;
+                          final state = snap.data;
+                          final playing = state?.playing ?? false;
+                          final completed = state?.processingState ==
+                              ProcessingState.completed;
+                          // Trigger cycle when completed (once, via side-effect in builder)
+                          if (completed && _cycleVariants && _audioReady) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _onPlaybackCompleted();
+                            });
+                          }
                           return IconButton(
                             iconSize: 48,
-                            icon: Icon(playing
-                                ? Icons.pause_circle
-                                : Icons.play_circle),
-                            onPressed: _audioReady
-                                ? () =>
-                                    playing ? _player.pause() : _player.play()
-                                : null,
+                            icon: Icon(
+                              !_audioReady
+                                  ? Icons.play_circle_outline
+                                  : completed && !_cycleVariants
+                                      ? Icons.replay_circle_filled
+                                      : playing
+                                          ? Icons.pause_circle
+                                          : Icons.play_circle,
+                              color: !_audioReady ? Colors.grey : null,
+                            ),
+                            onPressed: !_audioReady
+                                ? () {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(const SnackBar(
+                                      content: Text(
+                                          '⏳ Audio not downloaded yet — syncing now, please wait…'),
+                                      duration: Duration(seconds: 4),
+                                    ));
+                                    _triggerSync();
+                                  }
+                                : () async {
+                                    if (completed) {
+                                      await _player.seek(Duration.zero);
+                                      await _player.play();
+                                    } else if (playing) {
+                                      await _player.pause();
+                                    } else {
+                                      await _player.play();
+                                    }
+                                  },
                           );
                         },
                       ),
@@ -1064,7 +1202,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       IconButton(
                         tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
                         icon: Icon(
-                          Icons.repeat_one,
+                          _loopBlock ? Icons.repeat_one : Icons.repeat,
                           color: _loopBlock
                               ? Theme.of(context).colorScheme.primary
                               : null,
@@ -1074,10 +1212,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ],
                   ),
                   if (!_audioReady)
-                    const Text(
-                        'Audio not synced yet — tap ⟳ in the toolbar.',
-                        style:
-                            TextStyle(color: Colors.orange, fontSize: 12)),
+                    ListenableBuilder(
+                      listenable: SyncManager.instance,
+                      builder: (_, __) {
+                        final syncing = SyncManager.instance.isSyncing;
+                        return Container(
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade900.withValues(alpha: 0.15),
+                            border: Border.all(
+                                color: Colors.orange.shade700, width: 1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              syncing
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.orange))
+                                  : const Icon(Icons.sync_problem,
+                                      color: Colors.orange, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  syncing
+                                      ? 'Downloading audio… please wait'
+                                      : 'Audio not downloaded — tap ▶ or sync ⟳ to download',
+                                  style: const TextStyle(
+                                      color: Colors.orange, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),

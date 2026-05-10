@@ -1,11 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import '../services/sync_service.dart';
+import 'stats_screen.dart';
 
 /// Anki-style sentence review screen.
 ///
@@ -31,10 +34,25 @@ class _SentencesScreenState extends State<SentencesScreen> {
   bool _showTranslation = false;
   bool _showQA = false;
   bool _scoring = false;
+  bool _offlineMode = false;
+  bool _playingAllQa = false;
+  bool _syncing = false;
 
+  static const _cacheKey = 'sentences_due_cache';
+
+  // Sentence audio player
   late AudioPlayer _player;
   bool _audioLoaded = false;
   bool _audioPlaying = false;
+  bool _audioDownloading = false;
+  bool _audioUnavailable = false;
+
+  // Q&A audio player
+  late AudioPlayer _qaPlayer;
+  bool _qaPlaying = false;
+  String? _activeQaKey; // e.g. '0_q', '1_a'
+  bool _qaDownloading = false;
+  String? _qaDownloadingKey;
 
   @override
   void initState() {
@@ -42,15 +60,30 @@ class _SentencesScreenState extends State<SentencesScreen> {
     _player = AudioPlayer();
     _player.playerStateStream.listen((state) {
       if (mounted) {
-        setState(() => _audioPlaying = state.playing);
+        // Show play icon (not stop) once the clip finishes naturally
+        final done = state.processingState == ProcessingState.completed;
+        setState(() => _audioPlaying = state.playing && !done);
       }
     });
+
+    _qaPlayer = AudioPlayer();
+    _qaPlayer.playerStateStream.listen((state) {
+      if (mounted) {
+        final done = state.processingState == ProcessingState.completed;
+        setState(() {
+          _qaPlaying = state.playing && !done;
+          if (done) _activeQaKey = null;
+        });
+      }
+    });
+
     _loadSentences();
   }
 
   @override
   void dispose() {
     _player.dispose();
+    _qaPlayer.dispose();
     super.dispose();
   }
 
@@ -58,73 +91,255 @@ class _SentencesScreenState extends State<SentencesScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _offlineMode = false;
     });
     try {
       final sentences = await ApiService.getDueSentences(limit: 20);
+      // Cache for offline use
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, jsonEncode(sentences));
       if (mounted) {
         setState(() {
           _sentences = sentences;
           _currentIndex = 0;
           _loading = false;
         });
-        _loadAudio();
+        _loadAudio(autoPlay: true);
       }
-    } catch (e) {
+    } catch (_) {
+      // Try offline cache
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString(_cacheKey);
+        if (cached != null) {
+          final sentences =
+              List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+          if (mounted) {
+            setState(() {
+              _sentences = sentences;
+              _currentIndex = 0;
+              _loading = false;
+              _offlineMode = true;
+            });
+            _loadAudio(autoPlay: true);
+          }
+          return;
+        }
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString();
+          _error = 'Offline — sync the app when connected to load new sentences.';
         });
       }
     }
   }
 
-  Future<void> _loadAudio() async {
+  Future<void> _loadAudio({bool autoPlay = false}) async {
     if (_sentences.isEmpty) return;
     final item = _sentences[_currentIndex];
     final audioPath = item['sentence_audio_path'] as String? ?? '';
     if (audioPath.isEmpty) {
-      setState(() => _audioLoaded = false);
+      setState(() {
+        _audioLoaded = false;
+        _audioUnavailable = false;
+      });
       return;
     }
     try {
       final localFile = await SyncService.localPath(audioPath);
-      if (File(localFile).existsSync()) {
-        final title = item['sentence'] as String? ?? '';
-        final date = item['date'] as String? ?? '';
-        await _player.setAudioSource(
-          AudioSource.uri(
-            Uri.file(localFile),
-            tag: MediaItem(
-              id: '$date-${item['entry_index']}',
-              title: title.isNotEmpty ? title : 'Sentence',
-              album: 'LingoDiary',
-            ),
-          ),
-        );
-        setState(() => _audioLoaded = true);
-      } else {
-        setState(() => _audioLoaded = false);
+      if (!File(localFile).existsSync()) {
+        setState(() {
+          _audioDownloading = true;
+          _audioLoaded = false;
+          _audioUnavailable = false;
+        });
+        final ok = await SyncService.downloadFile(audioPath);
+        if (!mounted) return;
+        if (!ok) {
+          setState(() {
+            _audioDownloading = false;
+            _audioUnavailable = true;
+          });
+          return;
+        }
+        setState(() => _audioDownloading = false);
+      }
+      await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      if (mounted) {
+        setState(() { _audioLoaded = true; _audioUnavailable = false; });
+        if (autoPlay) _player.play();
       }
     } catch (_) {
-      setState(() => _audioLoaded = false);
+      if (mounted) setState(() { _audioLoaded = false; _audioDownloading = false; _audioUnavailable = true; });
     }
   }
 
-  void _playAudio() {
-    if (_audioLoaded) _player.play();
+  void _playAudio() async {
+    if (!_audioLoaded) return;
+    // Stop any Q&A playback first
+    if (_qaPlaying) {
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+    }
+    // If clip already played to end, seek back to start
+    if (_player.processingState == ProcessingState.completed) {
+      await _player.seek(Duration.zero);
+    }
+    _player.play();
+  }
+
+  /// Play a Q&A audio clip. Downloads the file if not cached.
+  Future<void> _playQaAudio(int pairIndex, String type, String? audioPath) async {
+    if (audioPath == null || audioPath.isEmpty) return;
+    final key = '${pairIndex}_$type';
+
+    // If already playing this clip → stop it
+    if (_activeQaKey == key && _qaPlaying) {
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      return;
+    }
+
+    // Stop main sentence player
+    if (_audioPlaying) await _player.stop();
+
+    try {
+      final localFile = await SyncService.localPath(audioPath);
+      if (!File(localFile).existsSync()) {
+        setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
+        final ok = await SyncService.downloadFile(audioPath);
+        if (!mounted) return;
+        setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+        if (!ok) return;
+      }
+      setState(() { _activeQaKey = key; _qaPlaying = true; });
+      await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      _qaPlayer.play();
+    } catch (_) {
+      if (mounted) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+    }
+  }
+
+  /// Play all Q&A audio clips for the current sentence in sequence.
+  /// Calling again while playing stops playback.
+  Future<void> _playAllQa(List<Map<String, dynamic>> qa) async {
+    if (_playingAllQa) {
+      setState(() => _playingAllQa = false);
+      await _qaPlayer.stop();
+      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      return;
+    }
+    setState(() => _playingAllQa = true);
+    if (_audioPlaying) await _player.stop();
+
+    for (var i = 0; i < qa.length; i++) {
+      for (final type in ['q', 'a']) {
+        if (!_playingAllQa || !mounted) return;
+        final path = type == 'q'
+            ? qa[i]['question_audio_path'] as String? ?? ''
+            : qa[i]['answer_audio_path'] as String? ?? '';
+        if (path.isEmpty) continue;
+
+        final localFile = await SyncService.localPath(path);
+        if (!File(localFile).existsSync()) {
+          final ok = await SyncService.downloadFile(path);
+          if (!ok || !mounted) continue;
+        }
+
+        if (!_playingAllQa || !mounted) return;
+        final key = '${i}_$type';
+        setState(() { _activeQaKey = key; _qaPlaying = true; });
+        await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+        await _qaPlayer.seek(Duration.zero);
+        _qaPlayer.play();
+
+        // Wait for this clip to complete before playing the next one.
+        await _qaPlayer.playerStateStream.firstWhere(
+          (s) =>
+              s.processingState == ProcessingState.completed ||
+              s.processingState == ProcessingState.idle ||
+              (!s.playing && s.processingState != ProcessingState.buffering),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() { _playingAllQa = false; _qaPlaying = false; _activeQaKey = null; });
+    }
+  }
+
+  /// Downloads all audio files for the current sentence (sentence + Q&A).
+  Future<void> _syncCurrentLessonAudio() async {
+    if (_sentences.isEmpty || _syncing) return;
+    final item = _sentences[_currentIndex];
+    await _syncItemAudio(item);
+    if (mounted) {
+      setState(() => _syncing = false);
+      _loadAudio();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Audio synced'), duration: Duration(seconds: 2)),
+      );
+    }
+  }
+
+  /// Downloads audio for all remaining sentences in the review queue.
+  Future<void> _syncAllAudio() async {
+    if (_sentences.isEmpty || _syncing) return;
+    setState(() => _syncing = true);
+    int count = 0;
+    for (var i = _currentIndex; i < _sentences.length; i++) {
+      if (!mounted) return;
+      await _syncItemAudio(_sentences[i]);
+      count++;
+    }
+    if (mounted) {
+      setState(() => _syncing = false);
+      _loadAudio();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Synced audio for $count sentences'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// Helper: collect and download all audio paths for [item].
+  Future<void> _syncItemAudio(Map<String, dynamic> item) async {
+    final paths = <String>[];
+    final sentAudio = item['sentence_audio_path'] as String? ?? '';
+    if (sentAudio.isNotEmpty) paths.add(sentAudio);
+    final qa = (item['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    for (final pair in qa) {
+      final q = pair['question_audio_path'] as String? ?? '';
+      final a = pair['answer_audio_path'] as String? ?? '';
+      if (q.isNotEmpty) paths.add(q);
+      if (a.isNotEmpty) paths.add(a);
+    }
+    for (final p in paths) {
+      await SyncService.downloadFile(p);
+    }
   }
 
   void _next() {
     _player.stop();
+    _qaPlayer.stop();
+    setState(() => _playingAllQa = false);
     if (_currentIndex < _sentences.length - 1) {
       setState(() {
         _currentIndex++;
         _showTranslation = false;
         _showQA = false;
         _audioLoaded = false;
+        _audioDownloading = false;
+        _audioUnavailable = false;
+        _qaPlaying = false;
+        _activeQaKey = null;
+        _qaDownloading = false;
+        _qaDownloadingKey = null;
       });
-      _loadAudio();
+      _loadAudio(autoPlay: true);
     } else {
       // All done — reload a fresh batch
       _loadSentences();
@@ -135,17 +350,31 @@ class _SentencesScreenState extends State<SentencesScreen> {
     if (_scoring) return;
     setState(() => _scoring = true);
     final item = _sentences[_currentIndex];
+    final date = item['date'] as String? ?? '';
+    final entryIndex = item['entry_index'] as int? ?? 0;
+
+    // Save locally first — progress is never lost regardless of connectivity.
+    int localId = 0;
     try {
-      await ApiService.scoreEntry(
-        item['date'] as String,
-        item['entry_index'] as int,
-        score,
+      localId = await LocalDbService.saveSrsScore(
+        date: date,
+        entryIndex: entryIndex,
+        score: score,
+        synced: false,
       );
-    } catch (_) {
-      // Non-fatal — we'll still advance
-    }
+    } catch (_) {}
+
+    // Advance immediately — don't wait for the network.
     setState(() => _scoring = false);
     _next();
+
+    // Fire API in background; mark synced on success so it won't replay.
+    final savedId = localId;
+    ApiService.scoreEntry(date, entryIndex, score).then((_) {
+      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
+    }).catchError((_) {
+      // Will be replayed on next sync via _syncPendingScores().
+    });
   }
 
   Widget _scoreButton(String label, int score, Color color) {
@@ -238,6 +467,54 @@ class _SentencesScreenState extends State<SentencesScreen> {
       appBar: AppBar(
         title: const Text('Sentence Review'),
         actions: [
+          // Sync options popup
+          _syncing
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : PopupMenuButton<String>(
+                  icon: const Icon(Icons.download_outlined),
+                  tooltip: 'Sync audio',
+                  onSelected: (value) {
+                    if (value == 'current') _syncCurrentLessonAudio();
+                    if (value == 'all') _syncAllAudio();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'current',
+                      child: ListTile(
+                        leading: Icon(Icons.audio_file_outlined),
+                        title: Text('Sync current sentence'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'all',
+                      child: ListTile(
+                        leading: const Icon(Icons.cloud_download_outlined),
+                        title: Text(
+                            'Sync all (${_sentences.length - _currentIndex} sentences)'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                  ],
+                ),
+          // Stats
+          IconButton(
+            tooltip: 'Stats & Streak',
+            icon: const Icon(Icons.bar_chart_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const StatsScreen()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -251,6 +528,26 @@ class _SentencesScreenState extends State<SentencesScreen> {
       ),
       body: Column(
         children: [
+          // Offline mode banner
+          if (_offlineMode)
+            Material(
+              color: Colors.orange.shade700,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_off, size: 14, color: Colors.white),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Offline — showing cached review. Scores will sync when connected.',
+                        style: TextStyle(fontSize: 11, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           // Progress bar
           LinearProgressIndicator(
             value: _sentences.isEmpty
@@ -311,24 +608,54 @@ class _SentencesScreenState extends State<SentencesScreen> {
                           // Audio playback row
                           Row(
                             children: [
-                              IconButton(
-                                onPressed: _audioLoaded ? _playAudio : null,
-                                icon: Icon(
-                                  _audioPlaying
-                                      ? Icons.stop_circle_outlined
-                                      : Icons.play_circle_outline,
-                                  size: 32,
-                                  color: _audioLoaded
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Colors.grey.shade400,
+                              if (_audioDownloading)
+                                const SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: Padding(
+                                    padding: EdgeInsets.all(6),
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              else
+                                IconButton(
+                                  onPressed: _audioLoaded
+                                      ? (_audioPlaying ? () => _player.stop() : _playAudio)
+                                      : null,
+                                  icon: Icon(
+                                    _audioPlaying
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.play_circle_outline,
+                                    size: 32,
+                                    color: _audioLoaded
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.grey.shade400,
+                                  ),
                                 ),
-                              ),
-                              if (!_audioLoaded)
+                              if (_audioDownloading)
                                 const Text(
-                                  'Audio not synced',
-                                  style: TextStyle(
-                                      fontSize: 11, color: Colors.grey),
-                                ),
+                                  'Downloading audio…',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                )
+                              else if (_audioUnavailable)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'Audio unavailable',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                    IconButton(
+                                      onPressed: _loadAudio,
+                                      icon: const Icon(Icons.refresh, size: 16, color: Colors.grey),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ],
+                                )
+                              else if (!_audioLoaded)
+                                const SizedBox.shrink(),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -385,35 +712,74 @@ class _SentencesScreenState extends State<SentencesScreen> {
                     ),
                   ),
 
-                  // Reveal translation button
-                  if (!_showTranslation)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () =>
-                              setState(() => _showTranslation = true),
-                          icon: const Icon(Icons.visibility_outlined, size: 16),
-                          label: const Text('Show translation'),
+                  // Reveal / hide translation button
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            setState(() => _showTranslation = !_showTranslation),
+                        icon: Icon(
+                          _showTranslation
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 16,
                         ),
+                        label: Text(_showTranslation
+                            ? 'Hide translation'
+                            : 'Show translation'),
                       ),
                     ),
+                  ),
 
                   const SizedBox(height: 12),
 
                   // Q&A section
                   if (qa.isNotEmpty) ...[
-                    if (!_showQA)
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () => setState(() => _showQA = true),
-                          icon: const Icon(Icons.quiz_outlined, size: 16),
-                          label: Text('Show Q&A (${qa.length} pairs)'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => setState(() => _showQA = !_showQA),
+                            icon: Icon(
+                              _showQA
+                                  ? Icons.expand_less
+                                  : Icons.quiz_outlined,
+                              size: 16,
+                            ),
+                            label: Text(_showQA
+                                ? 'Hide Q&A'
+                                : 'Show Q&A (${qa.length} pairs)'),
+                          ),
                         ),
-                      )
-                    else
+                        if (_showQA) ...[
+                          const SizedBox(width: 8),
+                          // Play all Q&A in sequence
+                          OutlinedButton.icon(
+                            onPressed: () => _playAllQa(qa),
+                            icon: Icon(
+                              _playingAllQa
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.play_circle_outline,
+                              size: 16,
+                              color: _playingAllQa
+                                  ? Colors.red
+                                  : Theme.of(context).colorScheme.primary,
+                            ),
+                            label: Text(
+                              _playingAllQa ? 'Stop' : 'Play all',
+                              style: TextStyle(
+                                color: _playingAllQa
+                                    ? Colors.red
+                                    : Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_showQA)
                       Card(
                         color: Colors.grey.shade50,
                         child: Padding(
@@ -421,6 +787,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: qa.asMap().entries.map((e) {
+                              final idx = e.key;
                               final qaPair = e.value;
                               final question =
                                   qaPair['question'] as String? ?? '';
@@ -429,52 +796,104 @@ class _SentencesScreenState extends State<SentencesScreen> {
                                   qaPair['question_input'] as String? ?? '';
                               final answerInput =
                                   qaPair['answer_input'] as String? ?? '';
+                              final qAudioPath =
+                                  qaPair['question_audio_path'] as String? ?? '';
+                              final aAudioPath =
+                                  qaPair['answer_audio_path'] as String? ?? '';
+
+                              Widget qaPlayBtn(String type, String path) {
+                                final key = '${idx}_$type';
+                                final isActive = _activeQaKey == key;
+                                final isLoading = _qaDownloading && _qaDownloadingKey == key;
+                                if (path.isEmpty) return const SizedBox.shrink();
+                                return GestureDetector(
+                                  onTap: isLoading ? null : () => _playQaAudio(idx, type, path),
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(right: 4, top: 2),
+                                    child: isLoading
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                                          )
+                                        : Icon(
+                                            isActive && _qaPlaying
+                                                ? Icons.stop_circle_outlined
+                                                : Icons.play_circle_outline,
+                                            size: 16,
+                                            color: isActive && _qaPlaying
+                                                ? Theme.of(context).colorScheme.primary
+                                                : Colors.grey.shade500,
+                                          ),
+                                  ),
+                                );
+                              }
+
                               return Padding(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 6),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      question,
-                                      style: const TextStyle(
-                                        color: Color(0xFFE65100),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    if (_showTranslation &&
-                                        questionInput.isNotEmpty)
-                                      Text(
-                                        questionInput,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade500,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                          left: 12, top: 2),
-                                      child: Text(
-                                        answer,
-                                        style: const TextStyle(
-                                            color: Color(0xFF2E7D32)),
-                                      ),
-                                    ),
-                                    if (_showTranslation &&
-                                        answerInput.isNotEmpty)
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(left: 12),
-                                        child: Text(
-                                          answerInput,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500,
-                                            fontStyle: FontStyle.italic,
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        qaPlayBtn('q', qAudioPath),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                question,
+                                                style: const TextStyle(
+                                                  color: Color(0xFFE65100),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              if (questionInput.isNotEmpty)
+                                                Text(
+                                                  questionInput,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey.shade500,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 4, top: 2),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          qaPlayBtn('a', aAudioPath),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  answer,
+                                                  style: const TextStyle(
+                                                      color: Color(0xFF2E7D32)),
+                                                ),
+                                                if (answerInput.isNotEmpty)
+                                                  Text(
+                                                    answerInput,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.grey.shade500,
+                                                      fontStyle: FontStyle.italic,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    ),
                                   ],
                                 ),
                               );

@@ -5,6 +5,11 @@ Generates individual TTS audio segments (sentence, questions, answers) for each
 TPRS variant, measuring their exact WAV durations to build precise start/end_ms
 timings, then exports each segment as MP3.
 
+After measuring timings, the full lesson MP3 is **reassembled from those exact
+segment files**.  This guarantees that the timings stored in diary.json match
+the audio file the Flutter player actually loads — Piper TTS is non-deterministic,
+so re-generating TTS at a later time produces slightly different durations.
+
 Segment files are kept permanently in:
     output_dir/TPRS/SEGMENTS/{YYYY-MM-DD}_{variant}/
         {entry_idx}_s.mp3        <- sentence (single copy, pre-repeat)
@@ -13,18 +18,13 @@ Segment files are kept permanently in:
 
 All paths and timings are written back into diary.json.
 
-No proportional scaling is needed because segment durations are measured from the
-actual generated WAV files (same TTS call as _create_audio_for_day_block).
-
 Audio structure (per sentence S, R = repeat_tprs):
-    [S x R] + [pause x R]
-    per Q&A: [pause x R] + [Q x R] + [silence x R] + [A x R] + [pause x R]
-
-Pauses/silences are computed from config (not stored as separate files).
+    [S x R] + pause_ms
+    per Q&A: pause_ms + [Q x R] + answer_silence_ms + [A x R] + pause_ms
 
 Usage:
-    python -m lingoanki.audio_timing \
-        --config ~/.config/lingoDiary/config.yaml \
+    python -m lingoanki.audio_timing \\
+        --config ~/.config/lingoDiary/config.yaml \\
         --json ~/Documents/lingodiary/<user>/diary.json
 
     from lingoanki.audio_timing import backfill_audio_timings
@@ -134,6 +134,83 @@ def _segments_complete(segs_dir: str, entries: list, variant_key: str) -> bool:
     return True
 
 
+def _assemble_full_mp3(
+    entries: list,
+    variant_key: str,
+    segs_dir: str,
+    repeat_tprs: int,
+    pause_ms: int,
+    answer_silence_ms: int,
+    output_mp3_path: str,
+) -> bool:
+    """
+    Reassemble the full lesson MP3 from individual segment files.
+
+    This guarantees that the timings stored in diary.json (measured from these
+    exact segment files) precisely match the rebuilt MP3.  Must be called after
+    _compute_day_timings() or when segments are already confirmed complete.
+
+    Structure (mirrors _create_audio_for_day_block):
+        per entry:  s × R  +  silent(pause_ms)
+        per Q&A:    silent(pause_ms)  +  q × R  +  silent(answer_silence_ms)
+                    +  a × R  +  silent(pause_ms)
+
+    Returns True if the MP3 was written, False if no usable segments were found.
+    """
+    from pydub import AudioSegment  # type: ignore
+
+    R = max(1, repeat_tprs)
+    pause_seg = AudioSegment.silent(duration=pause_ms)
+    silence_seg = AudioSegment.silent(duration=answer_silence_ms)
+    combined = AudioSegment.empty()
+    has_any = False
+
+    for idx, entry in enumerate(entries):
+        variant = entry.lessons.get_variant(variant_key)
+        if not variant.sentence:
+            continue
+
+        s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
+        if not os.path.exists(s_path):
+            logger.warning(f"  Segment missing, skipping entry {idx}: {s_path}")
+            continue
+
+        has_any = True
+        s_seg = AudioSegment.from_mp3(s_path)
+        for _ in range(R):
+            combined += s_seg
+        combined += pause_seg
+
+        for j, qa in enumerate(variant.qa):
+            q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
+            a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
+            if not os.path.exists(q_path) or not os.path.exists(a_path):
+                logger.warning(
+                    f"  Q/A segment missing for entry {idx} qa {j}, skipping Q&A block"
+                )
+                continue
+            q_seg = AudioSegment.from_mp3(q_path)
+            a_seg = AudioSegment.from_mp3(a_path)
+            combined += pause_seg
+            for _ in range(R):
+                combined += q_seg
+            combined += silence_seg
+            for _ in range(R):
+                combined += a_seg
+            combined += pause_seg
+
+    if not has_any:
+        return False
+
+    os.makedirs(os.path.dirname(output_mp3_path), exist_ok=True)
+    combined.export(output_mp3_path, format="mp3")
+    logger.info(
+        f"  Rebuilt full MP3 from segments: {os.path.basename(output_mp3_path)} "
+        f"({len(combined) // 1000}s)"
+    )
+    return True
+
+
 def _compute_day_timings(
     entries: list,
     variant_key: str,
@@ -175,8 +252,8 @@ def _compute_day_timings(
         entry_start = cumulative
         s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
         s_dur = _generate_segment(variant.sentence, s_path, tts_plugin, lang, voice)
-        entry_end = entry_start + s_dur * R
-        timings.append((entry_start, entry_end))
+        entry_end = int(entry_start + s_dur * R)
+        timings.append((int(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
 
         # Advance past sentence + its trailing pause
@@ -187,18 +264,18 @@ def _compute_day_timings(
             cumulative += pause_ms  # pause before question
 
             q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-            q_start = cumulative
+            q_start = int(cumulative)
             q_dur = _generate_segment(qa.question, q_path, tts_plugin, lang, voice)
-            cumulative += q_dur * R
+            cumulative = int(cumulative + q_dur * R)
             qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
             qa.question_audio_path = os.path.relpath(q_path, output_dir)
 
             cumulative += answer_silence_ms  # silence for user to answer
 
             a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-            a_start = cumulative
+            a_start = int(cumulative)
             a_dur = _generate_segment(qa.answer, a_path, tts_plugin, lang, voice)
-            cumulative += a_dur * R
+            cumulative = int(cumulative + a_dur * R)
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
             qa.answer_audio_path = os.path.relpath(a_path, output_dir)
 
@@ -296,9 +373,9 @@ def backfill_audio_timings(
                     segs_dir, day.entries, variant_key
                 ):
                     logger.info(
-                        f"  {variant_key}: segments already complete, skipping."
+                        f"  {variant_key}: segments already complete, skipping TTS."
                     )
-                    # Still fill paths if they're missing from the JSON
+                    # Fill paths if they're missing from the JSON
                     for idx, entry in enumerate(day.entries):
                         v = entry.lessons.get_variant(variant_key)
                         if not v.sentence:
@@ -320,37 +397,59 @@ def backfill_audio_timings(
                                     a_path, output_dir
                                 )
                                 day_modified = True
-                    continue
+                else:
+                    logger.info(
+                        f"  {variant_key}: generating segments for {len(populated)} entries "
+                        f"(repeat x{repeat_tprs})..."
+                    )
+                    timings = _compute_day_timings(
+                        day.entries,
+                        variant_key,
+                        tts_plugin,
+                        lang,
+                        voice,
+                        repeat_tprs,
+                        pause_ms,
+                        answer_silence_ms,
+                        output_dir=output_dir,
+                        date_str=day.date,
+                    )
+                    if not timings:
+                        continue
 
-                logger.info(
-                    f"  {variant_key}: generating segments for {len(populated)} entries "
-                    f"(repeat x{repeat_tprs})..."
-                )
-                timings = _compute_day_timings(
-                    day.entries,
-                    variant_key,
-                    tts_plugin,
-                    lang,
-                    voice,
-                    repeat_tprs,
-                    pause_ms,
-                    answer_silence_ms,
-                    output_dir=output_dir,
-                    date_str=day.date,
-                )
-                if not timings:
-                    continue
+                    for entry, (start_ms, end_ms) in zip(day.entries, timings):
+                        v = entry.lessons.get_variant(variant_key)
+                        if v.sentence:
+                            v.audio_timing = AudioTiming(
+                                start_ms=start_ms, end_ms=end_ms
+                            )
+                            day_modified = True
 
-                for entry, (start_ms, end_ms) in zip(day.entries, timings):
-                    v = entry.lessons.get_variant(variant_key)
-                    if v.sentence:
-                        v.audio_timing = AudioTiming(start_ms=start_ms, end_ms=end_ms)
+                    logger.info(
+                        f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
+                        f"(~{timings[-1][1]//1000}s)"
+                    )
+
+                # Always rebuild the full MP3 from segment files so timing in
+                # diary.json is guaranteed to match the audio the player sees.
+                mp3_rel = day.lesson_audio_paths.get(variant_key, "")
+                mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
+                if mp3_path:
+                    rebuilt = _assemble_full_mp3(
+                        day.entries,
+                        variant_key,
+                        segs_dir,
+                        repeat_tprs,
+                        pause_ms,
+                        answer_silence_ms,
+                        mp3_path,
+                    )
+                    if rebuilt:
                         day_modified = True
-
-                logger.info(
-                    f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
-                    f"(~{timings[-1][1]//1000}s)"
-                )
+                else:
+                    logger.debug(
+                        f"  {variant_key}: no MP3 path known, skipping rebuild."
+                    )
 
             # Save after each day so progress is not lost on interruption
             if day_modified:

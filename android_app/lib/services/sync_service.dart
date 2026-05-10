@@ -17,6 +17,21 @@ class SyncService {
     return '${dir.path}/$relPath';
   }
 
+  /// Downloads a single file from the server and caches it locally.
+  /// Returns true on success, false if the server returned a non-200 status.
+  /// Throws on network error.
+  static Future<bool> downloadFile(String relPath) async {
+    final dir = await _localOutputDir();
+    final localFile = File('${dir.path}/$relPath');
+    final resp = await ApiService.downloadFile(relPath);
+    if (resp.statusCode == 200) {
+      await localFile.parent.create(recursive: true);
+      await localFile.writeAsBytes(resp.bodyBytes);
+      return true;
+    }
+    return false;
+  }
+
   /// Syncs all output files from the server.
   /// Downloads files that are missing or have a newer mtime on the server.
   /// Returns the number of files downloaded.
