@@ -57,6 +57,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _loopEnabled = false;
   // Block repeat
   bool _loopBlock = false;
+  // Auto-cycle through all variants when playback completes
+  bool _cycleVariants = false;
+  // Canonical variant order (only those present in this lesson)
+  static const _kCanonicalOrder = ['original', 'enhanced', 'present', 'future'];
 
   // Sentence timing + highlighting
   List<Map<String, dynamic>> _sentenceEntries = [];
@@ -85,7 +89,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     _player = AudioPlayer();
     _variants = widget.lesson['variants'] as Map<String, dynamic>? ?? {};
-    _tabNames = [..._variants.keys, _kInputDiaryTab];
+    // Sort tabs into canonical order; append Input Diary at the end.
+    final orderedVariants = _kCanonicalOrder
+        .where((v) => _variants.containsKey(v))
+        .toList();
+    final extras = _variants.keys.where((v) => !_kCanonicalOrder.contains(v)).toList();
+    _tabNames = [...orderedVariants, ...extras, _kInputDiaryTab];
     _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
     // Extract YYYY-MM-DD from base name (e.g. …_TPRS_2026-01-21_…)
@@ -136,11 +145,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadKeywords() async {
     final prefs = await SharedPreferences.getInstance();
+    final loopDefault = prefs.getBool('lesson_loop_default') ?? false;
     setState(() {
       _kwQuestion = prefs.getString('tprs_question') ?? 'SPØRSMÅL:';
       _kwAnswer = prefs.getString('tprs_answer') ?? 'SVAR:';
       _fontSize = prefs.getDouble('player_font_size') ?? 14.0;
+      _loopEnabled = loopDefault;
+      _cycleVariants = prefs.getBool('lesson_cycle_variants') ?? false;
     });
+    _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
   }
 
   void _cycleFontSize() async {
@@ -416,6 +429,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleLoopBlock() {
     setState(() => _loopBlock = !_loopBlock);
+  }
+
+  void _toggleCycleVariants() async {
+    setState(() => _cycleVariants = !_cycleVariants);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('lesson_cycle_variants', _cycleVariants);
+  }
+
+  /// Called when playback reaches the end. If cycle mode is on, advance to
+  /// the next available variant in canonical order; otherwise do nothing
+  /// (the replay icon will appear via the StreamBuilder).
+  Future<void> _onPlaybackCompleted() async {
+    if (!_cycleVariants) return;
+    // Canonical variant list filtered to only those present in this lesson
+    final available = _kCanonicalOrder
+        .where((v) => _variants.containsKey(v))
+        .toList();
+    if (available.isEmpty) return;
+    final currentIdx = available.indexOf(_currentTab);
+    if (currentIdx < 0 || currentIdx >= available.length - 1) {
+      // Already on the last variant (or not a variant tab) — stop cycling
+      return;
+    }
+    final nextTab = available[currentIdx + 1];
+    setState(() => _currentTab = nextTab);
+    await _loadVariant(nextTab);
+    // Small delay to let audio load before playing
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (mounted && _audioReady) {
+      await _player.seek(Duration.zero);
+      await _player.play();
+    }
   }
 
   /// Load the Input Diary content.
@@ -910,6 +955,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             onPressed: _toggleLoop,
           ),
+          IconButton(
+            tooltip: _cycleVariants
+                ? 'Cycle variants: on'
+                : 'Cycle variants: off',
+            icon: Icon(
+              Icons.playlist_play,
+              color: _cycleVariants
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            onPressed: _toggleCycleVariants,
+          ),
           ListenableBuilder(
             listenable: SyncManager.instance,
             builder: (_, __) {
@@ -1092,12 +1149,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final playing = state?.playing ?? false;
                           final completed = state?.processingState ==
                               ProcessingState.completed;
+                          // Trigger cycle when completed (once, via side-effect in builder)
+                          if (completed && _cycleVariants && _audioReady) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _onPlaybackCompleted();
+                            });
+                          }
                           return IconButton(
                             iconSize: 48,
                             icon: Icon(
                               !_audioReady
                                   ? Icons.play_circle_outline
-                                  : completed
+                                  : completed && !_cycleVariants
                                       ? Icons.replay_circle_filled
                                       : playing
                                           ? Icons.pause_circle

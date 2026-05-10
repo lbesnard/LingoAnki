@@ -21,6 +21,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _serverController;
   bool _saving = false;
   bool _clearing = false;
+  bool _loopDefault = false;
+  bool _cycleVariants = false;
 
   @override
   void initState() {
@@ -45,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _serverUrl = serverUrl;
       _serverController.text = serverUrl;
       _cacheSize = cacheSize;
+      _loopDefault = prefs.getBool('lesson_loop_default') ?? false;
+      _cycleVariants = prefs.getBool('lesson_cycle_variants') ?? false;
     });
   }
 
@@ -225,6 +229,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+          const Divider(),
+
+          // ── Lesson playback ───────────────────────────────────────────────
+          _sectionHeader('Lesson playback'),
+          SwitchListTile(
+            secondary: const Icon(Icons.repeat),
+            title: const Text('Auto-repeat lesson'),
+            subtitle: const Text(
+                'Start each lesson with the repeat loop enabled by default'),
+            value: _loopDefault,
+            onChanged: (v) async {
+              setState(() => _loopDefault = v);
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('lesson_loop_default', v);
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.playlist_play),
+            title: const Text('Auto-cycle all variants'),
+            subtitle: const Text(
+                'When a variant finishes, automatically play the next one: '
+                'Original → Enhanced → Present → Future, then stop'),
+            value: _cycleVariants,
+            onChanged: (v) async {
+              setState(() => _cycleVariants = v);
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('lesson_cycle_variants', v);
+            },
           ),
           const Divider(),
 
