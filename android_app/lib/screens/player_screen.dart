@@ -59,8 +59,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _loopBlock = false;
   // Auto-cycle through all variants when playback completes
   bool _cycleVariants = false;
-  // Canonical variant order (only those present in this lesson)
-  static const _kCanonicalOrder = ['original', 'enhanced', 'present', 'future'];
+  // Guard: prevent _onPlaybackCompleted from firing multiple times per completion
+  bool _cycleTriggered = false;
+  // Canonical variant order — must match the capitalized keys from the API
+  // (variant_display = variant.lstrip("_").title() in webapp.py)
+  static const _kCanonicalOrder = ['Original', 'Enhanced', 'Present', 'Future'];
 
   // Sentence timing + highlighting
   List<Map<String, dynamic>> _sentenceEntries = [];
@@ -175,6 +178,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _player.stop();
     setState(() {
       _audioReady = false;
+      _cycleTriggered = false;
       _activeEntryIndex = -1;
       _activeQaIndex = -1;
       _activeIsQuestion = false;
@@ -441,7 +445,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// the next available variant in canonical order; otherwise do nothing
   /// (the replay icon will appear via the StreamBuilder).
   Future<void> _onPlaybackCompleted() async {
-    if (!_cycleVariants) return;
+    if (!_cycleVariants || _cycleTriggered) return;
+    setState(() => _cycleTriggered = true);
     // Canonical variant list filtered to only those present in this lesson
     final available = _kCanonicalOrder
         .where((v) => _variants.containsKey(v))
@@ -455,8 +460,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final nextTab = available[currentIdx + 1];
     setState(() => _currentTab = nextTab);
     await _loadVariant(nextTab);
-    // Small delay to let audio load before playing
-    await Future.delayed(const Duration(milliseconds: 300));
+    // Wait for audio to be ready (up to 5 s)
+    for (var i = 0; i < 50; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_audioReady) break;
+    }
     if (mounted && _audioReady) {
       await _player.seek(Duration.zero);
       await _player.play();
@@ -592,7 +600,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               entry['input_language_sentence'] as String? ?? '';
           // For non-original variants, prefer sentence_input (variant's own
           // English translation); fall back to inputSentence (original English).
-          final displayInput = (_currentTab != 'original' && sentenceInput.isNotEmpty)
+          final displayInput = (_currentTab.toLowerCase() != 'original' && sentenceInput.isNotEmpty)
               ? sentenceInput
               : inputSentence;
           final outputTranslation =
@@ -680,7 +688,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         // For non-original variants (enhanced/future/present),
                         // output_language_translation is the *original* sentence —
                         // not a translation of the variant — so don't show it.
-                        if (_currentTab == 'original' &&
+                        if (_currentTab.toLowerCase() == 'original' &&
                             outputTranslation.isNotEmpty &&
                             outputTranslation != sentence)
                           Text(
