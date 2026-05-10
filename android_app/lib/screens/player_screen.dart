@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -909,29 +908,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    return Markdown(
-      data: _diaryContent,
-      selectable: true,
-      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-        p: TextStyle(fontSize: _fontSize, color: Colors.black87),
-        h2: TextStyle(
-            fontSize: _fontSize + 4,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87),
-        h3: TextStyle(
-            fontSize: _fontSize + 2,
-            fontWeight: FontWeight.bold,
-            color: Colors.black54),
-        strong: TextStyle(
-            fontWeight: FontWeight.bold, color: const Color(0xFF3F51B5)),
-        em: TextStyle(
-            fontStyle: FontStyle.italic, color: Colors.grey.shade700),
-        blockquoteDecoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        _diaryContent,
+        style: TextStyle(fontSize: _fontSize, color: Colors.black87, height: 1.6),
+      ),
     );
   }
 
