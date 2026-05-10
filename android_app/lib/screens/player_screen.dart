@@ -1083,13 +1083,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ProcessingState.completed;
                           return IconButton(
                             iconSize: 48,
-                            icon: Icon(completed
-                                ? Icons.replay_circle_filled
-                                : playing
-                                    ? Icons.pause_circle
-                                    : Icons.play_circle),
-                            onPressed: _audioReady
-                                ? () async {
+                            icon: Icon(
+                              !_audioReady
+                                  ? Icons.play_circle_outline
+                                  : completed
+                                      ? Icons.replay_circle_filled
+                                      : playing
+                                          ? Icons.pause_circle
+                                          : Icons.play_circle,
+                              color: !_audioReady ? Colors.grey : null,
+                            ),
+                            onPressed: !_audioReady
+                                ? () {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(const SnackBar(
+                                      content: Text(
+                                          '⏳ Audio not downloaded yet — syncing now, please wait…'),
+                                      duration: Duration(seconds: 4),
+                                    ));
+                                    _triggerSync();
+                                  }
+                                : () async {
                                     if (completed) {
                                       await _player.seek(Duration.zero);
                                       await _player.play();
@@ -1098,8 +1112,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     } else {
                                       await _player.play();
                                     }
-                                  }
-                                : null,
+                                  },
                           );
                         },
                       ),
@@ -1135,10 +1148,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ],
                   ),
                   if (!_audioReady)
-                    const Text(
-                        'Audio not synced yet — tap ⟳ in the toolbar.',
-                        style:
-                            TextStyle(color: Colors.orange, fontSize: 12)),
+                    ListenableBuilder(
+                      listenable: SyncManager.instance,
+                      builder: (_, __) {
+                        final syncing = SyncManager.instance.isSyncing;
+                        return Container(
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade900.withValues(alpha: 0.15),
+                            border: Border.all(
+                                color: Colors.orange.shade700, width: 1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              syncing
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.orange))
+                                  : const Icon(Icons.sync_problem,
+                                      color: Colors.orange, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  syncing
+                                      ? 'Downloading audio… please wait'
+                                      : 'Audio not downloaded — tap ▶ or sync ⟳ to download',
+                                  style: const TextStyle(
+                                      color: Colors.orange, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
