@@ -93,6 +93,17 @@ from pydub import AudioSegment
 APP_NAME = "lingoDiary"
 CONFIG_FILE = "config.yaml"
 
+# ── Template constants (formerly user-configurable, now fixed) ─────────────
+# Diary markdown HTML markers (used by setup_output_diary_markdown / template_help)
+_TMPL_DIARY_TRIAL = '<span style="color: #C70039 ">Forsøk</span>:'
+_TMPL_DIARY_ANSWER = '<span style="color: #097969">Rettelse</span>:'
+_TMPL_DIARY_TIPS = '<span style="color: #dda504">Tips</span>:'
+
+# TPRS markdown line prefixes (used by TprsCreation to write/read TPRS markdown)
+_TMPL_TPRS_SENTENCE = "SETNING:"
+_TMPL_TPRS_QUESTION = "SPØRSMÅL:"
+_TMPL_TPRS_ANSWER = "SVAR:"
+
 
 class DiaryHandler:
     def __init__(self, config_path=None):
@@ -104,7 +115,7 @@ class DiaryHandler:
         """
         self.config = self.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
-        self.deck_name = self.config["anki_deck_name"]
+        self.deck_name = self.config.get("anki_deck_name", "LingoDiary")
         self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
@@ -137,12 +148,30 @@ class DiaryHandler:
         if os.path.exists(config_path):
             with open(config_path) as f:
                 conf = yaml.safe_load(f) or {}
+
             # Ensure 'languages' key exists
             if "languages" not in conf:
                 conf["languages"] = {}
-            # Set default for 'output_script' if not present
             if "output_script" not in conf["languages"]:
                 conf["languages"]["output_script"] = "native"
+
+            # Derive defaults from the config directory name (the username) so that
+            # output_dir, markdown_diary_path, and markdown_tprs_path are optional
+            # in the per-user config.yaml.
+            username = os.path.basename(os.path.dirname(os.path.abspath(config_path)))
+            data_root = os.getenv("DATA_ROOT", "/data")
+            default_output_dir = os.path.join(data_root, username)
+
+            conf.setdefault("output_dir", default_output_dir)
+            conf.setdefault(
+                "markdown_diary_path",
+                os.path.join(conf["output_dir"], "📖 Diary - Dagbokkorrigering.md"),
+            )
+            conf.setdefault(
+                "markdown_tprs_path",
+                os.path.join(conf["output_dir"], "📖 Diary - TPRS.md"),
+            )
+
             return conf
 
         logger = logging.getLogger(__name__)
@@ -159,7 +188,7 @@ class DiaryHandler:
         # doing it this way, as the TPRS class can inherit this DiaryHandler class
         if self.__class__.__name__ == "DiaryHandler":
             time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if self.config["overwrite_diary_markdown"]:
+            if self.config.get("overwrite_diary_markdown", True):
                 # backing up original file, make it hidden and add bak.timestamp
                 if os.path.exists(self.markdown_diary_path):
                     shutil.copy(
@@ -305,19 +334,19 @@ class DiaryHandler:
             f"""\
             ## YYYY/MM/DD\n
             - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {self.config["template_diary"]["trial"]}\x20
-              {self.config["template_diary"]["answer"]}\x20
-              {self.config["template_diary"]["tips"]}\x20
+              {_TMPL_DIARY_TRIAL}\x20
+              {_TMPL_DIARY_ANSWER}\x20
+              {_TMPL_DIARY_TIPS}\x20
 
             - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {self.config["template_diary"]["trial"]}\x20
-              {self.config["template_diary"]["answer"]}\x20
-              {self.config["template_diary"]["tips"]}\x20
+              {_TMPL_DIARY_TRIAL}\x20
+              {_TMPL_DIARY_ANSWER}\x20
+              {_TMPL_DIARY_TIPS}\x20
 
             - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {self.config["template_diary"]["trial"]}\x20
-              {self.config["template_diary"]["answer"]}\x20
-              {self.config["template_diary"]["tips"]}\x20
+              {_TMPL_DIARY_TRIAL}\x20
+              {_TMPL_DIARY_ANSWER}\x20
+              {_TMPL_DIARY_TIPS}\x20
         """
         )
         return multiline
@@ -329,7 +358,7 @@ class DiaryHandler:
         invokes `_prompt_new_diary_entry` to interact with the user.
         The result is stored in `self.diary_new_entries_day`.
         """
-        if self.config["diary_entries_prompt_user"]:
+        if self.config.get("diary_entries_prompt_user", True):
             if self.__class__.__name__ == "DiaryHandler":
                 self.diary_new_entries_day = self._prompt_new_diary_entry()
         else:
@@ -556,23 +585,16 @@ class DiaryHandler:
 
         for line in day_block.split("\n"):
             line = line.strip()
-            if line.startswith(self.config["template_tprs"]["sentence"]):
-                current_setning = line[
-                    len(self.config["template_tprs"]["sentence"]) :
-                ].strip()
+            if line.startswith(_TMPL_TPRS_SENTENCE):
+                current_setning = line[len(_TMPL_TPRS_SENTENCE) :].strip()
+            elif line.startswith(_TMPL_TPRS_QUESTION) and current_setning:
+                current_question = line[len(_TMPL_TPRS_QUESTION) :].strip()
             elif (
-                line.startswith(self.config["template_tprs"]["question"])
-                and current_setning
-            ):
-                current_question = line[
-                    len(self.config["template_tprs"]["question"]) :
-                ].strip()
-            elif (
-                line.startswith(self.config["template_tprs"]["answer"])
+                line.startswith(_TMPL_TPRS_ANSWER)
                 and current_setning
                 and current_question
             ):
-                answer = line[len(self.config["template_tprs"]["answer"]) :].strip()
+                answer = line[len(_TMPL_TPRS_ANSWER) :].strip()
                 result[current_setning].append((current_question, answer))
                 current_question = None  # Reset question after storing the pair
 
@@ -922,9 +944,9 @@ class DiaryHandler:
             list[str] or None: A list of study language sentences extracted from the block.
                                Returns None if no valid translations are found.
         """
-        answer_template = self.config["template_diary"]["answer"]
-        tips_template = self.config["template_diary"]["tips"]
-        trial_template = self.config["template_diary"]["trial"]
+        answer_template = _TMPL_DIARY_ANSWER
+        tips_template = _TMPL_DIARY_TIPS
+        trial_template = _TMPL_DIARY_TRIAL
 
         pattern = (
             rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
@@ -1194,9 +1216,9 @@ class DiaryHandler:
         diary_dict = {}
         for date_diary in dates_diary:
             day_block_text = self.get_text_for_date(all_diary_text, date_diary)
-            answer_template = self.config["template_diary"]["answer"]
-            tips_template = self.config["template_diary"]["tips"]
-            trial_template = self.config["template_diary"]["trial"]
+            answer_template = _TMPL_DIARY_ANSWER
+            tips_template = _TMPL_DIARY_TIPS
+            trial_template = _TMPL_DIARY_TRIAL
 
             pattern = (
                 rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
@@ -1306,7 +1328,7 @@ class DiaryHandler:
                     self.logging.info(
                         f"create missing diary entry with openai for {primary_language_sentence.strip()}"
                     )
-                    if self.config["create_diary_answers_auto"]:
+                    if self.config.get("create_diary_answers_auto", True):
                         res = self.openai_translate_sentence(sentence_dict)
                         diary_dict[date_diary]["sentences"][sentence_no] = res
 
@@ -1369,7 +1391,7 @@ class TprsVariantHandler:
             return src_path
 
         # Determine the path for the script-generated file
-        if self.config["overwrite_tprs_markdown"]:
+        if self.config.get("overwrite_tprs_markdown", True):
             self.markdown_script_generated_path = backup_if_exists(self.markdown_path)
         else:
             org_dir_path = os.path.dirname(self.markdown_path)
@@ -2949,11 +2971,11 @@ class TprsCreation(DiaryHandler):
         for study_language_sentence in study_language_sentences:
             self.logging.info(study_language_sentence)
             qa_dict = self.openai_tprs(study_language_sentence)
-            multiline_text += f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"  # Add each item with a newline
+            multiline_text += f"{_TMPL_TPRS_SENTENCE} {study_language_sentence.strip()}\n"  # Add each item with a newline
 
             for id, item in qa_dict.items():
-                multiline_text += f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"  # Add each item with a newline
-                multiline_text += f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"  # Add each item with a newline
+                multiline_text += f"{_TMPL_TPRS_QUESTION} {item['question'].strip()}\n"  # Add each item with a newline
+                multiline_text += f"{_TMPL_TPRS_ANSWER} {item['answer'].strip()}\n"  # Add each item with a newline
 
             multiline_text += "\n"
 
@@ -2975,11 +2997,11 @@ class TprsCreation(DiaryHandler):
         """
         multiline_text = ""
         for study_language_sentence, qa_dict in qa_tprs_day_dict.items():
-            multiline_text += f"{self.config['template_tprs']['sentence']} {study_language_sentence.strip()}\n"  # Add each item with a newline
+            multiline_text += f"{_TMPL_TPRS_SENTENCE} {study_language_sentence.strip()}\n"  # Add each item with a newline
 
             for id, item in qa_dict.items():
-                multiline_text += f"{self.config['template_tprs']['question']} {item['question'].strip()}\n"  # Add each item with a newline
-                multiline_text += f"{self.config['template_tprs']['answer']} {item['answer'].strip()}\n"  # Add each item with a newline
+                multiline_text += f"{_TMPL_TPRS_QUESTION} {item['question'].strip()}\n"  # Add each item with a newline
+                multiline_text += f"{_TMPL_TPRS_ANSWER} {item['answer'].strip()}\n"  # Add each item with a newline
 
             multiline_text += "\n"
 

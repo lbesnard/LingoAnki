@@ -4,20 +4,16 @@ services:
     image: lozzaroo/lingodiary
     ports:
       - 8083:8084
-    stdin_open: true # keep stdin open (like `-i`)
+    stdin_open: true
     tty: true
     volumes:
-      - /opt/lingodiary_venv:/app/.venv # 👈 bind mount replaces named volume
-      - ~/.config/efunk_lingo/lingoDiary/:/app/.config/lingoDiary/ # Mount config file to /app inside the container
+      - /opt/lingodiary_venv:/app/.venv
+      - ~/.config/efunk_lingo/lingoDiary/:/app/.config/lingoDiary/
       - ~/Documents/lingodiary/:/data/
     environment:
-      CONFIG_PATH: /app/.config/lingoDiary/config.yaml # Update path to reflect /app location
-      # CONFIG_PATH: /app/.config/lingoDiary/config.yaml # Update path to reflect /app location
-      # SECRET_KEY: "bceac54fc00cbdfee69e3f10905b73ec550eb9bf6779a9476471171170493962" # python -c "import secrets; print(secrets.token_hex(32))"
-
-      SECRET_KEY: "4dea2020568dca5f8ad784e3110283fcf82f87c50c12f47b9a56ae95f572b0d2" # python -c "import secrets; print(secrets.token_hex(32))"
-      CONFIG_ROOT: /app/.config/lingoDiary # Update path to reflect /app location
-      USER_DB_FILE: /app/.config/lingoDiary/users.yaml # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
-      # CONFIG_ROOT: /app/.config/lingoDiary # Update path to reflect /app location
-      # USER_DB_FILE: /app/.config/lingoDiary/users.yaml # users password defined with python -c "import bcrypt; print(bcrypt.hashpw(b'mysecret', bcrypt.gensalt()).decode())"
-    # user: "1000:1000" # Run container as non-root user
+      # Required: generate with: python -c "import secrets; print(secrets.token_hex(32))"
+      SECRET_KEY: "4dea2020568dca5f8ad784e3110283fcf82f87c50c12f47b9a56ae95f572b0d2"
+      # Paths inside the container (match the volume mounts above)
+      CONFIG_ROOT: /app/.config/lingoDiary
+      USER_DB_FILE: /app/.config/lingoDiary/users.yaml
+      DATA_ROOT: /data

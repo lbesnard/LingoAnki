@@ -1772,17 +1772,18 @@ def api_add_diary_entry():
 @_jwt_required
 def api_get_config():
     """Return user config values relevant to the mobile app (TPRS keywords)."""
-    from flask import g as _g
+    from lingoanki.diary import (
+        _TMPL_TPRS_ANSWER,
+        _TMPL_TPRS_QUESTION,
+        _TMPL_TPRS_SENTENCE,
+    )
 
-    with open(_g.api_config_path) as f:
-        user_config = yaml.safe_load(f)
-    tprs = user_config.get("template_tprs", {})
     return jsonify(
         {
             "tprs": {
-                "sentence": tprs.get("sentence", "SETNING:"),
-                "question": tprs.get("question", "SPØRSMÅL:"),
-                "answer": tprs.get("answer", "SVAR:"),
+                "sentence": _TMPL_TPRS_SENTENCE,
+                "question": _TMPL_TPRS_QUESTION,
+                "answer": _TMPL_TPRS_ANSWER,
             }
         }
     )
