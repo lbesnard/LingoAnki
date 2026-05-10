@@ -223,4 +223,24 @@ class ApiService {
         .post(Uri.parse('$base/api/backfill/qa_translations'), headers: headers)
         .timeout(_timeout);
   }
+
+  /// Trigger audio timing backfill (background job on server).
+  /// Regenerates per-sentence segment MP3s and writes timing data to diary.json.
+  static Future<void> triggerAudioTimingBackfill() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    await http
+        .post(Uri.parse('$base/api/backfill/audio_timing'), headers: headers)
+        .timeout(_timeout);
+  }
+
+  /// Trigger full maintenance backfill (background job on server).
+  /// Runs in sequence: sync diary.json → Q&A translations → audio timing.
+  static Future<void> triggerBackfillAll() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    await http
+        .post(Uri.parse('$base/api/backfill/all'), headers: headers)
+        .timeout(_timeout);
+  }
 }

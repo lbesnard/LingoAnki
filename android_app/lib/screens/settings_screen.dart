@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
+import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/local_db_service.dart';
 import 'login_screen.dart';
@@ -23,6 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _clearing = false;
   bool _loopDefault = false;
   bool _cycleVariants = false;
+
+  // Tracks which maintenance job is currently running (null = none)
+  String? _maintenanceRunning;
 
   @override
   void initState() {
@@ -175,7 +179,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ── build ─────────────────────────────────────────────────────────────────────
+  /// Run a named maintenance job; shows spinner + SnackBar feedback.
+  Future<void> _runMaintenanceJob(
+      String jobKey, Future<void> Function() call) async {
+    if (_maintenanceRunning != null) return;
+    setState(() => _maintenanceRunning = jobKey);
+    try {
+      await call();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Started — this may take several minutes'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _maintenanceRunning = null);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -258,6 +284,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('lesson_cycle_variants', v);
             },
+          ),
+          const Divider(),
+
+          // ── Maintenance ───────────────────────────────────────────────────
+          _sectionHeader('Maintenance'),
+          // "Fix everything" — primary action
+          ListTile(
+            leading: _maintenanceRunning == 'all'
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(Icons.build_circle,
+                    color: Theme.of(context).colorScheme.primary),
+            title: const Text('Fix everything'),
+            subtitle: const Text(
+                'Sync diary, fill missing Q&A and rebuild audio timing in one go'),
+            onTap: _maintenanceRunning != null
+                ? null
+                : () => _runMaintenanceJob(
+                    'all', ApiService.triggerBackfillAll),
+          ),
+          ListTile(
+            leading: _maintenanceRunning == 'qa'
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.translate),
+            title: const Text('Fill missing Q&A translations'),
+            subtitle: const Text(
+                'Generates Q&A pairs not yet translated into your study language'),
+            onTap: _maintenanceRunning != null
+                ? null
+                : () => _runMaintenanceJob(
+                    'qa', ApiService.triggerQaTranslationBackfill),
+          ),
+          ListTile(
+            leading: _maintenanceRunning == 'timing'
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.timer_outlined),
+            title: const Text('Rebuild audio timing'),
+            subtitle: const Text(
+                'Regenerates audio segments and fixes sentence-highlight sync for old lessons'),
+            onTap: _maintenanceRunning != null
+                ? null
+                : () => _runMaintenanceJob(
+                    'timing', ApiService.triggerAudioTimingBackfill),
           ),
           const Divider(),
 

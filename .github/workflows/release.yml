@@ -92,7 +92,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .venv
-          key: venv-${{ runner.os }}-3.10.14-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-${{ github.repository }}-3.10.14-${{ hashFiles('**/poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'

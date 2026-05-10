@@ -1,7 +1,7 @@
 services:
   lingo-diary:
     build: .
-    # image: lozzaroo/lingodiary
+    image: lozzaroo/lingodiary
     ports:
       - 8083:8084
     stdin_open: true # keep stdin open (like `-i`)
