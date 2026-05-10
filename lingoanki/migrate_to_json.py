@@ -218,9 +218,43 @@ def migrate_markdown_to_json(
     logger.info("Step 3: Building JSON structure…")
     diary_json = DiaryJson()
 
-    for date_obj, day_data in sorted(diary_dict.items()):
-        date_str = _date_obj_to_str(date_obj)
-        title = day_data.get("title", "")
+    # Collect all dates from both diary entries and TPRS variants so that
+    # users whose diary markdown is empty (e.g. primary lang not captured yet)
+    # still get their TPRS Q&A written to diary.json.
+    all_date_strs: set[str] = set()
+    for date_obj in diary_dict:
+        all_date_strs.add(_date_obj_to_str(date_obj))
+    for tprs_date_dict in variant_dicts.values():
+        for date_obj in tprs_date_dict:
+            all_date_strs.add(_date_obj_to_str(date_obj))
+
+    # Build a title lookup from TPRS filenames for TPRS-only dates
+    tprs_titles: dict[str, str] = {}
+    try:
+        tprs_dir = os.path.join(diary_handler.config.get("output_dir", ""), "TPRS")
+        import glob as glob_module
+
+        for md_path in glob_module.glob(os.path.join(tprs_dir, "*_TPRS_*.md")):
+            basename = os.path.basename(md_path)
+            # Pattern: {lesson_name}_TPRS_{YYYY-MM-DD}_{title}{suffix}.md
+            import re
+
+            m = re.search(
+                r"_TPRS_(\d{4}-\d{2}-\d{2})_(.*?)(?:_enhanced|_future|_present)?\.md$",
+                basename,
+            )
+            if m:
+                date_dash, title = m.group(1), m.group(2)
+                date_slash = date_dash.replace("-", "/")
+                if date_slash not in tprs_titles:
+                    tprs_titles[date_slash] = title
+    except Exception:
+        pass
+
+    for date_str in sorted(all_date_strs):
+        date_obj = datetime.strptime(date_str, "%Y/%m/%d")
+        day_data = diary_dict.get(date_obj, {})
+        title = day_data.get("title", "") or tprs_titles.get(date_str, "")
         sentences_data = day_data.get("sentences", {})
 
         # Pre-build ordered position lists per variant for this date (match by index)
@@ -236,38 +270,84 @@ def migrate_markdown_to_json(
                     )
                     break
 
-        entries: list[DiaryEntry] = []
-        for position, (idx, sentence_dict) in enumerate(sorted(sentences_data.items())):
-            input_sentence = sentence_dict.get("primary_language_sentence", "").strip()
-            output_sentence = sentence_dict.get("study_language_sentence", "").strip()
-            trial = sentence_dict.get("study_language_sentence_trial", "").strip()
-            tips = sentence_dict.get("tips", "").strip()
+        if sentences_data:
+            # Normal case: diary entries exist — use them as the primary source
+            entries: list[DiaryEntry] = []
+            for position, (idx, sentence_dict) in enumerate(
+                sorted(sentences_data.items())
+            ):
+                input_sentence = sentence_dict.get(
+                    "primary_language_sentence", ""
+                ).strip()
+                output_sentence = sentence_dict.get(
+                    "study_language_sentence", ""
+                ).strip()
+                trial = sentence_dict.get("study_language_sentence_trial", "").strip()
+                tips = sentence_dict.get("tips", "").strip()
 
-            lessons = LessonsBlock(reviewing=ReviewingState())
+                lessons = LessonsBlock(reviewing=ReviewingState())
 
-            # Match TPRS Q&A by position (index), not by text.
-            # Each variant lists sentences in the same order as diary entries.
-            for json_key, ordered_sentences in day_tprs_by_variant.items():
-                if position >= len(ordered_sentences):
-                    logger.warning(
-                        f"  {date_str} [{json_key}]: no entry at position {position}, skipping."
+                for json_key, ordered_sentences in day_tprs_by_variant.items():
+                    if position >= len(ordered_sentences):
+                        logger.warning(
+                            f"  {date_str} [{json_key}]: no entry at position {position}, skipping."
+                        )
+                        continue
+                    tprs_sentence_text, qa_raw = ordered_sentences[position]
+                    qa_list = _parse_qa_raw(qa_raw)
+                    lessons.set_variant(
+                        json_key, VariantLesson(sentence=tprs_sentence_text, qa=qa_list)
                     )
-                    continue
-                tprs_sentence_text, qa_raw = ordered_sentences[position]
-                qa_list = _parse_qa_raw(qa_raw)
-                lessons.set_variant(
-                    json_key, VariantLesson(sentence=tprs_sentence_text, qa=qa_list)
-                )
 
-            entry = DiaryEntry(
-                index=int(idx),
-                input_language_sentence=input_sentence,
-                user_trial_translation=trial,
-                output_language_translation=output_sentence,
-                tips=tips,
-                lessons=lessons,
-            )
-            entries.append(entry)
+                entry = DiaryEntry(
+                    index=int(idx),
+                    input_language_sentence=input_sentence,
+                    user_trial_translation=trial,
+                    output_language_translation=output_sentence,
+                    tips=tips,
+                    lessons=lessons,
+                )
+                entries.append(entry)
+
+        else:
+            # TPRS-only case: no diary markdown — bootstrap from the 'original'
+            # variant sentences.  input_language_sentence is left empty and can
+            # be backfilled later (e.g. via backfill_qa_translations).
+            original_sentences = day_tprs_by_variant.get("original", [])
+            if not original_sentences:
+                # Use whichever variant has data
+                for v in ("enhanced", "future", "present"):
+                    if day_tprs_by_variant.get(v):
+                        original_sentences = day_tprs_by_variant[v]
+                        break
+
+            entries = []
+            for position, (tprs_sentence, _) in enumerate(original_sentences):
+                lessons = LessonsBlock(reviewing=ReviewingState())
+                for json_key, ordered_sentences in day_tprs_by_variant.items():
+                    if position >= len(ordered_sentences):
+                        continue
+                    tprs_sentence_text, qa_raw = ordered_sentences[position]
+                    qa_list = _parse_qa_raw(qa_raw)
+                    lessons.set_variant(
+                        json_key, VariantLesson(sentence=tprs_sentence_text, qa=qa_list)
+                    )
+
+                entry = DiaryEntry(
+                    index=position,
+                    input_language_sentence="",  # to be backfilled
+                    user_trial_translation="",
+                    output_language_translation=tprs_sentence,
+                    tips="",
+                    lessons=lessons,
+                )
+                entries.append(entry)
+
+            if entries:
+                logger.info(
+                    f"  {date_str}: no diary markdown — bootstrapped {len(entries)} "
+                    f"entries from TPRS sentences (input_language_sentence is empty)."
+                )
 
         diary_json = upsert_day(diary_json, date_str, title, entries)
         logger.info(f"  {date_str}: {len(entries)} entries added.")
