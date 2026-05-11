@@ -1117,7 +1117,13 @@ class TprsVariantHandler:
                         qa_dict_or_block = openai_func(sentence)
 
                     if self.needs_base_tprs_data:
-                        day_qa_dict.update(qa_dict_or_block)
+                        # openai_tprs_enhanced/future/present() returns
+                        # {revised_sentence: {qa}}.  The revised sentence is
+                        # NOT a valid key for _write_json_tprs (which matches
+                        # by output_language_translation).  Extract the Q&A
+                        # values and store under the original sentence key.
+                        qa_data = next(iter(qa_dict_or_block.values()), {})
+                        day_qa_dict[sentence] = qa_data
                     else:
                         day_qa_dict[sentence] = qa_dict_or_block
 
@@ -1628,6 +1634,7 @@ class TprsVariantHandler:
 
         openai_func = self.get_openai_generator()
         updated = False
+        updated_dates: set = set()  # tracks dates where new Q&A was generated
 
         if (
             not hasattr(self.tprs_creator, "titles_diary_dict")
@@ -1658,7 +1665,6 @@ class TprsVariantHandler:
             # Ensure the date entry exists in the variant's content dictionary
             if diary_date_key not in variant_tprs_content_dict:
                 variant_tprs_content_dict[diary_date_key] = {}
-                # updated = True # Adding a new date means we will likely update
 
             current_day_variant_content = variant_tprs_content_dict[diary_date_key]
 
@@ -1706,7 +1712,16 @@ class TprsVariantHandler:
                             qa_block = openai_func(
                                 diary_sentence_text, existing_qa_for_sentence
                             )
-                            current_day_variant_content.update(qa_block)
+                            # openai_tprs_enhanced/future/present() returns
+                            # {revised_sentence: {qa}}.  The revised sentence
+                            # is NOT a valid lookup key for _write_json_tprs
+                            # (which matches by output_language_translation).
+                            # Extract the Q&A values and store under the
+                            # original sentence key instead.
+                            qa_data = next(iter(qa_block.values()), {})
+                            current_day_variant_content[diary_sentence_text] = qa_data
+                            date_str = diary_date_key.strftime("%Y/%m/%d")
+                            updated_dates.add(date_str)
                         else:  # Standard TPRS
                             qa_data = openai_func(diary_sentence_text)
                             current_day_variant_content[diary_sentence_text] = qa_data
@@ -1720,20 +1735,53 @@ class TprsVariantHandler:
                         )
                         continue  # Skip this sentence
 
-        # breakpoint()
-        # if updated:
-        #     self.logging.info(
-        #         f"Updating {self.variant_name} TPRS markdown file with missing/new entries: {self.markdown_script_generated_path}"
-        #     )
         sorted_tprs_variant_dict = dict(sorted(variant_tprs_content_dict.items()))
         if updated:
             self.logging.info(
                 f"{self.variant_name} TPRS: writing updated Q&A to diary.json."
             )
             self.write_json_tprs(sorted_tprs_variant_dict)
+            # Clear this variant's audio path for any dates that received new Q&A
+            # so convert_to_audio() regenerates audio (avoids keeping stale/partial MP3s).
+            if updated_dates:
+                self._clear_variant_audio_paths(updated_dates)
         else:
             self.logging.info(
                 f"{self.variant_name} TPRS: all sentences already present — nothing to generate."
+            )
+
+    def _clear_variant_audio_paths(self, date_strs: set):
+        """Clear this variant's audio path for the given dates so audio is regenerated."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        _AUDIO_PATH_KEY_MAP = {
+            "Standard": "original",
+            "Enhanced": "enhanced",
+            "Future": "future",
+            "Present": "present",
+        }
+        variant_key = _AUDIO_PATH_KEY_MAP.get(
+            self.variant_name, self.variant_name.lower()
+        )
+        json_path = self.tprs_creator.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            changed = False
+            for date_str in date_strs:
+                day = get_day(diary_db, date_str)
+                if day and variant_key in day.lesson_audio_paths:
+                    del day.lesson_audio_paths[variant_key]
+                    changed = True
+                    self.logging.info(
+                        f"Cleared stale {self.variant_name} audio path for {date_str} — will regenerate."
+                    )
+            if changed:
+                save_diary_json(diary_db, json_path)
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not clear {self.variant_name} audio paths: {exc}"
             )
 
 
