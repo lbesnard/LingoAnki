@@ -1004,6 +1004,7 @@ class DiaryHandler:
             {sentences}
         """
 
+        self.logging.info(f"[OpenAI] Creating day title (this may take a moment)...")
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -1015,6 +1016,7 @@ class DiaryHandler:
         )
         # Extract and parse the JSON response
         output = response.choices[0].message.content
+        self.logging.info(f"[OpenAI] Day title done: {output.strip()[:80]}")
         return output
 
     def openai_translate_sentence(self, sentence_dict):
@@ -1062,7 +1064,9 @@ class DiaryHandler:
         """
 
         # Make the API call
-
+        self.logging.info(
+            f"[OpenAI] Translating: {sentence_dict['primary_language_sentence'][:80].strip()}..."
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -1077,6 +1081,9 @@ class DiaryHandler:
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         output = json.loads(output)
+        self.logging.info(
+            f"[OpenAI] Translation done: {output['sentence'].get('study_language_sentence', '')[:80].strip()}"
+        )
         output["sentence"]["study_language_sentence_trial"] = sentence_dict[
             "study_language_sentence_trial"
         ]
@@ -2793,6 +2800,9 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
+        self.logging.info(
+            f"[OpenAI] Enhanced TPRS for: {study_language_sentence[:80].strip()}..."
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -2807,6 +2817,7 @@ class TprsCreation(DiaryHandler):
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs_future(self, study_language_sentence, qa_org_dict):
@@ -2871,6 +2882,9 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
+        self.logging.info(
+            f"[OpenAI] Future TPRS for: {study_language_sentence[:80].strip()}..."
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -2884,6 +2898,7 @@ class TprsCreation(DiaryHandler):
 
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs_present(self, study_language_sentence, qa_org_dict):
@@ -2948,6 +2963,9 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
+        self.logging.info(
+            f"[OpenAI] Present TPRS for: {study_language_sentence[:80].strip()}..."
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -2961,6 +2979,7 @@ class TprsCreation(DiaryHandler):
 
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Present TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs(self, study_language_sentence):
@@ -3059,7 +3078,9 @@ class TprsCreation(DiaryHandler):
         } for the following sentence: "{study_language_sentence}"
         """
         # Make the API call
-
+        self.logging.info(
+            f"[OpenAI] Standard TPRS Q&A for: {study_language_sentence[:80].strip()}..."
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
@@ -3074,6 +3095,7 @@ class TprsCreation(DiaryHandler):
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Standard TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def create_tprs_block_day(self, study_language_sentences):
