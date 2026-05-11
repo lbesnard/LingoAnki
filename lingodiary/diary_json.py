@@ -309,9 +309,37 @@ def load_diary_json(path: str | Path) -> DiaryJson:
 
 
 def save_diary_json(diary: DiaryJson, path: str | Path) -> None:
-    """Atomically write diary JSON to disk (write-to-tmp then rename)."""
+    """Atomically write diary JSON to disk (write-to-tmp then rename).
+
+    Creates a timestamped backup of the existing file in a ``.backup/`` directory
+    alongside the JSON file before overwriting it.  Backups are kept for 7 days;
+    older ones are pruned automatically.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ── Backup existing file ──────────────────────────────────────────────────
+    if path.exists() and path.stat().st_size > 0:
+        backup_dir = path.parent / ".backup"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        bak_path = backup_dir / f"{path.stem}_{ts}.json"
+        try:
+            import shutil
+
+            shutil.copy2(path, bak_path)
+            # Prune backups older than 7 days
+            cutoff = datetime.now(timezone.utc).timestamp() - 7 * 86400
+            for old in backup_dir.glob(f"{path.stem}_*.json"):
+                try:
+                    if old.stat().st_mtime < cutoff:
+                        old.unlink()
+                except OSError:
+                    pass
+        except Exception:
+            pass  # backup failure is non-fatal
+
+    # ── Atomic write ──────────────────────────────────────────────────────────
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

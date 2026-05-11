@@ -1185,24 +1185,11 @@ def api_generate():
             main_diary_tprs(config_path=config_path)
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
-        # Auto-update diary.json after generation
-        json_path = os.path.join(output_folder, "diary.json")
-        try:
-            from lingodiary.migrate_to_json import (
-                migrate_markdown_to_json as migrate_to_json,
-            )
-
-            migrate_to_json(
-                config_path=config_path,
-                output_json_path=json_path,
-                overwrite=True,
-            )
-        except Exception as exc:
-            app.logger.warning(f"diary.json auto-update failed: {exc}")
         # Backfill any missing Q&A translations (safe standalone function — no markdown side effects)
         try:
             with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
+            json_path = os.path.join(output_folder, "diary.json")
             _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
