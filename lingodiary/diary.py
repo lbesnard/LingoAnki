@@ -120,6 +120,8 @@ class DiaryHandler:
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
         self.diary_new_entries_day = None
+        self.all_diary_text = ""
+        self.titles_dict = {}
         self.template_help_string = self.template_help()
 
         self.setup_logging()
@@ -1008,7 +1010,7 @@ class DiaryHandler:
             {sentences}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -1067,7 +1069,7 @@ class DiaryHandler:
 
         # Make the API call
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -1114,25 +1116,29 @@ class DiaryHandler:
 
         else:
             for date_diary in diary_dict:
-                if date_diary in diary_dict.keys():
-                    title_day = self.get_title_for_date(self.all_diary_text, date_diary)
-                    if title_day is None:
-                        if not any(
-                            not sentence_info.get("study_language_sentence")
-                            for diary in diary_dict.values()
-                            for sentence_info in diary.get("sentences", {}).values()
-                        ):
-                            title_day = self.openai_create_day_title(
-                                diary_dict[date_diary]["sentences"]
-                            )
-                            self.logging.info(
-                                f"created title with openai for {date_diary} - {title_day}"
-                            )
-                        else:
-                            self.logging.info(
-                                "Title not created as sentences are not created yet"
-                            )
-                    titles_dict[date_diary] = title_day
+                # Prefer title already loaded from JSON (set by json_diary_to_dict)
+                existing_title = self.titles_dict.get(date_diary)
+                if existing_title:
+                    titles_dict[date_diary] = existing_title
+                    continue
+                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
+                if title_day is None:
+                    if not any(
+                        not sentence_info.get("study_language_sentence")
+                        for diary in diary_dict.values()
+                        for sentence_info in diary.get("sentences", {}).values()
+                    ):
+                        title_day = self.openai_create_day_title(
+                            diary_dict[date_diary]["sentences"]
+                        )
+                        self.logging.info(
+                            f"created title with openai for {date_diary} - {title_day}"
+                        )
+                    else:
+                        self.logging.info(
+                            "Title not created as sentences are not created yet"
+                        )
+                titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
         return titles_dict
@@ -2302,7 +2308,7 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
 
     primary = config["languages"]["primary_language"]
     study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"])
+    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
     model = config["openai"]["model"]
 
     def _translate_batch(qa_items):
@@ -2443,7 +2449,7 @@ def _backfill_variant_sentence_inputs(
 
     primary = config["languages"]["primary_language"]
     study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"])
+    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
     model = config["openai"]["model"]
 
     def _translate_sentences(sentences: list[str]) -> list[str]:
@@ -2731,7 +2737,7 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2809,7 +2815,7 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2886,7 +2892,7 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2998,7 +3004,7 @@ class TprsCreation(DiaryHandler):
         """
         # Make the API call
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -3096,7 +3102,7 @@ Rules:
 Input:
 {json.dumps(qa_items, ensure_ascii=False)}
 """
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
             messages=[

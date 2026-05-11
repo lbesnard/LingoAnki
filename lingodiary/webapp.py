@@ -209,10 +209,20 @@ def api_generate():
     output_folder = _g.api_output_folder
 
     def _run():
+        log_file = os.path.join(output_folder, "output.log")
+
+        def _log_to_file(msg):
+            try:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(msg + "\n")
+            except Exception:
+                pass
+
         try:
             main_diary_tprs(config_path=config_path)
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
+            _log_to_file(f"ERROR: Generation failed: {exc}")
         # Backfill any missing Q&A translations (safe standalone function — no markdown side effects)
         try:
             with open(config_path, encoding="utf-8") as f:
@@ -221,6 +231,7 @@ def api_generate():
             _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
+            _log_to_file(f"WARNING: Q&A translation backfill failed: {exc}")
         # Backfill missing per-sentence audio segments and timing data in diary.json
         try:
             from lingodiary.audio_timing import backfill_audio_timings
@@ -229,8 +240,8 @@ def api_generate():
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
             app.logger.warning(f"Audio timing backfill failed: {exc}")
+            _log_to_file(f"WARNING: Audio timing backfill failed: {exc}")
         # Write a completion marker so the client can stop polling.
-        log_file = os.path.join(output_folder, "output.log")
         try:
             with open(log_file, "a", encoding="utf-8") as lf:
                 lf.write("=== Generation finished ===\n")
