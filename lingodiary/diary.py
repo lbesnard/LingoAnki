@@ -1580,6 +1580,33 @@ class TprsVariantHandler:
                 f"Could not write {self.variant_name} TPRS data to JSON diary: {exc}"
             )
 
+    def _record_lesson_audio_path(self, date_str: str, audio_filepath: str):
+        """Record the generated lesson audio path in diary.json."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            day = get_day(diary_db, date_str)
+            if day is None:
+                return
+            # Store path relative to output_dir for portability
+            output_dir = self.config.get("output_dir", "")
+            rel_path = (
+                os.path.relpath(audio_filepath, output_dir)
+                if output_dir
+                else audio_filepath
+            )
+            variant_key = self.variant_name.lower()
+            day.lesson_audio_paths[variant_key] = rel_path
+            save_diary_json(diary_db, json_path)
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not record lesson audio path in diary.json: {exc}"
+            )
+
     def _create_audio_for_day_block(self, day_block_data, date_str):
         """Generates a TPRS audio lesson for a given day's content for this variant."""
         if (
@@ -1616,22 +1643,6 @@ class TprsVariantHandler:
         )
 
         os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
-
-        # Skip if audio already exists, UNLESS this date has new/changed QA content
-        # (tracked per-date in tprs_creator._dates_to_regenerate) or the user has
-        # explicitly set overwrite_tprs_audio: True in their config.
-        date_needs_regen = date_str in getattr(
-            self.tprs_creator, "_dates_to_regenerate", set()
-        )
-        if (
-            os.path.exists(tprs_audio_lesson_filepath)
-            and not self.config.get("overwrite_tprs_audio", False)
-            and not date_needs_regen
-        ):
-            self.logging.info(
-                f"TPRS audio file for {self.variant_name} on {date_str} already exists — skipping."
-            )
-            return
 
         self.logging.info(
             f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
@@ -1743,6 +1754,8 @@ class TprsVariantHandler:
             self.logging.info(
                 f"Successfully exported {self.variant_name} TPRS audio to {tprs_audio_lesson_filepath}"
             )
+            # Record the audio path in diary.json so future runs can skip this date
+            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
 
         except Exception as e:
             self.logging.error(
@@ -1761,7 +1774,11 @@ class TprsVariantHandler:
                         )
 
     def convert_to_audio(self):
-        """Generates TPRS audio lessons from diary.json Q&A data for this variant."""
+        """Generates TPRS audio lessons from diary.json Q&A data for this variant.
+
+        Skips any date that already has a non-empty lesson_audio_paths entry for
+        this variant in diary.json — unless overwrite_tprs_audio is True in config.
+        """
         self.tprs_creator.validate_arguments()
 
         variant_tprs_dict = self._read_variant_tprs_from_json()
@@ -1771,8 +1788,27 @@ class TprsVariantHandler:
             )
             return
 
+        # Load diary.json once to check lesson_audio_paths per date
+        from lingodiary.diary_json import load_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        diary_db = load_diary_json(json_path) if json_path else None
+
+        force_overwrite = self.config.get("overwrite_tprs_audio", False)
+        variant_key = self.variant_name.lower()
+
         for date_obj, day_qa_dict in variant_tprs_dict.items():
             date_str = date_obj.strftime("%Y/%m/%d")
+
+            # Skip if audio path already recorded in diary.json for this variant
+            if not force_overwrite and diary_db:
+                day = get_day(diary_db, date_str)
+                if day and day.lesson_audio_paths.get(variant_key):
+                    self.logging.info(
+                        f"Audio already exists for {self.variant_name} on {date_str} — skipping."
+                    )
+                    continue
+
             day_block_data = {}
             for sentence_text, qa_numbered_dict in day_qa_dict.items():
                 qa_tuples = [
@@ -2160,13 +2196,6 @@ class TprsVariantHandler:
                         f"Missing/New {self.variant_name} TPRS for '{diary_sentence_text}' on {diary_date_key}. Generating."
                     )
                     updated = True
-                    # Track this date for per-date audio regeneration
-                    date_str_for_regen = (
-                        diary_date_key.strftime("%Y/%m/%d")
-                        if hasattr(diary_date_key, "strftime")
-                        else diary_date_key
-                    )
-                    self.tprs_creator._dates_to_regenerate.add(date_str_for_regen)
 
                     try:
                         if self.needs_base_tprs_data:
@@ -2528,10 +2557,6 @@ class TprsCreation(DiaryHandler):
         # self.markdown_tprs_path from DiaryHandler's super call is the base path from config
         # It will be used by StandardTprsVariantHandler implicitly if file_suffix is ""
 
-        # Tracks which date strings ("YYYY/MM/DD") have new/changed QA content and
-        # therefore need their audio lesson files regenerated.
-        self._dates_to_regenerate: set[str] = set()
-
         self.variants = [
             StandardTprsVariantHandler(self),
             EnhancedTprsVariantHandler(self),
@@ -2598,6 +2623,27 @@ class TprsCreation(DiaryHandler):
                         pass
         except Exception as exc:
             self.logging.warning(f"Could not load TPRS titles from diary.json: {exc}")
+
+    def _clear_lesson_audio_path_for_date(self, date_str: str):
+        """Clear the lesson_audio_path for all variants on a date so audio is regenerated."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            day = get_day(diary_db, date_str)
+            if day:
+                day.lesson_audio_paths.clear()
+                save_diary_json(diary_db, json_path)
+                self.logging.info(
+                    f"Cleared lesson_audio_paths for {date_str} — audio will be regenerated."
+                )
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not clear lesson_audio_paths for {date_str}: {exc}"
+            )
 
     def get_all_diary_titles(self):
         """Loads diary titles from diary.json into self.titles_diary_dict."""
@@ -3162,7 +3208,9 @@ Input:
                     if hasattr(current_date_key, "strftime")
                     else current_date_key
                 )
-                self._dates_to_regenerate.add(date_str)
+                # Clearing the lesson_audio_paths entry ensures the next
+                # convert_to_audio run will regenerate audio for this date.
+                self._clear_lesson_audio_path_for_date(date_str)
 
         if made_changes:
             self.logging.info(
@@ -3172,9 +3220,6 @@ Input:
                 sorted(new_or_updated_tprs_dict_for_standard.items())
             )
             standard_variant.write_json_tprs(sorted_tprs_dict)
-            self.logging.info(
-                f"Scheduled audio regeneration for {len(self._dates_to_regenerate)} date(s) with new content."
-            )
         else:
             self.logging.info(
                 "No new sentences from diary found missing in Standard TPRS. No changes made by check_missing_sentences_from_existing_tprs."
