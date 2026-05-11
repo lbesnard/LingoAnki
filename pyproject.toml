@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "lingodiary"
 version = "2.1.0"
-description = "A script to create Anki flashcards from audio transcript to learn a foreign language."
+description = "Language learning diary with TPRS lesson generation."
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT"
 readme = "README.md"
@@ -11,7 +11,6 @@ packages = [{ include = "lingodiary" }]
 [tool.poetry.dependencies]
 flask-babel = ">=4.0.0"
 python = "^3.10"
-genanki = ">=0.13.1"
 inquirer = ">=3.1.1"
 spacy = ">=3.6.1" # or latest stable version
 markdown = ">=3.7"
@@ -33,7 +32,6 @@ PyJWT = ">=2.8.0"
 
 
 [tool.poetry.scripts]
-lingoAnki = "lingodiary.__main__:main"
 lingoDiary = "lingodiary.diary:main"
 lingoWebapp = "lingodiary.webapp:main"
 

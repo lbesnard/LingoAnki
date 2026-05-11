@@ -2,8 +2,7 @@
 """
 This script automates the creation of language learning materials from personal diary entries.
 It processes diary entries written in a primary language, translates them into a study
-language, and generates various learning resources, including Anki flashcards and
-TPRS (Teaching Proficiency Through Reading and Storytelling) lessons.
+language, and generates TPRS (Teaching Proficiency Through Reading and Storytelling) lessons.
 
 The script is organized into two main functionalities: Diary Handling and TPRS Creation.
 
@@ -20,8 +19,7 @@ The script is organized into two main functionalities: Diary Handling and TPRS C
     *   **Output**:
         *   A main Markdown file (e.g., `diary.md`) consolidating all processed diary entries.
         *   Individual daily Markdown files for easier review.
-        *   (Optional) An Anki package (`.apkg`) containing flashcards with text and
-          Text-to-Speech (TTS) audio for each sentence, facilitating spaced repetition.
+        *   Diary entries written to `diary.json` for spaced-repetition review in the web app.
 
 2.  **TPRS Lesson Generation (`TprsCreation` & `TprsVariantHandler`)**:
     *   **Input**: Uses the processed diary entries (study language sentences).
@@ -45,7 +43,7 @@ The script is organized into two main functionalities: Diary Handling and TPRS C
     language settings, OpenAI keys, TTS preferences, output paths).
 2.  **Diary Input**: User provides diary entries (manually in Markdown or via prompts).
 3.  **Diary Processing**: `DiaryHandler` translates sentences, adds tips, generates titles,
-    and optionally creates an Anki deck.
+
 4.  **TPRS Generation**: `TprsCreation` takes the processed diary sentences and, for each
     configured TPRS variant:
     a.  Generates specific Q&A using OpenAI.
@@ -112,7 +110,6 @@ class DiaryHandler:
         """
         self.config = DiaryHandler.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
-        self.deck_name = self.config.get("anki_deck_name", "LingoDiary")
         self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
@@ -2683,7 +2680,7 @@ def main(config_path=None, run_interactive_prompts=False):
                                                   Defaults to False.
 
     Initializes DiaryHandler, prompts for new entries (if run_interactive_prompts is True),
-    completes translations, and converts entries to an Anki deck.
+    completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
     and finally converts all TPRS markdown entries to audio.
@@ -2694,7 +2691,6 @@ def main(config_path=None, run_interactive_prompts=False):
         diary_instance.prompt_new_diary_entry()
     _log.info("=== Phase 1/3: Diary translations ===")
     diary_instance.diary_complete_translations()
-    diary_instance.convert_diary_entries_to_ankideck()
     _log.info("=== Diary translations complete ===")
     diary_instance.stop()
 
