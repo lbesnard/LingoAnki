@@ -137,6 +137,9 @@ class VariantLesson:
     sentence_audio_path: str = (
         ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_s.mp3"
     )
+    sentence_audio_generated_at: Optional[
+        str
+    ] = None  # ISO-8601 UTC — when this sentence's audio segment was generated
 
     def to_dict(self) -> dict:
         return {
@@ -145,6 +148,7 @@ class VariantLesson:
             "audio_timing": self.audio_timing.to_dict(),
             "qa": [q.to_dict() for q in self.qa],
             "sentence_audio_path": self.sentence_audio_path,
+            "sentence_audio_generated_at": self.sentence_audio_generated_at,
         }
 
     @classmethod
@@ -155,6 +159,7 @@ class VariantLesson:
             audio_timing=AudioTiming.from_dict(d.get("audio_timing", {})),
             qa=[QA.from_dict(q) for q in d.get("qa", [])],
             sentence_audio_path=d.get("sentence_audio_path", ""),
+            sentence_audio_generated_at=d.get("sentence_audio_generated_at"),
         )
 
 

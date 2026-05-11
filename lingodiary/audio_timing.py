@@ -215,13 +215,9 @@ def _assemble_full_mp3(
 def _mp3_stale(day, variant_key: str) -> bool:
     """Return True if the full lesson MP3 is stale relative to its Q&A segments.
 
-    Uses the user's rule: if any qa.generated_at is None OR mp3_ts is None OR
-    any qa.generated_at > mp3_ts → the MP3 needs rebuilding.
-
-    This function is the authority on staleness once both sides have timestamps.
-    Before the backfill script is run, lesson_mp3_timestamps is empty for all
-    historical entries, so this returns False and the existing
-    ``segments_newly_generated`` flag remains the primary rebuild trigger.
+    Checks both sentence_audio_generated_at and qa.generated_at against the
+    stored lesson_mp3_timestamps[variant_key].  Any segment newer than the
+    full MP3 — or missing a timestamp — triggers a rebuild.
     """
     mp3_ts_str = day.lesson_mp3_timestamps.get(variant_key)
     if mp3_ts_str is None:
@@ -232,10 +228,17 @@ def _mp3_stale(day, variant_key: str) -> bool:
 
     for entry in day.entries:
         v = entry.lessons.get_variant(variant_key)
+
+        # Check sentence segment
+        if v.sentence_audio_path:
+            if v.sentence_audio_generated_at is None:
+                return True
+            if datetime.fromisoformat(v.sentence_audio_generated_at) > mp3_ts:
+                return True
+
+        # Check Q&A segments
         for qa in v.qa:
             if qa.generated_at is None:
-                # Q&A has no timestamp — treat as stale (either not yet generated
-                # or pre-backfill data; the latter should not exist after backfill)
                 return True
             if datetime.fromisoformat(qa.generated_at) > mp3_ts:
                 return True
@@ -287,6 +290,7 @@ def _compute_day_timings(
         entry_end = int(entry_start + s_dur * R)
         timings.append((int(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
+        variant.sentence_audio_generated_at = datetime.now(timezone.utc).isoformat()
 
         # Advance past sentence + its trailing pause
         cumulative = entry_end + pause_ms

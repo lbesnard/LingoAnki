@@ -53,6 +53,18 @@ def backfill(diary_json_path: str | Path) -> None:
                 variant = entry.lessons.get_variant(variant_key)
                 if variant is None:
                     continue
+
+                # Stamp sentence audio
+                if (
+                    variant.sentence_audio_path
+                    and variant.sentence_audio_generated_at is None
+                ):
+                    full = base_dir / variant.sentence_audio_path
+                    if full.exists():
+                        variant.sentence_audio_generated_at = _mtime_iso(str(full))
+                        qa_stamped += 1
+                        day_modified = True
+
                 for qa in variant.qa:
                     if qa.generated_at is not None:
                         continue
@@ -83,8 +95,9 @@ def backfill(diary_json_path: str | Path) -> None:
     save_diary_json(diary, diary_json_path)
 
     print(
-        f"Backfill complete: {qa_stamped} Q&A timestamps set, "
-        f"{mp3_stamped} MP3 timestamps set across {days_modified} days."
+        f"Backfill complete: {qa_stamped} segment timestamps set "
+        f"(sentences + Q&A), {mp3_stamped} MP3 timestamps set "
+        f"across {days_modified} days."
     )
 
 
