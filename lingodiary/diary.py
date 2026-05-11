@@ -265,9 +265,14 @@ class DiaryHandler:
                 "%(asctime)s - %(levelname)s - %(message)s"
             )
 
-            # Create file handler to log into output.log
+            # Create file handler to log into output.log (flush after every record)
+            class FlushingFileHandler(logging.FileHandler):
+                def emit(self, record):
+                    super().emit(record)
+                    self.flush()
+
             os.makedirs(self.output_dir, exist_ok=True)
-            file_handler = logging.FileHandler(
+            file_handler = FlushingFileHandler(
                 os.path.join(self.config["output_dir"], "output.log")
             )
             file_handler.setFormatter(log_formatter)
