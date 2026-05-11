@@ -48,6 +48,7 @@ RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 FROM debian:bookworm-slim AS flutter-web
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
         curl \
         git \
         unzip \
