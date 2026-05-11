@@ -1754,7 +1754,6 @@ def api_add_diary_entry():
         return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
 
     try:
-        import yaml
         from lingodiary.diary_json import (
             DiaryEntry,
             LessonsBlock,
@@ -1764,9 +1763,7 @@ def api_add_diary_entry():
             upsert_day,
         )
 
-        with open(_g.api_config_path) as f:
-            user_config = yaml.safe_load(f)
-        json_path = user_config.get("json_diary_path", "")
+        json_path = _g.api_json_diary_path
         if not json_path:
             return jsonify({"error": "json_diary_path not configured"}), 500
 
