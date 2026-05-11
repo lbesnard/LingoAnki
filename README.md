@@ -33,13 +33,18 @@ users:
     language: "en"
 ```
 
-Then start the server:
+Then start the server. If you just want to run it, pull the pre-built image from Docker Hub:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Or build from source (needed only if you're modifying the code — the first build is slow):
 
 ```bash
 docker compose up --build -d
 ```
-
-The first build takes a while — it compiles PyTorch, Whisper, and Piper TTS. Subsequent rebuilds are fast.
 
 The server runs at `http://localhost:8083`.
 
