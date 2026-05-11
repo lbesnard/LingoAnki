@@ -219,6 +219,20 @@ def api_generate():
             except Exception:
                 pass
 
+        # Back up diary.json before anything mutates it.
+        try:
+            import shutil
+            from datetime import datetime as _dt
+
+            json_src = os.path.join(output_folder, "diary.json")
+            if os.path.exists(json_src):
+                backup_dir = os.path.join(output_folder, ".backup")
+                os.makedirs(backup_dir, exist_ok=True)
+                ts = _dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+                shutil.copy2(json_src, os.path.join(backup_dir, f"diary_{ts}.json"))
+        except Exception as exc:
+            app.logger.warning(f"diary.json backup failed: {exc}")
+
         try:
             main_diary_tprs(config_path=config_path)
         except Exception as exc:
