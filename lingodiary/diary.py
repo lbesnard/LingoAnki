@@ -1617,12 +1617,19 @@ class TprsVariantHandler:
 
         os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
 
+        # Skip if audio already exists, UNLESS this date has new/changed QA content
+        # (tracked per-date in tprs_creator._dates_to_regenerate) or the user has
+        # explicitly set overwrite_tprs_audio: True in their config.
+        date_needs_regen = date_str in getattr(
+            self.tprs_creator, "_dates_to_regenerate", set()
+        )
         if (
             os.path.exists(tprs_audio_lesson_filepath)
-            and not self.config["overwrite_tprs_audio"]
+            and not self.config.get("overwrite_tprs_audio", False)
+            and not date_needs_regen
         ):
             self.logging.info(
-                f"TPRS audio file for {self.variant_name} on {date_str} already processed: {tprs_audio_lesson_filepath}"
+                f"TPRS audio file for {self.variant_name} on {date_str} already exists — skipping."
             )
             return
 
@@ -2141,18 +2148,11 @@ class TprsVariantHandler:
                     if diary_sentence_text not in current_day_variant_content:
                         needs_processing = True
                 else:  # For 'Enhanced', 'Future', 'Present'
-                    # If the date itself is new to this variant's content, process all its sentences.
-                    # Or, if we want to re-evaluate based on base_tprs_dict changes (more complex).
-                    # Simplification: if date is new, current_day_variant_content will be empty.
-                    # This means all sentences for a new date will be processed.
-                    # If date exists, we assume sentences are covered unless a more sophisticated check is added.
-                    # For now, let's assume if the date exists, we don't add new sentences here for non-standard,
-                    # as their generation depends on base_tprs_dict.
-                    # The primary way non-standard variants get populated is via create_initial_markdown_if_needed.
-                    # This add_missing_entries for non-standard is more about adding *entirely new dates* from diary.
-                    if (
-                        not current_day_variant_content
-                    ):  # If the day is new to this variant
+                    # Check at the sentence level: a sentence is missing if the base
+                    # Standard TPRS sentence is not yet present in this variant's content
+                    # for this date. This handles both brand-new dates AND new sentences
+                    # added to an existing date.
+                    if diary_sentence_text not in current_day_variant_content:
                         needs_processing = True
 
                 if needs_processing:
@@ -2160,6 +2160,13 @@ class TprsVariantHandler:
                         f"Missing/New {self.variant_name} TPRS for '{diary_sentence_text}' on {diary_date_key}. Generating."
                     )
                     updated = True
+                    # Track this date for per-date audio regeneration
+                    date_str_for_regen = (
+                        diary_date_key.strftime("%Y/%m/%d")
+                        if hasattr(diary_date_key, "strftime")
+                        else diary_date_key
+                    )
+                    self.tprs_creator._dates_to_regenerate.add(date_str_for_regen)
 
                     try:
                         if self.needs_base_tprs_data:
@@ -2520,6 +2527,10 @@ class TprsCreation(DiaryHandler):
         super().__init__(config_path)
         # self.markdown_tprs_path from DiaryHandler's super call is the base path from config
         # It will be used by StandardTprsVariantHandler implicitly if file_suffix is ""
+
+        # Tracks which date strings ("YYYY/MM/DD") have new/changed QA content and
+        # therefore need their audio lesson files regenerated.
+        self._dates_to_regenerate: set[str] = set()
 
         self.variants = [
             StandardTprsVariantHandler(self),
@@ -3098,9 +3109,6 @@ Input:
 
         for date_diary_key, day_entry_in_diary in diary_dict.items():
             # date_diary_key from diary_dict is datetime.datetime
-            # new_or_updated_tprs_dict_for_standard (from standard_variant._read_variant_tprs_to_dict)
-            # is also keyed by datetime.datetime.
-            # So, use date_diary_key directly.
             current_date_key = date_diary_key
 
             if current_date_key not in new_or_updated_tprs_dict_for_standard:
@@ -3110,6 +3118,7 @@ Input:
                 current_date_key
             ]
 
+            date_changed = False
             for sentence_no, sentence_detail_in_diary in day_entry_in_diary.get(
                 "sentences", {}
             ).items():
@@ -3139,12 +3148,21 @@ Input:
                             study_lang_sentence
                         ] = qa_dict_for_sentence
                         made_changes = True
+                        date_changed = True
                     except Exception as e:
                         self.logging.error(
                             f"Error generating standard TPRS for sentence '{study_lang_sentence}': {e}",
                             exc_info=True,
                         )
                         continue  # Skip this sentence
+
+            if date_changed:
+                date_str = (
+                    current_date_key.strftime("%Y/%m/%d")
+                    if hasattr(current_date_key, "strftime")
+                    else current_date_key
+                )
+                self._dates_to_regenerate.add(date_str)
 
         if made_changes:
             self.logging.info(
@@ -3154,10 +3172,8 @@ Input:
                 sorted(new_or_updated_tprs_dict_for_standard.items())
             )
             standard_variant.write_json_tprs(sorted_tprs_dict)
-            # Optionally trigger audio regeneration if content changed
-            self.config["overwrite_tprs_audio"] = True
             self.logging.info(
-                "Set overwrite_tprs_audio to True due to changes in standard TPRS content."
+                f"Scheduled audio regeneration for {len(self._dates_to_regenerate)} date(s) with new content."
             )
         else:
             self.logging.info(
