@@ -72,6 +72,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import textwrap
 from collections import defaultdict
 from datetime import datetime
@@ -1734,11 +1735,22 @@ class TprsVariantHandler:
         media_files = []
         temp_files_to_clean = {pause_filename}  # Keep track of all temp files
 
+        total_sentences = len(day_block_data)
+        total_qa_pairs = sum(len(qa) for qa in day_block_data.values())
+        total_tts_calls = total_sentences + total_qa_pairs * 2
+        self.logging.info(
+            f"[TTS] {self.variant_name} {date_str}: {total_sentences} sentences, "
+            f"{total_qa_pairs} Q&A pairs → {total_tts_calls} TTS calls total"
+        )
+
         try:
-            for sentence, tprs_qa_list in day_block_data.items():
+            for sent_idx, (sentence, tprs_qa_list) in enumerate(
+                day_block_data.items(), 1
+            ):
                 self.logging.info(
-                    f"Generating audio for {self.variant_name} sentence: {sentence}"
+                    f"[TTS] {self.variant_name} sentence {sent_idx}/{total_sentences}: {sentence[:60]}"
                 )
+                t0 = time.time()
                 audio_filename = os.path.join(
                     tempfile.gettempdir(),
                     f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
@@ -1750,21 +1762,28 @@ class TprsVariantHandler:
                     lang=self.config["languages"]["study_language_code"],
                     voice=self.config["tts"]["piper"]["voice"],
                 )
+                self.logging.info(
+                    f"[TTS] sentence {sent_idx}/{total_sentences} done ({time.time()-t0:.1f}s)"
+                )
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
 
-                for question, answer in tprs_qa_list:
+                for qa_idx, (question, answer) in enumerate(tprs_qa_list, 1):
                     media_files.append(pause_filename)  # Pause before question
                     question_audio = os.path.join(
                         tempfile.gettempdir(),
                         f"{self.tprs_creator.generate_unique_id(question, 12)}.wav",
                     )
                     temp_files_to_clean.add(question_audio)
+                    tq = time.time()
                     tts_plugin_instance.get_tts(
                         question,
                         question_audio,
                         lang=self.config["languages"]["study_language_code"],
                         voice=self.config["tts"]["piper"]["voice"],
+                    )
+                    self.logging.info(
+                        f"[TTS]   Q {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-tq:.1f}s)"
                     )
                     media_files.append(question_audio)
 
@@ -1787,16 +1806,23 @@ class TprsVariantHandler:
                         f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav",
                     )
                     temp_files_to_clean.add(answer_audio)
+                    ta = time.time()
                     tts_plugin_instance.get_tts(
                         answer,
                         answer_audio,
                         lang=self.config["languages"]["study_language_code"],
                         voice=self.config["tts"]["piper"]["voice"],
                     )
+                    self.logging.info(
+                        f"[TTS]   A {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-ta:.1f}s)"
+                    )
                     media_files.append(answer_audio)
                     media_files.append(pause_filename)  # Pause after answer
 
             tts_plugin_instance.stop()
+            self.logging.info(
+                f"[TTS] All {total_tts_calls} calls complete for {self.variant_name} {date_str}"
+            )
 
             if not media_files:
                 self.logging.warning(
