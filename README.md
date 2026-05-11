@@ -4,55 +4,48 @@ Write diary entries in your own language. LingoDiary turns them into TPRS-style 
 
 ---
 
-## Getting started
+## Quick start
 
 **You need:** Docker, Docker Compose, and an OpenAI API key.
 
-```bash
-git clone https://github.com/lbesnard/LingoDiary.git
-cd LingoDiary
+Create a `docker-compose.yml` anywhere on your machine:
+
+```yaml
+services:
+  lingo-diary:
+    image: lozzaroo/lingodiary
+    ports:
+      - 8083:8084
+    volumes:
+      - ~/.config/lingoDiary/:/app/.config/lingoDiary/
+      - ~/Documents/lingodiary/:/data/
+    environment:
+      SECRET_KEY: "change-me-to-a-random-string"
 ```
 
-Create the config and data directories:
+Then create the directories and config files the container expects (replace `laurent` with your username):
 
 ```bash
-mkdir -p ~/.config/lingoDiary/
-mkdir -p ~/Documents/lingodiary/
+mkdir -p ~/.config/lingoDiary/laurent
+mkdir -p ~/Documents/lingodiary/laurent
 ```
 
-Create `~/.config/lingoDiary/users.yaml`. Generate a bcrypt hash for your password first:
+Generate a bcrypt hash for your password:
 
 ```bash
 python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
 ```
 
+Create `~/.config/lingoDiary/users.yaml`:
+
 ```yaml
 users:
-  yourname:
-    password: "BCRYPT_HASH_HERE"
+  laurent:
+    password: "$2b$12$..."   # paste your bcrypt hash here
     language: "en"
 ```
 
-Then start the server. If you just want to run it, pull the pre-built image from Docker Hub:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Or build from source (needed only if you're modifying the code — the first build is slow):
-
-```bash
-docker compose up --build -d
-```
-
-The server runs at `http://localhost:8083`.
-
----
-
-## User config
-
-Each user needs a `config.yaml` at `~/.config/lingoDiary/<username>/config.yaml`:
+Create `~/.config/lingoDiary/laurent/config.yaml`:
 
 ```yaml
 openai:
@@ -79,17 +72,14 @@ tts:
   answer_silence_duration: 5000
 ```
 
-Create the data directory on the host:
+Pull the image and start:
 
 ```bash
-mkdir -p ~/Documents/lingodiary/<username>/
+docker compose pull
+docker compose up -d
 ```
 
-Then restart:
-
-```bash
-docker compose restart
-```
+The server runs at `http://localhost:8083`.
 
 ---
 
@@ -105,7 +95,19 @@ Download the latest APK from the [Releases](../../releases) tab and install it o
 
 Open the app, go to Settings, and enter your server URL (e.g. `http://192.168.1.x:8083`). Log in with your username and password.
 
-To build the APK yourself:
+---
+
+## Build from source
+
+Only needed if you want to modify the code. The first build is slow (compiles PyTorch, Whisper, and Piper TTS).
+
+```bash
+git clone https://github.com/lbesnard/LingoDiary.git
+cd LingoDiary
+docker compose up --build -d
+```
+
+To build the Android APK locally:
 
 ```bash
 cd android_app && flutter build apk --release
