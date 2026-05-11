@@ -56,9 +56,10 @@ ENV POETRY_VIRTUALENVS_SYSTEM_PACKAGES=true
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
 
-ENV CONFIG_PATH=/app/.config/lingoDiary/config.yaml
+# Container-level defaults — consistent with the volume mounts in docker-compose.yml
 ENV CONFIG_ROOT=/app/.config/lingoDiary
 ENV USER_DB_FILE=/app/.config/lingoDiary/users.yaml
+ENV DATA_ROOT=/data
 
 # ✅ Copy only dependency manifests first — cached unless they change
 COPY pyproject.toml poetry.lock* /app/

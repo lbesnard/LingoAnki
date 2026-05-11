@@ -110,7 +110,7 @@ tts:
   answer_silence_duration: 5000           # ms silence for Q&A answer pause
 ```
 
-> **Paths are automatic.** With `DATA_ROOT=/data` (set in docker-compose), the user's data
+> **Paths are automatic.** The container's `DATA_ROOT` defaults to `/data` (set in the Dockerfile), so the user's data
 > lives at `/data/<username>/` inside the container, which maps to
 > `~/Documents/lingodiary/<username>/` on the host. No path config needed.
 
