@@ -1279,7 +1279,17 @@ class TprsVariantHandler:
                 if output_dir
                 else audio_filepath
             )
-            variant_key = self.variant_name.lower()
+            # Use the same key convention as audio_timing.py so both systems
+            # write to / read from the same entry in lesson_audio_paths.
+            _AUDIO_PATH_KEY_MAP = {
+                "Standard": "original",
+                "Enhanced": "enhanced",
+                "Future": "future",
+                "Present": "present",
+            }
+            variant_key = _AUDIO_PATH_KEY_MAP.get(
+                self.variant_name, self.variant_name.lower()
+            )
             day.lesson_audio_paths[variant_key] = rel_path
             save_diary_json(diary_db, json_path)
         except Exception as exc:
@@ -1511,7 +1521,17 @@ class TprsVariantHandler:
         diary_db = load_diary_json(json_path) if json_path else None
 
         force_overwrite = self.config.get("overwrite_tprs_audio", False)
-        variant_key = self.variant_name.lower()
+        # Use the same key convention as audio_timing.py (_VARIANT_KEYS uses "original"
+        # for the Standard variant, not "standard").
+        _AUDIO_PATH_KEY_MAP = {
+            "Standard": "original",
+            "Enhanced": "enhanced",
+            "Future": "future",
+            "Present": "present",
+        }
+        variant_key = _AUDIO_PATH_KEY_MAP.get(
+            self.variant_name, self.variant_name.lower()
+        )
 
         for date_obj, day_qa_dict in variant_tprs_dict.items():
             date_str = date_obj.strftime("%Y/%m/%d")

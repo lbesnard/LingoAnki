@@ -369,6 +369,7 @@ def backfill_audio_timings(
 
                 segs_dir = _segments_dir(output_dir, day.date, variant_key)
 
+                segments_newly_generated = False
                 if not overwrite_existing and _segments_complete(
                     segs_dir, day.entries, variant_key
                 ):
@@ -429,12 +430,16 @@ def backfill_audio_timings(
                         f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
                         f"(~{timings[-1][1]//1000}s)"
                     )
+                    segments_newly_generated = True
 
-                # Always rebuild the full MP3 from segment files so timing in
-                # diary.json is guaranteed to match the audio the player sees.
+                # Rebuild the full MP3 from segment files only when needed:
+                # - segments were newly generated (timing must stay in sync), OR
+                # - the MP3 file is missing (segments exist but the MP3 was lost)
                 mp3_rel = day.lesson_audio_paths.get(variant_key, "")
                 mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
-                if mp3_path:
+                if mp3_path and (
+                    segments_newly_generated or not os.path.exists(mp3_path)
+                ):
                     rebuilt = _assemble_full_mp3(
                         day.entries,
                         variant_key,
@@ -446,10 +451,9 @@ def backfill_audio_timings(
                     )
                     if rebuilt:
                         day_modified = True
+                        logger.info(f"  {variant_key}: rebuilt MP3 at {mp3_path}.")
                 else:
-                    logger.debug(
-                        f"  {variant_key}: no MP3 path known, skipping rebuild."
-                    )
+                    logger.debug(f"  {variant_key}: MP3 up-to-date, skipping rebuild.")
 
             # Save after each day so progress is not lost on interruption
             if day_modified:
