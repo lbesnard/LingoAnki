@@ -171,6 +171,10 @@ class DiaryHandler:
                 "markdown_tprs_path",
                 os.path.join(conf["output_dir"], "📖 Diary - TPRS.md"),
             )
+            conf.setdefault(
+                "json_diary_path",
+                os.path.join(conf["output_dir"], "diary.json"),
+            )
 
             return conf
 

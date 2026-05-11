@@ -132,7 +132,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
         await Future.delayed(const Duration(seconds: 5));
         final log = await ApiService.getGenerateStatus();
         setState(() => _generateLog = log);
-        if (log.contains('Done') || log.contains('Finished') || log.contains('Error')) break;
+        if (log.contains('Done') || log.contains('Finished') || log.contains('Error') || log.contains('finished')) break;
       }
     } catch (e) {
       setState(() => _error = 'Could not connect to server.');
@@ -326,9 +326,10 @@ class _DiaryScreenState extends State<DiaryScreen> {
               ),
               child: SingleChildScrollView(
                 reverse: true,
-                child: Text(_generateLog!,
-                    style:
-                        const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                child: SelectableText(
+                  _generateLog!,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
               ),
             ),
           ],

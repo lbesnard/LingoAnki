@@ -1206,6 +1206,13 @@ def api_generate():
             _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
+        # Write a completion marker so the client can stop polling.
+        log_file = os.path.join(output_folder, "output.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as lf:
+                lf.write("=== Generation finished ===\n")
+        except Exception:
+            pass
 
     t = Thread(target=_run, daemon=True)
     t.start()
