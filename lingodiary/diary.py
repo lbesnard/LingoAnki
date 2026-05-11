@@ -1644,6 +1644,17 @@ class TprsVariantHandler:
 
         os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
 
+        # If the file already exists on disk and overwrite is disabled, skip and
+        # backfill lesson_audio_paths so future runs don't even reach this point.
+        if os.path.exists(tprs_audio_lesson_filepath) and not self.config.get(
+            "overwrite_tprs_audio", False
+        ):
+            self.logging.info(
+                f"{self.variant_name} TPRS audio already on disk for {date_str} — skipping."
+            )
+            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
+            return
+
         self.logging.info(
             f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
         )
