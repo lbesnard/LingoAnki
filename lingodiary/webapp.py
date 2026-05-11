@@ -123,21 +123,22 @@ def _jwt_required(f):
         if not os.path.exists(user_config_path):
             return jsonify({"error": "User config not found"}), 403
 
-        # Inject into Flask's g so route handlers can access it
+        # Inject into Flask's g so route handlers can access it.
+        # Load config directly (no DiaryHandler instantiation) to avoid a race
+        # condition where stop() would destroy the background generation thread's
+        # file log handler on every polling request.
         from flask import g as _g
 
+        config = DiaryHandler.load_config(user_config_path)
         _g.api_username = username
         _g.api_config_path = user_config_path
-        diary_instance = DiaryHandler(config_path=user_config_path)
-        _g.api_diary_file = diary_instance.config["markdown_diary_path"]
-        _g.api_tprs_file = diary_instance.config["markdown_tprs_path"]
-        _g.api_output_folder = diary_instance.config["output_dir"]
+        _g.api_diary_file = config["markdown_diary_path"]
+        _g.api_tprs_file = config["markdown_tprs_path"]
+        _g.api_output_folder = config["output_dir"]
         _g.api_tprs_folder = os.path.join(_g.api_output_folder, "TPRS")
-        json_diary_path = diary_instance.config.get("json_diary_path") or os.path.join(
+        _g.api_json_diary_path = config.get("json_diary_path") or os.path.join(
             _g.api_output_folder, "diary.json"
         )
-        _g.api_json_diary_path = json_diary_path
-        diary_instance.stop()
         return f(*args, **kwargs)
 
     return decorated

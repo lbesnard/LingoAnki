@@ -110,7 +110,7 @@ class DiaryHandler:
             config_path (str, optional): Path to the configuration file.
                                          Defaults to None, which then uses the default user config path.
         """
-        self.config = self.load_config(config_path=config_path)
+        self.config = DiaryHandler.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
         self.deck_name = self.config.get("anki_deck_name", "LingoDiary")
         self.output_dir = self.config["output_dir"]
@@ -126,7 +126,8 @@ class DiaryHandler:
 
         self.setup_output_diary_markdown()
 
-    def load_config(self, config_path=None):
+    @staticmethod
+    def load_config(config_path=None):
         """Loads the YAML configuration file.
 
         Args:
