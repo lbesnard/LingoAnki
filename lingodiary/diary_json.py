@@ -396,6 +396,8 @@ def upsert_day(
                         old_variant = old_entry.lessons.get_variant(variant_name)
                         if old_variant is not None:
                             new_entry.lessons.set_variant(variant_name, old_variant)
+            # Preserve the lesson audio paths recorded by previous runs
+            new_day.lesson_audio_paths = day.lesson_audio_paths.copy()
             diary.diaries[i] = new_day
             return diary
     diary.diaries.append(new_day)
