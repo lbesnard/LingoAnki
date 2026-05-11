@@ -45,7 +45,7 @@ def backfill(diary_json_path: str | Path) -> None:
     mp3_stamped = 0
     days_modified = 0
 
-    for day in diary.days:
+    for day in diary.diaries:
         day_modified = False
 
         for entry in day.entries:
