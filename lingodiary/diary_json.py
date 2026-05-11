@@ -96,6 +96,9 @@ class QA:
         ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_q0.mp3"
     )
     answer_audio_path: str = ""  # relative to output_dir
+    generated_at: Optional[
+        str
+    ] = None  # ISO-8601 UTC — when this Q&A's audio segments were generated
 
     def to_dict(self) -> dict:
         return {
@@ -107,6 +110,7 @@ class QA:
             "answer_timing": self.answer_timing.to_dict(),
             "question_audio_path": self.question_audio_path,
             "answer_audio_path": self.answer_audio_path,
+            "generated_at": self.generated_at,
         }
 
     @classmethod
@@ -120,6 +124,7 @@ class QA:
             answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
             question_audio_path=d.get("question_audio_path", ""),
             answer_audio_path=d.get("answer_audio_path", ""),
+            generated_at=d.get("generated_at"),
         )
 
 
@@ -258,12 +263,16 @@ class DiaryDay:
     lesson_audio_paths: dict = field(
         default_factory=dict
     )  # variant → relative path to full lesson MP3
+    lesson_mp3_timestamps: dict = field(
+        default_factory=dict
+    )  # variant → ISO-8601 UTC datetime when the full MP3 was last assembled
 
     def to_dict(self) -> dict:
         return {
             "date": self.date,
             "title": self.title,
             "lesson_audio_paths": self.lesson_audio_paths,
+            "lesson_mp3_timestamps": self.lesson_mp3_timestamps,
             "entries": [e.to_dict() for e in self.entries],
         }
 
@@ -274,6 +283,7 @@ class DiaryDay:
             title=d.get("title", ""),
             entries=[DiaryEntry.from_dict(e) for e in d.get("entries", [])],
             lesson_audio_paths=d.get("lesson_audio_paths", {}),
+            lesson_mp3_timestamps=d.get("lesson_mp3_timestamps", {}),
         )
 
 

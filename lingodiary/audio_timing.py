@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,37 @@ def _assemble_full_mp3(
     return True
 
 
+def _mp3_stale(day, variant_key: str) -> bool:
+    """Return True if the full lesson MP3 is stale relative to its Q&A segments.
+
+    Uses the user's rule: if any qa.generated_at is None OR mp3_ts is None OR
+    any qa.generated_at > mp3_ts → the MP3 needs rebuilding.
+
+    This function is the authority on staleness once both sides have timestamps.
+    Before the backfill script is run, lesson_mp3_timestamps is empty for all
+    historical entries, so this returns False and the existing
+    ``segments_newly_generated`` flag remains the primary rebuild trigger.
+    """
+    mp3_ts_str = day.lesson_mp3_timestamps.get(variant_key)
+    if mp3_ts_str is None:
+        # No MP3 timestamp — can't evaluate; let segments_newly_generated handle it
+        return False
+
+    mp3_ts = datetime.fromisoformat(mp3_ts_str)
+
+    for entry in day.entries:
+        v = entry.lessons.get_variant(variant_key)
+        for qa in v.qa:
+            if qa.generated_at is None:
+                # Q&A has no timestamp — treat as stale (either not yet generated
+                # or pre-backfill data; the latter should not exist after backfill)
+                return True
+            if datetime.fromisoformat(qa.generated_at) > mp3_ts:
+                return True
+
+    return False
+
+
 def _compute_day_timings(
     entries: list,
     variant_key: str,
@@ -278,6 +310,8 @@ def _compute_day_timings(
             cumulative = int(cumulative + a_dur * R)
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
             qa.answer_audio_path = os.path.relpath(a_path, output_dir)
+
+            qa.generated_at = datetime.now(timezone.utc).isoformat()
 
             cumulative += pause_ms  # pause after answer
 
@@ -434,11 +468,14 @@ def backfill_audio_timings(
 
                 # Rebuild the full MP3 from segment files only when needed:
                 # - segments were newly generated (timing must stay in sync), OR
-                # - the MP3 file is missing (segments exist but the MP3 was lost)
+                # - the MP3 file is missing (segments exist but the MP3 was lost), OR
+                # - Q&A segments are newer than the full MP3 (stale MP3 detection)
                 mp3_rel = day.lesson_audio_paths.get(variant_key, "")
                 mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
                 if mp3_path and (
-                    segments_newly_generated or not os.path.exists(mp3_path)
+                    segments_newly_generated
+                    or not os.path.exists(mp3_path)
+                    or _mp3_stale(day, variant_key)
                 ):
                     rebuilt = _assemble_full_mp3(
                         day.entries,
@@ -451,6 +488,9 @@ def backfill_audio_timings(
                     )
                     if rebuilt:
                         day_modified = True
+                        day.lesson_mp3_timestamps[variant_key] = datetime.now(
+                            timezone.utc
+                        ).isoformat()
                         logger.info(f"  {variant_key}: rebuilt MP3 at {mp3_path}.")
                 else:
                     logger.debug(f"  {variant_key}: MP3 up-to-date, skipping rebuild.")
