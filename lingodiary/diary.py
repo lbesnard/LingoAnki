@@ -830,13 +830,7 @@ class DiaryHandler:
         return note, audio_filename
 
     def convert_diary_entries_to_ankideck(self):
-        """DEPRECATED: Anki deck creation is no longer supported."""
-        print(
-            "DEPRECATED: Anki deck creation is no longer supported. This function will exit."
-        )
-        import sys
-
-        sys.exit(1)
+        """DEPRECATED: Anki deck creation is no longer supported. No-op."""
 
     def extract_dates_from_md(self, markdown_path):
         """Extracts all dates from headers in a markdown file.
