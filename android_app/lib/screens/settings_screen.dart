@@ -1,12 +1,13 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/local_db_service.dart';
-import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<String> _computeCacheSize() async {
+    if (kIsWeb) return 'N/A';
     try {
       final docsDir = await getApplicationDocumentsDirectory();
       final outputDir = Directory('${docsDir.path}/output');
@@ -111,12 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirmed != true || !mounted) return;
     await AuthService.clearSession();
-    if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (_) => false,
-      );
-    }
+    if (mounted) context.go('/login');
   }
 
   Future<void> _clearCachedData() async {
@@ -142,11 +139,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() => _clearing = true);
     try {
-      // 1. Delete all synced output files
-      final docsDir = await getApplicationDocumentsDirectory();
-      final outputDir = Directory('${docsDir.path}/output');
-      if (await outputDir.exists()) {
-        await outputDir.delete(recursive: true);
+      // 1. Delete all synced output files (Android only)
+      if (!kIsWeb) {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final outputDir = Directory('${docsDir.path}/output');
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
       }
 
       // 2. Clear SQLite cache tables

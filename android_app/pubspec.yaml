@@ -5,6 +5,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_secure_storage: ^9.0.0
+  go_router: ^14.0.0
   http: ^1.2.0
   # just_audio: plain package only — do NOT add just_audio_background or
   # audio_service without thorough real-device testing. Even a caught

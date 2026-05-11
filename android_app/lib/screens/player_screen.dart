@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -130,13 +131,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
     final filename = _variants[variantName] as String? ?? '';
     if (filename.isEmpty) return;
-    final mp3Path = await SyncService.localPath('TPRS/$filename');
-    final audioFile = File(mp3Path);
-    if (!await audioFile.exists()) return;
+    final relPath = 'TPRS/$filename';
+
+    // On Android: check local cache exists before loading.
+    if (!kIsWeb) {
+      final mp3Path = await SyncService.localPath(relPath);
+      final audioFile = File(mp3Path);
+      if (!await audioFile.exists()) return;
+    }
 
     bool audioSet = false;
     try {
-      await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
+      final uri = await SyncService.audioUri(relPath);
+      await _player.setAudioSource(AudioSource.uri(uri));
       audioSet = true;
     } catch (_) {}
     if (audioSet && mounted) {
@@ -214,8 +221,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// Parse entries for [variantKey] from the locally cached diary.json.
+  /// On web there is no local file cache — this is skipped and the server
+  /// data (already loaded via the API) is used instead.
   Future<void> _loadEntriesFromLocalJson(String variantKey) async {
-    if (_lessonDate == null) return;
+    if (_lessonDate == null || kIsWeb) return;
     try {
       final jsonPath = await SyncService.localPath('diary.json');
       final jsonFile = File(jsonPath);
@@ -496,12 +505,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final base = widget.lesson['base'] as String? ?? '';
-    final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
-    final cacheFile = File(cachePath);
 
-    if (await cacheFile.exists()) {
-      setState(() => _diaryContent = cacheFile.readAsStringSync());
-      return;
+    // On Android: check/use local text cache.
+    if (!kIsWeb) {
+      final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+      final cacheFile = File(cachePath);
+      if (await cacheFile.exists()) {
+        setState(() => _diaryContent = cacheFile.readAsStringSync());
+        return;
+      }
     }
 
     // Not cached — fetch entries from any available variant to get sentences.
@@ -521,7 +533,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
       }
       final content = buf.toString().trim();
-      if (content.isNotEmpty) {
+      if (content.isNotEmpty && !kIsWeb) {
+        final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+        final cacheFile = File(cachePath);
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }

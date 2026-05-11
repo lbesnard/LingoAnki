@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,8 +148,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
       return;
     }
     try {
-      final localFile = await SyncService.localPath(audioPath);
-      if (!File(localFile).existsSync()) {
+      // On Android: check/download local cache first.
+      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
         setState(() {
           _audioDownloading = true;
           _audioLoaded = false;
@@ -165,7 +166,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
         }
         setState(() => _audioDownloading = false);
       }
-      await _player.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      final uri = await SyncService.audioUri(audioPath);
+      await _player.setAudioSource(AudioSource.uri(uri));
       if (mounted) {
         setState(() { _audioLoaded = true; _audioUnavailable = false; });
         if (autoPlay) _player.play();
@@ -205,16 +207,17 @@ class _SentencesScreenState extends State<SentencesScreen> {
     if (_audioPlaying) await _player.stop();
 
     try {
-      final localFile = await SyncService.localPath(audioPath);
-      if (!File(localFile).existsSync()) {
+      // On Android: check/download local cache first.
+      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
         setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
         final ok = await SyncService.downloadFile(audioPath);
         if (!mounted) return;
         setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
         if (!ok) return;
       }
+      final uri = await SyncService.audioUri(audioPath);
       setState(() { _activeQaKey = key; _qaPlaying = true; });
-      await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+      await _qaPlayer.setAudioSource(AudioSource.uri(uri));
       _qaPlayer.play();
     } catch (_) {
       if (mounted) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
@@ -241,8 +244,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
             : qa[i]['answer_audio_path'] as String? ?? '';
         if (path.isEmpty) continue;
 
-        final localFile = await SyncService.localPath(path);
-        if (!File(localFile).existsSync()) {
+        if (!kIsWeb && !File(await SyncService.localPath(path)).existsSync()) {
           final ok = await SyncService.downloadFile(path);
           if (!ok || !mounted) continue;
         }
@@ -250,7 +252,8 @@ class _SentencesScreenState extends State<SentencesScreen> {
         if (!_playingAllQa || !mounted) return;
         final key = '${i}_$type';
         setState(() { _activeQaKey = key; _qaPlaying = true; });
-        await _qaPlayer.setAudioSource(AudioSource.uri(Uri.file(localFile)));
+        final uri = await SyncService.audioUri(path);
+        await _qaPlayer.setAudioSource(AudioSource.uri(uri));
         await _qaPlayer.seek(Duration.zero);
         _qaPlayer.play();
 

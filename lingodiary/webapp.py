@@ -78,6 +78,25 @@ JWT_SECRET = os.getenv("JWT_SECRET", app.secret_key)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
+# Flutter web build directory (copied into the image at /app/web_build)
+_WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "web_build")
+
+
+@app.route("/")
+@app.route("/<path:subpath>")
+def serve_flutter_web(subpath=""):
+    """Serve the Flutter web app for all non-API routes."""
+    full = os.path.join(_WEB_BUILD_DIR, subpath)
+    if subpath and os.path.isfile(full):
+        return send_from_directory(_WEB_BUILD_DIR, subpath)
+    # For unknown paths (SPA routes) serve index.html so go_router handles it.
+    index = os.path.join(_WEB_BUILD_DIR, "index.html")
+    if os.path.isfile(index):
+        return send_from_directory(_WEB_BUILD_DIR, "index.html")
+    # Fallback: no web build present, return 404 with a helpful message.
+    return "Flutter web build not found. Run 'flutter build web' in android_app/.", 404
+
+
 # babel setup
 app.config["BABEL_DEFAULT_LOCALE"] = "en"
 app.config["BABEL_SUPPORTED_LOCALES"] = ["en", "fr"]  # Add more as needed

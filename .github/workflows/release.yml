@@ -135,7 +135,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.4"
+          flutter-version: "3.41.9"
           channel: "stable"
 
       - name: Install Android SDK (act/local only)
@@ -177,9 +177,44 @@ jobs:
           name: lingodiary-apk
           path: android_app/build/app/outputs/flutter-apk/app-release.apk
 
+  build-flutter-web:
+    runs-on: ubuntu-latest
+    needs: bump
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump.outputs.new_version }}"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.9"
+          channel: "stable"
+
+      - name: Install Flutter dependencies
+        working-directory: android_app
+        run: flutter pub get
+
+      - name: Build Flutter web
+        working-directory: android_app
+        run: flutter build web --release
+
+      - name: Zip Flutter web build
+        run: |
+          cd android_app/build/web
+          zip -r ../../../lingodiary-web.zip .
+
+      - name: Upload Flutter web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingodiary-web
+          path: lingodiary-web.zip
+
   release:
     runs-on: ubuntu-latest
-    needs: [bump, build-wheel, build-apk]
+    needs: [bump, build-wheel, build-apk, build-flutter-web]
 
     steps:
       - name: Download wheel artifact
@@ -194,6 +229,12 @@ jobs:
           name: lingodiary-apk
           path: apk/
 
+      - name: Download Flutter web artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lingodiary-web
+          path: web/
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -203,4 +244,5 @@ jobs:
             --title "v${{ needs.bump.outputs.new_version }}" \
             --generate-notes \
             dist/*.whl \
-            apk/app-release.apk
+            apk/app-release.apk \
+            web/lingodiary-web.zip

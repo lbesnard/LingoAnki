@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
@@ -15,11 +16,17 @@ class ApiException implements Exception {
 class ApiService {
   static const _timeout = Duration(seconds: 15);
 
-  static Future<String> _baseUrl() async {
+  /// Returns the API base URL.
+  /// On web the app is served from the same origin, so relative URLs are used.
+  static Future<String> baseUrl() async {
+    if (kIsWeb) return '';
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString('server_url') ?? '';
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
+
+  // Keep a private alias so existing internal callers are unchanged.
+  static Future<String> _baseUrl() => baseUrl();
 
   static Future<Map<String, String>> _authHeaders() async {
     final token = await AuthService.getToken();

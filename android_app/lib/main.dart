@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:go_router/go_router.dart';
 import 'l10n/app_localizations.dart';
 
 import 'screens/login_screen.dart';
@@ -17,13 +18,38 @@ void main() async {
   runApp(const LingoDiaryApp());
 }
 
+final _router = GoRouter(
+  initialLocation: '/',
+  redirect: (context, state) async {
+    final token = await AuthService.getToken();
+    final isLogin = state.matchedLocation == '/login';
+    if (token == null && !isLogin) return '/login';
+    if (token != null && isLogin) return '/';
+    return null;
+  },
+  routes: [
+    GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+    ShellRoute(
+      builder: (context, state, child) => MainShell(child: child),
+      routes: [
+        GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
+        GoRoute(path: '/review', builder: (_, __) => const SentencesScreen()),
+        GoRoute(path: '/lessons', builder: (_, __) => const LessonsScreen()),
+        GoRoute(path: '/diary', builder: (_, __) => const DiaryScreen()),
+        GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
+      ],
+    ),
+  ],
+);
+
 class LingoDiaryApp extends StatelessWidget {
   const LingoDiaryApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'LingoDiary',
+      routerConfig: _router,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -38,67 +64,24 @@ class LingoDiaryApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const AuthGate(),
-      routes: {
-        '/home': (_) => const MainShell(),
-      },
     );
   }
 }
 
-class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
+class MainShell extends StatelessWidget {
+  final Widget child;
+  const MainShell({super.key, required this.child});
 
-  @override
-  State<AuthGate> createState() => _AuthGateState();
-}
-
-class _AuthGateState extends State<AuthGate> {
-  bool _checking = true;
-  bool _loggedIn = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkAuth();
-  }
-
-  Future<void> _checkAuth() async {
-    final token = await AuthService.getToken();
-    setState(() {
-      _loggedIn = token != null;
-      _checking = false;
-    });
+  int _currentIndex(String location) {
+    if (location.startsWith('/review')) return 1;
+    if (location.startsWith('/lessons')) return 2;
+    if (location.startsWith('/diary')) return 3;
+    return 0;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    return _loggedIn ? const MainShell() : const LoginScreen();
-  }
-}
-
-class MainShell extends StatefulWidget {
-  const MainShell({super.key});
-
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  int _currentIndex = 0;
-
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    SentencesScreen(),
-    LessonsScreen(),
-    DiaryScreen(),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
+    final location = GoRouterState.of(context).matchedLocation;
     return ListenableBuilder(
       listenable: SyncManager.instance,
       builder: (context, _) {
@@ -111,15 +94,11 @@ class _MainShellState extends State<MainShell> {
               IconButton(
                 tooltip: 'Settings',
                 icon: const Icon(Icons.settings_outlined),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                ),
+                onPressed: () => context.push('/settings'),
               ),
             ],
           ),
-          body: _screens[_currentIndex],
-          // Persistent sync progress bar above the bottom nav
+          body: child,
           bottomNavigationBar: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -171,7 +150,6 @@ class _MainShellState extends State<MainShell> {
                   ),
                 )
               else if (sync.message.isNotEmpty && sync.filesDownloaded >= 0)
-                // Show last result briefly — cleared on next sync
                 Container(
                   color: Theme.of(context).colorScheme.surfaceContainerLow,
                   padding:
@@ -187,8 +165,19 @@ class _MainShellState extends State<MainShell> {
                   ),
                 ),
               BottomNavigationBar(
-                currentIndex: _currentIndex,
-                onTap: (i) => setState(() => _currentIndex = i),
+                currentIndex: _currentIndex(location),
+                onTap: (i) {
+                  switch (i) {
+                    case 0:
+                      context.go('/');
+                    case 1:
+                      context.go('/review');
+                    case 2:
+                      context.go('/lessons');
+                    case 3:
+                      context.go('/diary');
+                  }
+                },
                 type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(
