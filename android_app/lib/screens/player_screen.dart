@@ -953,9 +953,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             tooltip: _loopEnabled ? 'Loop: on' : 'Loop: off',
             icon: Icon(
               _loopEnabled ? Icons.repeat_one : Icons.repeat,
-              color: _loopEnabled
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
+              color: _loopEnabled ? Colors.blue.shade400 : null,
             ),
             onPressed: _toggleLoop,
           ),
@@ -965,9 +963,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 : 'Cycle variants: off',
             icon: Icon(
               Icons.playlist_play,
-              color: _cycleVariants
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
+              color: _cycleVariants ? Colors.blue.shade400 : null,
             ),
             onPressed: _toggleCycleVariants,
           ),
@@ -1217,9 +1213,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
                         icon: Icon(
                           _loopBlock ? Icons.repeat_one : Icons.repeat,
-                          color: _loopBlock
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
+                          color: _loopBlock ? Colors.blue.shade400 : null,
                         ),
                         onPressed: _audioReady ? _toggleLoopBlock : null,
                       ),

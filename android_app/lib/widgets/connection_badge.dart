@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,13 +31,21 @@ class _ConnectionBadgeState extends State<ConnectionBadge> {
 
   Future<void> _check() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final serverUrl = prefs.getString('server_url') ?? '';
-      if (serverUrl.isEmpty) {
-        setState(() => _online = false);
-        return;
+      String base;
+      if (kIsWeb) {
+        // On web the app is served from the same origin — use relative URL.
+        base = '';
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final serverUrl = prefs.getString('server_url') ?? '';
+        if (serverUrl.isEmpty) {
+          setState(() => _online = false);
+          return;
+        }
+        base = serverUrl.endsWith('/')
+            ? serverUrl.substring(0, serverUrl.length - 1)
+            : serverUrl;
       }
-      final base = serverUrl.endsWith('/') ? serverUrl.substring(0, serverUrl.length - 1) : serverUrl;
       // A lightweight ping: any HTTP response means the server is up
       await http
           .get(Uri.parse('$base/api/login'))
