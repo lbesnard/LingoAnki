@@ -1193,6 +1193,14 @@ def api_generate():
             _backfill_qa_translations(config, json_path, app.logger)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
+        # Backfill missing per-sentence audio segments and timing data in diary.json
+        try:
+            from lingodiary.audio_timing import backfill_audio_timings
+
+            json_path = os.path.join(output_folder, "diary.json")
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            app.logger.warning(f"Audio timing backfill failed: {exc}")
         # Write a completion marker so the client can stop polling.
         log_file = os.path.join(output_folder, "output.log")
         try:
