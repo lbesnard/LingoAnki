@@ -1335,6 +1335,9 @@ class DiaryHandler:
                     if self.config.get("create_diary_answers_auto", True):
                         res = self.openai_translate_sentence(sentence_dict)
                         diary_dict[date_diary]["sentences"][sentence_no] = res
+                        self.logging.info(
+                            f"Translation done for: {primary_language_sentence.strip()[:80]}"
+                        )
 
         self.write_diary_json(diary_dict)
 
@@ -2230,6 +2233,9 @@ class TprsVariantHandler:
                         else:  # Standard TPRS
                             qa_data = openai_func(diary_sentence_text)
                             current_day_variant_content[diary_sentence_text] = qa_data
+                        self.logging.info(
+                            f"{self.variant_name} TPRS: Generated Q&A for '{diary_sentence_text[:60]}' on {diary_date_key}."
+                        )
                     except Exception as e:
                         self.logging.error(
                             f"Error generating {self.variant_name} TPRS for sentence '{diary_sentence_text}' during add_missing: {e}",
@@ -2243,11 +2249,15 @@ class TprsVariantHandler:
         #         f"Updating {self.variant_name} TPRS markdown file with missing/new entries: {self.markdown_script_generated_path}"
         #     )
         sorted_tprs_variant_dict = dict(sorted(variant_tprs_content_dict.items()))
+        if updated:
+            self.logging.info(
+                f"{self.variant_name} TPRS: writing updated Q&A to diary.json."
+            )
+        else:
+            self.logging.info(
+                f"{self.variant_name} TPRS: all sentences already present — nothing to generate."
+            )
         self.write_json_tprs(sorted_tprs_variant_dict)
-        # else:
-        #     self.logging.info(
-        #         f"No missing/new entries found or generated for {self.variant_name} TPRS based on diary."
-        #     )
 
 
 class StandardTprsVariantHandler(TprsVariantHandler):
@@ -3204,6 +3214,9 @@ Input:
                         current_day_tprs_sentences_data[
                             study_lang_sentence
                         ] = qa_dict_for_sentence
+                        self.logging.info(
+                            f"Standard TPRS: Generated Q&A for '{study_lang_sentence[:60]}...' on {current_date_key}."
+                        )
                         made_changes = True
                         date_changed = True
                     except Exception as e:
@@ -3255,67 +3268,58 @@ def main(config_path=None, run_interactive_prompts=False):
     and finally converts all TPRS markdown entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
+    _log = diary_instance.logging  # named logger — goes to output.log
     if run_interactive_prompts:
         diary_instance.prompt_new_diary_entry()
+    _log.info("=== Phase 1/3: Diary translations ===")
     diary_instance.diary_complete_translations()
     diary_instance.convert_diary_entries_to_ankideck()
+    _log.info("=== Diary translations complete ===")
     diary_instance.stop()
-    logging.info("Diary processing complete.")
 
     # --- TPRS Processing ---
-    # TprsCreation __init__ handles initial setup of variant handlers,
-    # creation/update of standard TPRS MD, and initial creation of other variant MDs.
-    tprs_instance = TprsCreation(
-        config_path=config_path
-    )  # Uses its own config loading, inherits from DiaryHandler
-    logging.info(
-        "TPRS Creation initialized. Variant handlers set up and initial MD files processed."
-    )
+    tprs_instance = TprsCreation(config_path=config_path)
+    _log = tprs_instance.logging  # re-bind after stop() re-opens handlers
+    _log.info("=== Phase 2/3: TPRS Q&A generation ===")
 
-    # Load the latest diary data (potentially updated by DiaryHandler)
     diary_dict = tprs_instance.json_diary_to_dict()
     if not diary_dict:
-        logging.warning(
+        _log.warning(
             "Diary dictionary is empty. TPRS processing might not generate much content."
         )
+    else:
+        _log.info(f"Loaded {len(diary_dict)} diary day(s) for TPRS processing.")
 
-    # Get the latest standard TPRS data (which was updated in TprsCreation.__init__)
-    standard_variant = tprs_instance.variants[0]  # Assuming standard is always first
+    standard_variant = tprs_instance.variants[0]
     base_tprs_dict = standard_variant._read_variant_tprs_from_json()
     if not base_tprs_dict and any(
         v.needs_base_tprs_data for v in tprs_instance.variants[1:]
     ):
-        logging.warning(
+        _log.warning(
             "Base (Standard) TPRS dictionary is empty. Variants requiring it may not generate correctly."
         )
 
-    # Process each TPRS variant for adding missing entries and generating audio
     for variant in tprs_instance.variants:
-        tprs_instance.logging.info(
-            f"--- Processing TPRS Variant: {variant.variant_name} ---"
+        _log.info(
+            f"--- Processing TPRS Variant: {variant.variant_name} ({tprs_instance.variants.index(variant)+1}/{len(tprs_instance.variants)}) ---"
         )
-
-        # Add missing entries based on the latest diary and (for some variants) base_tprs_dict
-        # For Standard variant, check_missing_sentences_from_existing_tprs in __init__ already did a pass.
-        # Calling add_missing_entries here ensures any further logic in that method is applied.
-        # It's designed to be safe if called multiple times.
         if variant.variant_name == "Standard":
             variant.add_missing_entries(diary_dict)
         else:
             variant.add_missing_entries(diary_dict, base_tprs_dict)
+        _log.info(f"Q&A generation done for {variant.variant_name}.")
 
-        # Convert the (potentially updated) markdown for this variant to audio
-        if tprs_instance.config.get(
-            "create_tprs_audio", True
-        ):  # Check if TPRS audio creation is enabled
+        _log.info(f"=== Phase 3/3: Audio generation — {variant.variant_name} ===")
+        if tprs_instance.config.get("create_tprs_audio", True):
             variant.convert_to_audio()
         else:
-            logging.info(
+            _log.info(
                 f"Skipping audio generation for {variant.variant_name} as per configuration."
             )
+        _log.info(f"Audio done for {variant.variant_name}.")
 
     tprs_instance.stop()
-    logging.info("TPRS processing complete.")
+    _log.info("=== All generation complete ===")
 
 
 if __name__ == "__main__":
