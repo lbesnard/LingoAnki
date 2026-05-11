@@ -70,7 +70,6 @@ RUN flutter pub get
 # Copy only the source that affects the web build
 COPY android_app/lib/ ./lib/
 COPY android_app/web/ ./web/
-COPY android_app/assets/ ./assets/ 2>/dev/null || true
 
 RUN flutter build web --release
 
