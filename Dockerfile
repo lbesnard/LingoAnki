@@ -57,22 +57,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Flutter (pinned to the same version used in CI)
 ENV FLUTTER_VERSION=3.41.9
-RUN curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+RUN git config --global --add safe.directory /opt/flutter && \
+    curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
     | tar -xJ -C /opt && \
-    /opt/flutter/bin/flutter config --no-analytics && \
+    git config --global --add safe.directory /opt/flutter && \
+    /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
     /opt/flutter/bin/flutter precache --web
 
 ENV PATH="/opt/flutter/bin:$PATH"
+# Suppress "running as root" warning and git ownership check
+ENV FLUTTER_SUPPRESS_ANALYTICS=true
+ENV GIT_GLOBAL_CONFIG_DIR=/root
 
 WORKDIR /flutter_app
 COPY android_app/pubspec.yaml android_app/pubspec.lock* ./
-RUN flutter pub get
+RUN git config --global --add safe.directory /opt/flutter && flutter pub get
 
 # Copy only the source that affects the web build
 COPY android_app/lib/ ./lib/
 COPY android_app/web/ ./web/
 
-RUN flutter build web --release
+RUN git config --global --add safe.directory /opt/flutter && \
+    flutter build web --release
 
 # ── Stage 3: app — lightweight deps + source code ────────────────────────────
 # Rebuilt on every poetry.lock or source change, but stays fast because
