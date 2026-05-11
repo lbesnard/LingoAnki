@@ -1076,9 +1076,13 @@ def _jwt_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
+        if auth.startswith("Bearer "):
+            token = auth[len("Bearer ") :]
+        elif request.args.get("token"):
+            # Fallback for media streaming (e.g. HTML5 audio can't set headers)
+            token = request.args["token"]
+        else:
             return jsonify({"error": "Missing or invalid Authorization header"}), 401
-        token = auth[len("Bearer ") :]
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         except jwt.ExpiredSignatureError:

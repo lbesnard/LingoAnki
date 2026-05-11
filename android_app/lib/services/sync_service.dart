@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'api_service.dart';
+import 'auth_service.dart';
 
 class SyncService {
   /// Returns the local directory used to cache synced output files.
@@ -27,11 +28,14 @@ class SyncService {
 
   /// Returns a [Uri] suitable for use with just_audio on both platforms.
   /// On Android: a file:// URI pointing to the locally cached file.
-  /// On web:     an https:// URI pointing to the server's sync endpoint.
+  /// On web:     an HTTPS URI pointing to the server's sync endpoint,
+  ///             with the JWT token as a query param (HTML5 audio can't send headers).
   static Future<Uri> audioUri(String relPath) async {
     if (kIsWeb) {
       final base = await ApiService.baseUrl();
-      return Uri.parse('$base/api/sync/file/${Uri.encodeFull(relPath)}');
+      final token = await AuthService.getToken() ?? '';
+      final encoded = Uri.encodeFull(relPath);
+      return Uri.parse('$base/api/sync/file/$encoded?token=${Uri.encodeQueryComponent(token)}');
     }
     final path = await localPath(relPath);
     return Uri.file(path);
