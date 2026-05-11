@@ -1522,6 +1522,7 @@ class TprsVariantHandler:
 
         from lingodiary.diary_json import (
             QA,
+            AudioTiming,
             VariantLesson,
             load_diary_json,
             save_diary_json,
@@ -1559,16 +1560,56 @@ class TprsVariantHandler:
                     if matched_entry is None:
                         continue
 
-                    qa_list = [
-                        QA(
-                            question=qa_raw[k]["question"],
-                            answer=qa_raw[k]["answer"],
-                        )
-                        for k in sorted(
+                    # Build a lookup of existing QA for this variant so we can
+                    # preserve question_input/answer_input and audio fields that
+                    # were written by the backfill step and must not be overwritten.
+                    existing_qa_by_index: dict = {}
+                    existing_variant = getattr(matched_entry.lessons, json_key, None)
+                    if existing_variant is not None:
+                        for i, existing_qa in enumerate(existing_variant.qa):
+                            existing_qa_by_index[i] = existing_qa
+
+                    qa_list = []
+                    for i, k in enumerate(
+                        sorted(
                             qa_raw.keys(),
                             key=lambda x: int(x) if x.isdigit() else 0,
                         )
-                    ]
+                    ):
+                        existing = existing_qa_by_index.get(i)
+                        qa_list.append(
+                            QA(
+                                question=qa_raw[k]["question"],
+                                answer=qa_raw[k]["answer"],
+                                # Preserve already-populated fields — never blank them out
+                                question_input=(
+                                    existing.question_input
+                                    if existing and existing.question_input
+                                    else ""
+                                ),
+                                answer_input=(
+                                    existing.answer_input
+                                    if existing and existing.answer_input
+                                    else ""
+                                ),
+                                question_timing=(
+                                    existing.question_timing
+                                    if existing
+                                    else AudioTiming()
+                                ),
+                                answer_timing=(
+                                    existing.answer_timing
+                                    if existing
+                                    else AudioTiming()
+                                ),
+                                question_audio_path=(
+                                    existing.question_audio_path if existing else ""
+                                ),
+                                answer_audio_path=(
+                                    existing.answer_audio_path if existing else ""
+                                ),
+                            )
+                        )
                     matched_entry.lessons.set_variant(
                         json_key,
                         VariantLesson(sentence=sentence_text, qa=qa_list),
@@ -2253,11 +2294,11 @@ class TprsVariantHandler:
             self.logging.info(
                 f"{self.variant_name} TPRS: writing updated Q&A to diary.json."
             )
+            self.write_json_tprs(sorted_tprs_variant_dict)
         else:
             self.logging.info(
                 f"{self.variant_name} TPRS: all sentences already present — nothing to generate."
             )
-        self.write_json_tprs(sorted_tprs_variant_dict)
 
 
 class StandardTprsVariantHandler(TprsVariantHandler):
