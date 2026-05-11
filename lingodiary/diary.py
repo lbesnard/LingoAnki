@@ -1156,7 +1156,7 @@ class DiaryHandler:
             return
 
         try:
-            from lingoanki.diary_json import (
+            from lingodiary.diary_json import (
                 DiaryEntry,
                 LessonsBlock,
                 ReviewingState,
@@ -1273,7 +1273,7 @@ class DiaryHandler:
             )
             return {}
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1513,7 +1513,7 @@ class TprsVariantHandler:
         if not json_path:
             return
 
-        from lingoanki.diary_json import (
+        from lingodiary.diary_json import (
             QA,
             VariantLesson,
             load_diary_json,
@@ -2046,7 +2046,7 @@ class TprsVariantHandler:
         if json_key is None:
             return {}
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2255,7 +2255,7 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
     """
     import json as _json
     from openai import OpenAI
-    from lingoanki.diary_json import load_diary_json, save_diary_json
+    from lingodiary.diary_json import load_diary_json, save_diary_json
 
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -2396,7 +2396,7 @@ def _backfill_variant_sentence_inputs(
     """
     import json as _json
     from openai import OpenAI
-    from lingoanki.diary_json import load_diary_json, save_diary_json
+    from lingodiary.diary_json import load_diary_json, save_diary_json
 
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -2570,7 +2570,7 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2591,7 +2591,7 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)

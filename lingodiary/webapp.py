@@ -36,7 +36,7 @@ from flask_babel import Babel
 from flask_babel import gettext as _
 from platformdirs import user_config_dir
 
-from lingoanki.diary import (
+from lingodiary.diary import (
     APP_NAME,
     DiaryHandler,
     _backfill_qa_translations,
@@ -263,7 +263,7 @@ def edit_diary():
     if request.method == "POST":
         # Accept a structured JSON body from the new diary editor UI
         try:
-            from lingoanki.diary_json import (
+            from lingodiary.diary_json import (
                 load_diary_json,
                 save_diary_json,
                 upsert_day,
@@ -297,7 +297,7 @@ def edit_diary():
     diary_data = None
     if os.path.exists(json_path):
         try:
-            from lingoanki.diary_json import load_diary_json
+            from lingodiary.diary_json import load_diary_json
 
             diary_data = load_diary_json(json_path)
         except Exception:
@@ -336,7 +336,7 @@ def diary_html():
     diary_data = None
     if os.path.exists(json_path):
         try:
-            from lingoanki.diary_json import load_diary_json
+            from lingodiary.diary_json import load_diary_json
 
             diary_data = load_diary_json(json_path)
         except Exception:
@@ -369,7 +369,7 @@ def view_tprs():
     diary_data = None
     if os.path.exists(json_path):
         try:
-            from lingoanki.diary_json import load_diary_json
+            from lingodiary.diary_json import load_diary_json
 
             diary_data = load_diary_json(json_path)
         except Exception:
@@ -411,7 +411,7 @@ def generate_lessons():
 
         # Auto-update diary.json so it stays in sync with newly generated content
         try:
-            from lingoanki.migrate_to_json import (
+            from lingodiary.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
@@ -474,7 +474,7 @@ def web_backfill_audio_timing():
 
     def _run():
         try:
-            from lingoanki.audio_timing import backfill_audio_timings
+            from lingodiary.audio_timing import backfill_audio_timings
 
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
             app.logger.info("Audio timing backfill complete.")
@@ -498,7 +498,7 @@ def web_backfill_all():
     def _run():
         app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
         try:
-            from lingoanki.migrate_to_json import (
+            from lingodiary.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
@@ -520,7 +520,7 @@ def web_backfill_all():
 
         app.logger.info("Backfill all: step 3/3 — audio timing / segments")
         try:
-            from lingoanki.audio_timing import backfill_audio_timings
+            from lingodiary.audio_timing import backfill_audio_timings
 
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
@@ -615,7 +615,7 @@ def save_diary_entry():
     json_path = os.path.join(output_folder, "diary.json")
 
     try:
-        from lingoanki.diary_json import (
+        from lingodiary.diary_json import (
             DiaryEntry,
             LessonsBlock,
             ReviewingState,
@@ -789,7 +789,7 @@ def lesson_player(username, date, variant):
     lesson_title = ""
     if os.path.exists(json_path):
         try:
-            from lingoanki.diary_json import load_diary_json
+            from lingodiary.diary_json import load_diary_json
 
             diary_json = load_diary_json(json_path)
             date_slash = date.replace("-", "/")
@@ -1010,7 +1010,7 @@ def diary_entries_route():
             output_folder = session.get("output_folder", "")
             if user_config_path and output_folder:
                 try:
-                    from lingoanki.diary_json import (
+                    from lingodiary.diary_json import (
                         DiaryEntry,
                         LessonsBlock,
                         ReviewingState,
@@ -1165,7 +1165,7 @@ def api_generate():
         # Auto-update diary.json after generation
         json_path = os.path.join(output_folder, "diary.json")
         try:
-            from lingoanki.migrate_to_json import (
+            from lingodiary.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
@@ -1228,7 +1228,7 @@ def api_backfill_audio_timing():
 
     def _run():
         try:
-            from lingoanki.audio_timing import backfill_audio_timings
+            from lingodiary.audio_timing import backfill_audio_timings
 
             json_path = os.path.join(output_folder, "diary.json")
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
@@ -1261,7 +1261,7 @@ def api_backfill_all():
 
         app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
         try:
-            from lingoanki.migrate_to_json import (
+            from lingodiary.migrate_to_json import (
                 migrate_markdown_to_json as migrate_to_json,
             )
 
@@ -1283,7 +1283,7 @@ def api_backfill_all():
 
         app.logger.info("Backfill all: step 3/3 — audio timing / segments")
         try:
-            from lingoanki.audio_timing import backfill_audio_timings
+            from lingodiary.audio_timing import backfill_audio_timings
 
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
@@ -1323,7 +1323,7 @@ def api_lessons():
     result = []
     diary = None
     try:
-        from lingoanki.diary_json import load_diary_json, compute_stats, get_day
+        from lingodiary.diary_json import load_diary_json, compute_stats, get_day
 
         diary = load_diary_json(_g.api_json_diary_path)
     except Exception:
@@ -1448,7 +1448,7 @@ def api_sync_lesson_manifest(base):
 def api_get_diary_json():
     """Return the full diary JSON for the authenticated user."""
     from flask import g as _g
-    from lingoanki.diary_json import load_diary_json
+    from lingodiary.diary_json import load_diary_json
 
     json_path = _g.api_json_diary_path
     if not os.path.exists(json_path):
@@ -1465,7 +1465,7 @@ def api_get_diary_json():
 def api_post_diary_json():
     """Overwrite diary JSON (full replace, for migration tool)."""
     from flask import g as _g
-    from lingoanki.diary_json import DiaryJson, save_diary_json
+    from lingodiary.diary_json import DiaryJson, save_diary_json
 
     data = request.get_json(silent=True)
     if data is None:
@@ -1483,7 +1483,7 @@ def api_post_diary_json():
 def api_lesson_entries(date, variant):
     """Return entries list with audio timings for a given date and variant."""
     from flask import g as _g
-    from lingoanki.diary_json import load_diary_json, get_day
+    from lingodiary.diary_json import load_diary_json, get_day
 
     # Normalise date to YYYY/MM/DD
     date_slash = date.replace("-", "/")
@@ -1522,7 +1522,7 @@ def api_lesson_entries(date, variant):
 def api_lesson_score():
     """Apply SM-2 score to a diary entry. Body: {date, entry_index, score}."""
     from flask import g as _g
-    from lingoanki.diary_json import load_diary_json, save_diary_json, update_srs
+    from lingodiary.diary_json import load_diary_json, save_diary_json, update_srs
 
     data = request.get_json(silent=True) or {}
     date = data.get("date", "")
@@ -1551,7 +1551,7 @@ def api_lesson_score():
 def api_home():
     """Dashboard: stats + recent + recommended lesson."""
     from flask import g as _g
-    from lingoanki.diary_json import (
+    from lingodiary.diary_json import (
         load_diary_json,
         compute_stats,
         get_due_entries,
@@ -1626,7 +1626,7 @@ def api_migrate():
 
     def _run():
         try:
-            from lingoanki.migrate_to_json import migrate_markdown_to_json
+            from lingodiary.migrate_to_json import migrate_markdown_to_json
 
             migrate_markdown_to_json(config_path, json_path, overwrite=True)
         except Exception as exc:
@@ -1646,7 +1646,7 @@ def api_sentences_due():
       variant (str, default "original") — which variant lesson to pull sentence/qa from
     """
     from flask import g as _g
-    from lingoanki.diary_json import load_diary_json, get_due_entries
+    from lingodiary.diary_json import load_diary_json, get_due_entries
 
     limit = int(request.args.get("limit", 20))
     variant = request.args.get("variant", "original")
@@ -1732,7 +1732,7 @@ def api_add_diary_entry():
 
     try:
         import yaml
-        from lingoanki.diary_json import (
+        from lingodiary.diary_json import (
             DiaryEntry,
             LessonsBlock,
             ReviewingState,
@@ -1772,7 +1772,7 @@ def api_add_diary_entry():
 @_jwt_required
 def api_get_config():
     """Return user config values relevant to the mobile app (TPRS keywords)."""
-    from lingoanki.diary import (
+    from lingodiary.diary import (
         _TMPL_TPRS_ANSWER,
         _TMPL_TPRS_QUESTION,
         _TMPL_TPRS_SENTENCE,

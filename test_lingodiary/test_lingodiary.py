@@ -1,6 +1,6 @@
 import unittest
 
-from lingoanki.__main__ import generate_unique_id
+from lingodiary.__main__ import generate_unique_id
 
 
 class TestGenerateUniqueId(unittest.TestCase):

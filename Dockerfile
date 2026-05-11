@@ -69,10 +69,10 @@ RUN poetry config virtualenvs.in-project true && \
     poetry install --with dev --no-root
 
 # 🔁 Copy source (invalidates cache only on code changes, not dep changes)
-COPY lingoanki/ /app/lingoanki
+COPY lingodiary/ /app/lingodiary
 COPY README.md /app/
 
-# ✅ Install the lingoanki package itself; write lock hash for entrypoint check
+# ✅ Install the lingodiary package itself; write lock hash for entrypoint check
 RUN poetry install --only-root && \
     sha256sum /app/poetry.lock | awk '{print $1}' > /app/.poetry.lock.sha256
 

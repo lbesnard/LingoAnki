@@ -23,11 +23,11 @@ Audio structure (per sentence S, R = repeat_tprs):
     per Q&A: pause_ms + [Q x R] + answer_silence_ms + [A x R] + pause_ms
 
 Usage:
-    python -m lingoanki.audio_timing \\
+    python -m lingodiary.audio_timing \\
         --config ~/.config/lingoDiary/config.yaml \\
         --json ~/Documents/lingodiary/<user>/diary.json
 
-    from lingoanki.audio_timing import backfill_audio_timings
+    from lingodiary.audio_timing import backfill_audio_timings
     backfill_audio_timings(config_path, diary_json_path)
 """
 
@@ -230,7 +230,7 @@ def _compute_day_timings(
     Returns list of (start_ms, end_ms) per entry for the sentence block start/end.
     Q&A timings are stored directly onto each QA object.
     """
-    from lingoanki.diary_json import AudioTiming  # type: ignore
+    from lingodiary.diary_json import AudioTiming  # type: ignore
 
     R = max(1, repeat_tprs)
     segs_dir = _segments_dir(output_dir, date_str, variant_key)
@@ -307,7 +307,7 @@ def backfill_audio_timings(
     import yaml  # type: ignore
     from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
 
-    from lingoanki.diary_json import AudioTiming, load_diary_json, save_diary_json
+    from lingodiary.diary_json import AudioTiming, load_diary_json, save_diary_json
 
     variants = variants or list(_VARIANT_KEYS)
     diary_json_path = Path(diary_json_path)

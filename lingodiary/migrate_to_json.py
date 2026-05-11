@@ -7,12 +7,12 @@ for a given user and writes a consolidated diary.json in the new schema.
 Existing markdown files are NOT modified or deleted — they remain as backup/fallback.
 
 Usage:
-    python -m lingoanki.migrate_to_json \\
+    python -m lingodiary.migrate_to_json \\
         --config ~/.config/lingoDiary/config.yaml \\
         --output ~/Documents/lingodiary/<user>/diary.json
 
     # Or call programmatically:
-    from lingoanki.migrate_to_json import migrate_markdown_to_json
+    from lingodiary.migrate_to_json import migrate_markdown_to_json
     migrate_markdown_to_json(config_path, output_json_path, overwrite=False)
 """
 
@@ -25,8 +25,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from lingoanki.diary import DiaryHandler
-from lingoanki.diary_json import (
+from lingodiary.diary import DiaryHandler
+from lingodiary.diary_json import (
     DiaryEntry,
     DiaryJson,
     LessonsBlock,
