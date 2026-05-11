@@ -56,10 +56,7 @@ class LingoDiaryApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('en'),
-        Locale('fr'),
-      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
@@ -71,6 +68,23 @@ class LingoDiaryApp extends StatelessWidget {
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
+
+  void _showHelpDialog(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.helpTitle),
+        content: SingleChildScrollView(child: Text(l10n.helpBody)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(l10n.helpClose),
+          ),
+        ],
+      ),
+    );
+  }
 
   int _currentIndex(String location) {
     if (location.startsWith('/review')) return 1;
@@ -91,6 +105,11 @@ class MainShell extends StatelessWidget {
             title: const Text('LingoDiary'),
             actions: [
               const ConnectionBadge(),
+              IconButton(
+                tooltip: 'Help',
+                icon: const Icon(Icons.help_outline),
+                onPressed: () => _showHelpDialog(context),
+              ),
               IconButton(
                 tooltip: 'Settings',
                 icon: const Icon(Icons.settings_outlined),

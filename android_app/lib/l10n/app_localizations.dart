@@ -10,7 +10,7 @@ class AppLocalizations {
   }
 
   static const delegate = _AppLocalizationsDelegate();
-  static const supportedLocales = [Locale('en'), Locale('fr')];
+  static const supportedLocales = [Locale('en'), Locale('fr'), Locale('es')];
 
   String _t(String key) =>
       (_strings[locale.languageCode] ?? _strings['en']!)[key] ??
@@ -68,6 +68,17 @@ class AppLocalizations {
   String get settingsDataCleared => _t('settingsDataCleared');
   String settingsErrorClearing(String error) => _t('settingsErrorClearing').replaceAll('{error}', error);
 
+  // Onboarding
+  String get homeWelcomeTitle => _t('homeWelcomeTitle');
+  String get homeWelcomeBody => _t('homeWelcomeBody');
+  String get homeWelcomeTip => _t('homeWelcomeTip');
+  String get homeGoDiary => _t('homeGoDiary');
+
+  // Help dialog
+  String get helpTitle => _t('helpTitle');
+  String get helpBody => _t('helpBody');
+  String get helpClose => _t('helpClose');
+
   static const Map<String, Map<String, String>> _strings = {
     'en': {
       'appTitle': 'LingoDiary',
@@ -120,6 +131,15 @@ class AppLocalizations {
       'settingsClearButton': 'Clear',
       'settingsDataCleared': 'All cached data cleared.',
       'settingsErrorClearing': 'Error clearing data: {error}',
+      // Onboarding
+      'homeWelcomeTitle': 'Get started',
+      'homeWelcomeBody': 'Write a few sentences about your day, then hit Generate Lessons. The app translates them and creates audio lessons in TPRS style.',
+      'homeWelcomeTip': 'Tip: simple sentences work best. "I went to the market. I bought bread." The app does the rest.',
+      'homeGoDiary': 'Write your first diary entry \u2192',
+      // Help
+      'helpTitle': 'How it works',
+      'helpBody': '1. Go to Diary and write a few sentences about your day in your native language.\n\n2. Tap Generate Lessons. The server translates each sentence and records audio with Q\u0026A.\n\n3. Open Lessons and listen. Each sentence is highlighted as it plays. Tap any sentence to reveal the translation.\n\n4. Score yourself at the end of each lesson to track your mastery over time.',
+      'helpClose': 'Got it',
     },
     'fr': {
       'appTitle': 'LingoDiary',
@@ -172,6 +192,76 @@ class AppLocalizations {
       'settingsClearButton': 'Effacer',
       'settingsDataCleared': 'Toutes les donn\u00e9es en cache ont \u00e9t\u00e9 effac\u00e9es.',
       'settingsErrorClearing': 'Erreur lors de la suppression\u00a0: {error}',
+      // Onboarding
+      'homeWelcomeTitle': 'Commencer',
+      'homeWelcomeBody': '\u00c9crivez quelques phrases sur votre journ\u00e9e, puis appuyez sur G\u00e9n\u00e9rer des le\u00e7ons. L\u2019application les traduit et cr\u00e9e des le\u00e7ons audio en style TPRS.',
+      'homeWelcomeTip': 'Astuce\u00a0: les phrases simples fonctionnent le mieux. \u00ab\u00a0Je suis all\u00e9 au march\u00e9. J\u2019ai achet\u00e9 du pain.\u00a0\u00bb L\u2019application fait le reste.',
+      'homeGoDiary': '\u00c9crire ma premi\u00e8re entr\u00e9e \u2192',
+      // Help
+      'helpTitle': 'Comment \u00e7a marche',
+      'helpBody': '1. Allez dans Journal et \u00e9crivez quelques phrases sur votre journ\u00e9e dans votre langue maternelle.\n\n2. Appuyez sur G\u00e9n\u00e9rer des le\u00e7ons. Le serveur traduit chaque phrase et enregistre l\u2019audio avec des questions-r\u00e9ponses.\n\n3. Ouvrez Le\u00e7ons et \u00e9coutez. Chaque phrase est mise en \u00e9vidence pendant la lecture. Appuyez sur une phrase pour r\u00e9v\u00e9ler la traduction.\n\n4. Notez-vous \u00e0 la fin de chaque le\u00e7on pour suivre votre progression.',
+      'helpClose': 'Compris',
+    },
+    'es': {
+      'appTitle': 'LingoDiary',
+      'navDiary': 'Diario',
+      'navLessons': 'Lecciones',
+      'navSettings': 'Ajustes',
+      'cancelButton': 'Cancelar',
+      'syncAll': 'Sincronizar todo',
+      'syncInProgress': 'Sincronizando\u2026',
+      'syncCancelled': 'Cancelado.',
+      'syncFailed': 'Error de sincronizaci\u00f3n: {error}',
+      'syncedFiles': '{count} archivo(s) sincronizado(s) \u2713',
+      'noLessons': 'Sin lecciones todav\u00eda.\nPulsa Sincronizar todo para descargar.',
+      'serverUnreachable': 'Servidor no disponible \u2014 mostrando cach\u00e9',
+      'syncThisLesson': 'Sincronizar esta lecci\u00f3n',
+      'lessonSynced': 'Sincronizado',
+      'audioNotSynced': 'Audio no sincronizado \u2014 pulsa \u27f3 en la barra.',
+      'noContent': 'Sin contenido \u2014 pulsa Sincronizar para descargar.',
+      'noDateInLesson': 'No se encontr\u00f3 fecha en el nombre de la lecci\u00f3n.',
+      'noDiaryEntry': 'No se encontr\u00f3 entrada de diario para {date}.\nAseg\u00farate de que el servidor tenga esta entrada.',
+      'loopOn': 'Bucle: activado',
+      'loopOff': 'Bucle: desactivado',
+      'fontSizeTooltip': 'Tama\u00f1o de fuente ({size})',
+      'loginServerUrl': 'URL del servidor',
+      'loginServerHint': 'http://192.168.1.x:8084',
+      'loginServerRequired': 'Introduce la URL del servidor',
+      'loginUsername': 'Usuario',
+      'loginUsernameRequired': 'Introduce el nombre de usuario',
+      'loginPassword': 'Contrase\u00f1a',
+      'loginPasswordRequired': 'Introduce la contrase\u00f1a',
+      'loginButton': 'Iniciar sesi\u00f3n',
+      'settingsTitle': 'Ajustes',
+      'settingsAccount': 'Cuenta',
+      'settingsUsernameLabel': 'Usuario',
+      'settingsServerLabel': 'Servidor',
+      'settingsChangeServer': 'Cambiar URL del servidor',
+      'settingsSave': 'Guardar',
+      'settingsServerUpdated': 'URL del servidor actualizada',
+      'settingsSession': 'Sesi\u00f3n',
+      'settingsSignOut': 'Cerrar sesi\u00f3n',
+      'settingsSignOutSubtitle': 'Conserva todos los datos en cach\u00e9',
+      'settingsSignOutTitle': 'Cerrar sesi\u00f3n',
+      'settingsSignOutBody': 'Tus lecciones y diario en cach\u00e9 se conservar\u00e1n.\n\n\u00bfCerrar sesi\u00f3n?',
+      'settingsData': 'Datos',
+      'settingsStorageLabel': 'Tama\u00f1o de cach\u00e9',
+      'settingsClearData': 'Borrar todos los datos',
+      'settingsClearDataSubtitle': 'Elimina lecciones descargadas y cach\u00e9 del diario',
+      'settingsClearDataTitle': 'Borrar todos los datos',
+      'settingsClearDataBody': 'Esto eliminar\u00e1 todos los archivos de lecci\u00f3n descargados (audio + texto) y la cach\u00e9 de la base de datos local.\n\nPermanecer\u00e1s conectado y podr\u00e1s volver a sincronizar desde el servidor.\n\nEsta acci\u00f3n no se puede deshacer. \u00bfContinuar?',
+      'settingsClearButton': 'Borrar',
+      'settingsDataCleared': 'Todos los datos en cach\u00e9 han sido borrados.',
+      'settingsErrorClearing': 'Error al borrar datos: {error}',
+      // Onboarding
+      'homeWelcomeTitle': 'Empezar',
+      'homeWelcomeBody': 'Escribe algunas frases sobre tu d\u00eda y pulsa Generar lecciones. La app las traduce y crea lecciones de audio en estilo TPRS.',
+      'homeWelcomeTip': 'Consejo: las frases simples funcionan mejor. \u00abFui al mercado. Compr\u00e9 pan.\u00bb La app hace el resto.',
+      'homeGoDiary': 'Escribe tu primera entrada \u2192',
+      // Help
+      'helpTitle': 'C\u00f3mo funciona',
+      'helpBody': '1. Ve a Diario y escribe algunas frases sobre tu d\u00eda en tu idioma nativo.\n\n2. Pulsa Generar lecciones. El servidor traduce cada frase y graba el audio con preguntas y respuestas.\n\n3. Abre Lecciones y escucha. Cada frase se resalta mientras se reproduce. Pulsa una frase para ver la traducci\u00f3n.\n\n4. Punt\u00faate al final de cada lecci\u00f3n para seguir tu progreso.',
+      'helpClose': 'Entendido',
     },
   };
 }
@@ -182,7 +272,7 @@ class _AppLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) =>
-      ['en', 'fr'].contains(locale.languageCode);
+      ['en', 'fr', 'es'].contains(locale.languageCode);
 
   @override
   Future<AppLocalizations> load(Locale locale) async => AppLocalizations(locale);
