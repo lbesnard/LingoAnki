@@ -55,7 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Flutter (pinned to the same version used in CI)
+# Install Flutter as root into /opt/flutter (pinned to the same version used in CI)
 ENV FLUTTER_VERSION=3.41.9
 RUN git config --global --add safe.directory /opt/flutter && \
     curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
@@ -65,17 +65,21 @@ RUN git config --global --add safe.directory /opt/flutter && \
     /opt/flutter/bin/flutter precache --web
 
 ENV PATH="/opt/flutter/bin:$PATH"
-# Suppress "running as root" warning and git ownership check
 ENV FLUTTER_SUPPRESS_ANALYTICS=true
-ENV GIT_GLOBAL_CONFIG_DIR=/root
+
+# Run Flutter as a non-root user to suppress the "running as root" warning
+RUN useradd -m -u 1000 flutteruser && \
+    chown -R flutteruser:flutteruser /opt/flutter
+ENV GIT_GLOBAL_CONFIG_DIR=/home/flutteruser
+USER flutteruser
 
 WORKDIR /flutter_app
-COPY android_app/pubspec.yaml android_app/pubspec.lock* ./
+COPY --chown=flutteruser:flutteruser android_app/pubspec.yaml android_app/pubspec.lock* ./
 RUN git config --global --add safe.directory /opt/flutter && flutter pub get
 
 # Copy only the source that affects the web build
-COPY android_app/lib/ ./lib/
-COPY android_app/web/ ./web/
+COPY --chown=flutteruser:flutteruser android_app/lib/ ./lib/
+COPY --chown=flutteruser:flutteruser android_app/web/ ./web/
 
 RUN git config --global --add safe.directory /opt/flutter && \
     flutter build web --release
