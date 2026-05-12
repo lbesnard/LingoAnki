@@ -12,11 +12,9 @@ overwrite_tprs_markdown: True
 
 overwrite_tprs_audio: False
 
-create_anki_deck: False # set to True if needed. It will create a new anki deck and audio lessons every time. Just a bit slower to generate as the deck needs to be recreated from scratch
 create_tprs_auto: True
 create_diary_answers_auto: True
 
-anki_deck_name: "Norwegian 🇳🇴:::Diary 📖"
 tprs_lesson_name: "Norwegian 🇳🇴- Diary 📖"
 
 openai:

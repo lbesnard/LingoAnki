@@ -2,8 +2,7 @@
 """
 This script automates the creation of language learning materials from personal diary entries.
 It processes diary entries written in a primary language, translates them into a study
-language, and generates various learning resources, including Anki flashcards and
-TPRS (Teaching Proficiency Through Reading and Storytelling) lessons.
+language, and generates TPRS (Teaching Proficiency Through Reading and Storytelling) lessons.
 
 The script is organized into two main functionalities: Diary Handling and TPRS Creation.
 
@@ -20,8 +19,7 @@ The script is organized into two main functionalities: Diary Handling and TPRS C
     *   **Output**:
         *   A main Markdown file (e.g., `diary.md`) consolidating all processed diary entries.
         *   Individual daily Markdown files for easier review.
-        *   (Optional) An Anki package (`.apkg`) containing flashcards with text and
-          Text-to-Speech (TTS) audio for each sentence, facilitating spaced repetition.
+        *   Diary entries written to `diary.json` for spaced-repetition review in the web app.
 
 2.  **TPRS Lesson Generation (`TprsCreation` & `TprsVariantHandler`)**:
     *   **Input**: Uses the processed diary entries (study language sentences).
@@ -45,7 +43,7 @@ The script is organized into two main functionalities: Diary Handling and TPRS C
     language settings, OpenAI keys, TTS preferences, output paths).
 2.  **Diary Input**: User provides diary entries (manually in Markdown or via prompts).
 3.  **Diary Processing**: `DiaryHandler` translates sentences, adds tips, generates titles,
-    and optionally creates an Anki deck.
+
 4.  **TPRS Generation**: `TprsCreation` takes the processed diary sentences and, for each
     configured TPRS variant:
     a.  Generates specific Q&A using OpenAI.
@@ -72,17 +70,14 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import textwrap
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from sre_compile import REPEAT_ONE
 from typing import Callable
 
-import numpy as np
 import yaml
-from genanki import Deck, Model, Note, Package
-from gtts import gTTS
 from openai import OpenAI
 from ovos_plugin_manager.tts import load_tts_plugin
 from ovos_tts_plugin_piper import PiperTTSPlugin
@@ -113,22 +108,23 @@ class DiaryHandler:
             config_path (str, optional): Path to the configuration file.
                                          Defaults to None, which then uses the default user config path.
         """
-        self.config = self.load_config(config_path=config_path)
+        self.config = DiaryHandler.load_config(config_path=config_path)
         self.markdown_diary_path = self.config["markdown_diary_path"]
-        self.deck_name = self.config.get("anki_deck_name", "LingoDiary")
         self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
         self.diary_new_entries_day = None
+        self.all_diary_text = ""
+        self.titles_dict = {}
         self.template_help_string = self.template_help()
 
         self.setup_logging()
         self.validate_arguments()
 
         self.setup_output_diary_markdown()
-        self.anki_model_def()
 
-    def load_config(self, config_path=None):
+    @staticmethod
+    def load_config(config_path=None):
         """Loads the YAML configuration file.
 
         Args:
@@ -170,6 +166,10 @@ class DiaryHandler:
             conf.setdefault(
                 "markdown_tprs_path",
                 os.path.join(conf["output_dir"], "📖 Diary - TPRS.md"),
+            )
+            conf.setdefault(
+                "json_diary_path",
+                os.path.join(conf["output_dir"], "diary.json"),
             )
 
             return conf
@@ -258,9 +258,14 @@ class DiaryHandler:
                 "%(asctime)s - %(levelname)s - %(message)s"
             )
 
-            # Create file handler to log into output.log
+            # Create file handler to log into output.log (flush after every record)
+            class FlushingFileHandler(logging.FileHandler):
+                def emit(self, record):
+                    super().emit(record)
+                    self.flush()
+
             os.makedirs(self.output_dir, exist_ok=True)
-            file_handler = logging.FileHandler(
+            file_handler = FlushingFileHandler(
                 os.path.join(self.config["output_dir"], "output.log")
             )
             file_handler.setFormatter(log_formatter)
@@ -433,81 +438,6 @@ class DiaryHandler:
             else:
                 return diary
 
-    def anki_model_def(self):
-        """Defines the Anki card model structure.
-
-        Sets up the fields and templates for the Anki cards that will be generated.
-        The model includes fields for primary language, study language, tips, audio,
-        date, and sentence number. It also defines two card templates: one for
-        primary to study language, and one for study language (audio) to primary.
-        """
-        # Define the model for Anki cards
-        self.anki_model = Model(
-            model_id=3602398329,
-            name=f"{self.config['languages']['primary_language'].title()}-{self.config['languages']['study_language'].title()} Model",
-            fields=[
-                {"name": self.config["languages"]["primary_language"].title()},
-                {"name": self.config["languages"]["study_language"].title()},
-                {"name": "Tips"},
-                {"name": "Audio"},
-                {"name": "Date"},
-                {"name": "SentenceNumber"},
-            ],
-            templates=[
-                {
-                    "name": f"{self.config['languages']['primary_language'].title()} to {self.config['languages']['study_language'].title()}",
-                    "qfmt": f"{{{{{self.config['languages']['primary_language'].title()}}}}}",
-                    "afmt": f"""
-                    {{{{FrontSide}}}}<hr id="answer">
-                    <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
-                    <div style="color:#009933; font-size:1em;">{{{{{self.config["languages"]["study_language"].title()}}}}}</div>
-                    <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{{{Tips}}}}</em></div>
-                    </div>
-                    <center>{{{{Audio}}}}</center>
-
-                    """,
-                },
-                {
-                    "name": f"{self.config['languages']['study_language'].title()} to {self.config['languages']['primary_language'].title()}",
-                    "qfmt": "{{Audio}}",
-                    "afmt": f"""
-                            <div style="font-weight:bold; font-size:1.2em; color:#0073e6;">
-                            {{{{FrontSide}}}}<hr id="answer">
-                            </div>
-                            <div style="background-color:#f0f0f0; padding:10px; border-radius:8px;">
-                            <div style="color:#333; font-size:1em;">{{{{{self.config["languages"]["study_language"].title()}}}}}</div>
-                            <hr style="border: 1px solid #0073e6;">
-                            <div style="color:#009933; font-size:1em;">{{{{{self.config["languages"]["primary_language"].title()}}}}}</div>
-                            <div style="color:#666; font-size:0.9em; margin-top:5px;"><em>{{{{Tips}}}}</em></div>
-                            </div>
-                            """,
-                },
-            ],
-            css="""
-                .card {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                }
-
-                .card {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                font-family: arial;
-                font-size: 20px;
-                text-align: center; bottom: 0
-                color: black;
-                background-color: white;
-                }
-                .replay-button svg
-                { width: 80px;
-                height: 80px;
-                }
-                """,
-        )
-
     def generate_unique_id(self, input_string, length=9):
         """Generates a unique ID based on a hash of the input string.
 
@@ -623,215 +553,6 @@ class DiaryHandler:
 
         return clean_content.strip()  # Optionally strip any leading/trailing whitespace
 
-    def create_main_deck(self):
-        """Creates the main Anki deck.
-
-        The deck ID is generated by hashing the deck name.
-
-        Returns:
-            genanki.Deck: The main Anki deck object.
-        """
-        return Deck(deck_id=hash(self.deck_name), name=self.deck_name)
-
-    def process_day_block_anki(self, day_block):
-        """Processes a single day's entries to create Anki notes and a daily audio compilation.
-
-        Args:
-            day_block (tuple): A tuple containing the date (datetime.date) and
-                               a dictionary of the day's entries.
-                               The dictionary includes a title and sentences.
-
-        Returns:
-            tuple: A tuple containing:
-                - list: A list of genanki.Note objects for the day.
-                - list: A list of paths to the media files (audio) for these notes.
-        """
-        date, day_dict = day_block
-        title = day_dict["title"]
-
-        self.logging.info(f"Processing day: {date} - {title}")
-
-        notes = []
-        media_files = []
-        for sentence_no, sentence in day_dict["sentences"].items():
-            primary_language_sentence = sentence["primary_language_sentence"]
-            tips = sentence["tips"]
-            study_language_sentence = sentence["study_language_sentence"]
-
-            if study_language_sentence:
-                self.logging.info(
-                    f"Sentence in {self.config['languages']['primary_language']}: {primary_language_sentence}"
-                )
-                self.logging.info(
-                    f"Sentence in {self.config['languages']['study_language']}: {study_language_sentence}"
-                )
-                note, media_file = self.create_note(
-                    primary_language_sentence,
-                    study_language_sentence,
-                    tips,
-                    date,
-                    sentence_no,
-                )
-                if note and media_file:
-                    note.guid = self.generate_unique_id(
-                        primary_language_sentence
-                    )  # create unique id https://github.com/kerrickstaley/genanki/issues/61
-                    notes.append(note)
-                    media_files.append(media_file)
-
-        # create a mp3 per day of all the notes to be listened with an audio player
-        playlist_media = [AudioSegment.from_mp3(mp3_file) for mp3_file in media_files]
-
-        combined = AudioSegment.empty()
-        for sentence in playlist_media:
-            combined += (
-                sentence * self.config["tts"]["repeat_sentence_diary"]
-            )  # repeat audio n times so that it's easier to remember
-
-        combined.export(
-            os.path.join(
-                f"{self.output_dir}",
-                "DAILY_AUDIO",
-                f"{self.deck_name.replace(':', '')}_{date.strftime('%Y-%m-%d')}_{self.titles_dict[date]}.mp3",
-            ),
-            format="mp3",
-        )
-
-        return notes, media_files
-
-    def create_note(
-        self,
-        primary_language_sentence,
-        study_language_sentence,
-        tips,
-        date,
-        i,
-    ):
-        """Creates an Anki note and its corresponding TTS audio.
-
-        Args:
-            primary_language_sentence (str): The sentence in the primary language.
-            study_language_sentence (str): The sentence in the study language.
-            tips (str): Learning tips related to the translation.
-            date (datetime.date): The date of the diary entry.
-            i (int): The sentence number within the diary entry for that day.
-
-        Returns:
-            tuple: A tuple containing:
-                - genanki.Note or None: The created Anki note, or None if the study
-                  language sentence is empty.
-                - str or None: The path to the generated audio file, or None if no
-                  audio was created.
-
-        Raises:
-            ValueError: If an unsupported TTS model is specified in the config.
-        """
-        study_language_sentence = study_language_sentence.replace("**", "").strip()
-        primary_language_sentence = primary_language_sentence.replace("**", "").strip()
-        self.logging.info(f"Creating TTS audio for: {study_language_sentence}")
-
-        if study_language_sentence == "":
-            return None, None
-
-        if self.tts_model == "gtts":
-            self.logging.info("Using gTTS")
-            tts = gTTS(
-                text=study_language_sentence,
-                lang=self.config["languages"]["study_language_code"],
-            )
-            audio_filename = os.path.join(
-                tempfile.gettempdir(), f"{hash(study_language_sentence)}.mp3"
-            )
-            tts.save(audio_filename)
-        elif self.tts_model == "piper":
-            self.logging.info("Using piper-tts")
-            piper_cfg = self.config["tts"]["piper"]
-            TTSClass = load_tts_plugin("ovos-tts-plugin-piper")
-            tts = TTSClass(
-                config={
-                    "module": "ovos-tts-plugin-piper",
-                    "ovos-tts-plugin-piper": {"voice": piper_cfg["voice"]},
-                }
-            )
-            tts.length_scale = piper_cfg["piper_length_scale_diary"]
-            audio_filename = os.path.join(
-                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
-            )
-            tts.get_tts(
-                study_language_sentence,
-                audio_filename,
-                lang=self.config["languages"]["study_language_code"],
-                voice=piper_cfg["voice"],
-            )
-            # convert to mp3
-            audio = AudioSegment.from_wav(audio_filename)
-            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
-            audio_filename = audio_filename.replace(".wav", ".mp3")
-            os.remove(audio_filename.replace(".mp3", ".wav"))
-            self.logging.info(f"{audio_filename}")
-        elif self.tts_model == "bark":
-            self.logging.info("Using Bark TTS")
-            bark_cfg = self.config["tts"]["bark"]
-            from bark import tts_to_file as bark_tts_to_file
-
-            audio_filename = os.path.join(
-                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
-            )
-            bark_tts_to_file(
-                text=study_language_sentence,
-                filename=audio_filename,
-                sample_rate=bark_cfg["sample_rate"],
-            )
-            # convert to mp3 if needed
-            audio = AudioSegment.from_file(audio_filename, format="wav")
-            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
-            audio_filename = audio_filename.replace(".wav", ".mp3")
-        elif self.tts_model == "melo":
-            self.logging.info("Using MeloTTS")
-            melo_cfg = self.config["tts"]["melo"]
-            TTSClass = load_tts_plugin(melo_cfg["module"])
-            tts = TTSClass(config=melo_cfg)
-            audio_filename = os.path.join(
-                tempfile.gettempdir(), f"{hash(study_language_sentence)}.wav"
-            )
-            tts.tts_to_file(
-                text=study_language_sentence,
-                filename=audio_filename,
-                speaker_ids=melo_cfg["speaker_ids"],
-                speed=melo_cfg["speed"],
-            )
-            # convert to mp3
-            audio = AudioSegment.from_wav(audio_filename)
-            audio.export(audio_filename.replace(".wav", ".mp3"), format="mp3")
-            audio_filename = audio_filename.replace(".wav", ".mp3")
-        else:
-            raise ValueError(f"Unsupported TTS model: {self.tts_model}")
-
-        date = date.strftime("%Y/%m/%d")
-        note = Note(
-            model=self.anki_model,
-            fields=[
-                primary_language_sentence.strip(),
-                study_language_sentence,
-                tips,
-                date,
-                f"[sound:{os.path.basename(audio_filename)}]",
-                str(i).zfill(2),
-            ],
-            tags=[date],
-        )
-
-        return note, audio_filename
-
-    def convert_diary_entries_to_ankideck(self):
-        """DEPRECATED: Anki deck creation is no longer supported."""
-        print(
-            "DEPRECATED: Anki deck creation is no longer supported. This function will exit."
-        )
-        import sys
-
-        sys.exit(1)
-
     def extract_dates_from_md(self, markdown_path):
         """Extracts all dates from headers in a markdown file.
 
@@ -932,47 +653,6 @@ class DiaryHandler:
 
         return "\n".join(extracted_lines).strip()
 
-    def get_sentences_from_diary(self, day_block):
-        """Extracts study language sentences from a block of diary text for a specific day.
-
-        Parses the day_block using configured templates for trial, answer, and tips.
-
-        Args:
-            day_block (str): The markdown text block for a single day's diary entries.
-
-        Returns:
-            list[str] or None: A list of study language sentences extracted from the block.
-                               Returns None if no valid translations are found.
-        """
-        answer_template = _TMPL_DIARY_ANSWER
-        tips_template = _TMPL_DIARY_TIPS
-        trial_template = _TMPL_DIARY_TRIAL
-
-        pattern = (
-            rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
-            rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
-            rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
-            rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
-        )
-
-        entries = re.findall(pattern, day_block, re.DOTALL | re.MULTILINE)
-
-        if not any(entry[2] for entry in entries):
-            self.logging.warning(f"Skipping day as it has no valid translations.")
-            return None
-
-        study_language_sentences = []
-        for entry in entries:
-            (
-                primary_language_sentence,
-                study_language_sentence_trial,
-                study_language_sentence,
-                tips,
-            ) = entry
-            study_language_sentences.append(study_language_sentence.strip())
-
-        return study_language_sentences
-
     def openai_create_day_title(self, sentences_block_dict):
         """Generates a catchy title for a day's diary entries using OpenAI.
 
@@ -1004,7 +684,8 @@ class DiaryHandler:
             {sentences}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(f"[OpenAI] Creating day title (this may take a moment)...")
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -1015,6 +696,7 @@ class DiaryHandler:
         )
         # Extract and parse the JSON response
         output = response.choices[0].message.content
+        self.logging.info(f"[OpenAI] Day title done: {output.strip()[:80]}")
         return output
 
     def openai_translate_sentence(self, sentence_dict):
@@ -1062,8 +744,10 @@ class DiaryHandler:
         """
 
         # Make the API call
-
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(
+            f"[OpenAI] Translating: {sentence_dict['primary_language_sentence'][:80].strip()}..."
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -1077,6 +761,9 @@ class DiaryHandler:
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         output = json.loads(output)
+        self.logging.info(
+            f"[OpenAI] Translation done: {output['sentence'].get('study_language_sentence', '')[:80].strip()}"
+        )
         output["sentence"]["study_language_sentence_trial"] = sentence_dict[
             "study_language_sentence_trial"
         ]
@@ -1110,25 +797,29 @@ class DiaryHandler:
 
         else:
             for date_diary in diary_dict:
-                if date_diary in diary_dict.keys():
-                    title_day = self.get_title_for_date(self.all_diary_text, date_diary)
-                    if title_day is None:
-                        if not any(
-                            not sentence_info.get("study_language_sentence")
-                            for diary in diary_dict.values()
-                            for sentence_info in diary.get("sentences", {}).values()
-                        ):
-                            title_day = self.openai_create_day_title(
-                                diary_dict[date_diary]["sentences"]
-                            )
-                            self.logging.info(
-                                f"created title with openai for {date_diary} - {title_day}"
-                            )
-                        else:
-                            self.logging.info(
-                                "Title not created as sentences are not created yet"
-                            )
-                    titles_dict[date_diary] = title_day
+                # Prefer title already loaded from JSON (set by json_diary_to_dict)
+                existing_title = self.titles_dict.get(date_diary)
+                if existing_title:
+                    titles_dict[date_diary] = existing_title
+                    continue
+                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
+                if title_day is None:
+                    if not any(
+                        not sentence_info.get("study_language_sentence")
+                        for diary in diary_dict.values()
+                        for sentence_info in diary.get("sentences", {}).values()
+                    ):
+                        title_day = self.openai_create_day_title(
+                            diary_dict[date_diary]["sentences"]
+                        )
+                        self.logging.info(
+                            f"created title with openai for {date_diary} - {title_day}"
+                        )
+                    else:
+                        self.logging.info(
+                            "Title not created as sentences are not created yet"
+                        )
+                titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
         return titles_dict
@@ -1156,7 +847,7 @@ class DiaryHandler:
             return
 
         try:
-            from lingoanki.diary_json import (
+            from lingodiary.diary_json import (
                 DiaryEntry,
                 LessonsBlock,
                 ReviewingState,
@@ -1273,7 +964,7 @@ class DiaryHandler:
             )
             return {}
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1331,6 +1022,9 @@ class DiaryHandler:
                     if self.config.get("create_diary_answers_auto", True):
                         res = self.openai_translate_sentence(sentence_dict)
                         diary_dict[date_diary]["sentences"][sentence_no] = res
+                        self.logging.info(
+                            f"Translation done for: {primary_language_sentence.strip()[:80]}"
+                        )
 
         self.write_diary_json(diary_dict)
 
@@ -1368,57 +1062,6 @@ class TprsVariantHandler:
             self.markdown_path = base_tprs_path.replace(".md", f"{self.file_suffix}.md")
         else:
             self.markdown_path = base_tprs_path
-
-        self.markdown_script_generated_path = (
-            ""  # Will be set by setup_output_markdown_paths
-        )
-
-    def setup_output_markdown_paths(self):
-        """Sets up paths for the variant's output markdown file."""
-        time_now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")  # filename-safe
-
-        def backup_if_exists(src_path):
-            if os.path.exists(src_path):
-                backup_dir = os.path.join(self.config["output_dir"], ".backup")
-                os.makedirs(backup_dir, exist_ok=True)
-
-                bak_filename = "." + os.path.basename(src_path).replace(
-                    ".md", f".md.bak_{time_now_str}"
-                )
-                bak_path = os.path.join(backup_dir, bak_filename)
-                shutil.copy(src_path, bak_path)
-                self.logging.info(f"Backed up {src_path} to {bak_path}")
-            return src_path
-
-        # Determine the path for the script-generated file
-        if self.config.get("overwrite_tprs_markdown", True):
-            self.markdown_script_generated_path = backup_if_exists(self.markdown_path)
-        else:
-            org_dir_path = os.path.dirname(self.markdown_path)
-            # Start with the original path as the base for the generated path
-            self.markdown_script_generated_path = self.markdown_path
-
-            if org_dir_path == self.config["output_dir"]:
-                # If outputting to the same directory as original, add timestamp to filename
-                self.markdown_script_generated_path = (
-                    self.markdown_script_generated_path.replace(
-                        ".md", f"_{time_now_str}.md"
-                    )
-                )
-            else:
-                # If outputting to a different directory, change directory part, keep filename
-                self.markdown_script_generated_path = (
-                    self.markdown_script_generated_path.replace(
-                        org_dir_path, self.config["output_dir"]
-                    )
-                )
-
-        self.logging.info(
-            f"Variant '{self.variant_name}': Original path set to '{self.markdown_path}'"
-        )
-        self.logging.info(
-            f"Variant '{self.variant_name}': Script generated path set to '{self.markdown_script_generated_path}'"
-        )
 
     def get_openai_generator(self):
         """Returns the appropriate OpenAI content generation method from TprsCreation."""
@@ -1474,7 +1117,13 @@ class TprsVariantHandler:
                         qa_dict_or_block = openai_func(sentence)
 
                     if self.needs_base_tprs_data:
-                        day_qa_dict.update(qa_dict_or_block)
+                        # openai_tprs_enhanced/future/present() returns
+                        # {revised_sentence: {qa}}.  The revised sentence is
+                        # NOT a valid key for _write_json_tprs (which matches
+                        # by output_language_translation).  Extract the Q&A
+                        # values and store under the original sentence key.
+                        qa_data = next(iter(qa_dict_or_block.values()), {})
+                        day_qa_dict[sentence] = qa_data
                     else:
                         day_qa_dict[sentence] = qa_dict_or_block
 
@@ -1513,8 +1162,9 @@ class TprsVariantHandler:
         if not json_path:
             return
 
-        from lingoanki.diary_json import (
+        from lingodiary.diary_json import (
             QA,
+            AudioTiming,
             VariantLesson,
             load_diary_json,
             save_diary_json,
@@ -1552,16 +1202,56 @@ class TprsVariantHandler:
                     if matched_entry is None:
                         continue
 
-                    qa_list = [
-                        QA(
-                            question=qa_raw[k]["question"],
-                            answer=qa_raw[k]["answer"],
-                        )
-                        for k in sorted(
+                    # Build a lookup of existing QA for this variant so we can
+                    # preserve question_input/answer_input and audio fields that
+                    # were written by the backfill step and must not be overwritten.
+                    existing_qa_by_index: dict = {}
+                    existing_variant = getattr(matched_entry.lessons, json_key, None)
+                    if existing_variant is not None:
+                        for i, existing_qa in enumerate(existing_variant.qa):
+                            existing_qa_by_index[i] = existing_qa
+
+                    qa_list = []
+                    for i, k in enumerate(
+                        sorted(
                             qa_raw.keys(),
                             key=lambda x: int(x) if x.isdigit() else 0,
                         )
-                    ]
+                    ):
+                        existing = existing_qa_by_index.get(i)
+                        qa_list.append(
+                            QA(
+                                question=qa_raw[k]["question"],
+                                answer=qa_raw[k]["answer"],
+                                # Preserve already-populated fields — never blank them out
+                                question_input=(
+                                    existing.question_input
+                                    if existing and existing.question_input
+                                    else ""
+                                ),
+                                answer_input=(
+                                    existing.answer_input
+                                    if existing and existing.answer_input
+                                    else ""
+                                ),
+                                question_timing=(
+                                    existing.question_timing
+                                    if existing
+                                    else AudioTiming()
+                                ),
+                                answer_timing=(
+                                    existing.answer_timing
+                                    if existing
+                                    else AudioTiming()
+                                ),
+                                question_audio_path=(
+                                    existing.question_audio_path if existing else ""
+                                ),
+                                answer_audio_path=(
+                                    existing.answer_audio_path if existing else ""
+                                ),
+                            )
+                        )
                     matched_entry.lessons.set_variant(
                         json_key,
                         VariantLesson(sentence=sentence_text, qa=qa_list),
@@ -1574,6 +1264,43 @@ class TprsVariantHandler:
         except Exception as exc:
             self.logging.warning(
                 f"Could not write {self.variant_name} TPRS data to JSON diary: {exc}"
+            )
+
+    def _record_lesson_audio_path(self, date_str: str, audio_filepath: str):
+        """Record the generated lesson audio path in diary.json."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            day = get_day(diary_db, date_str)
+            if day is None:
+                return
+            # Store path relative to output_dir for portability
+            output_dir = self.config.get("output_dir", "")
+            rel_path = (
+                os.path.relpath(audio_filepath, output_dir)
+                if output_dir
+                else audio_filepath
+            )
+            # Use the same key convention as audio_timing.py so both systems
+            # write to / read from the same entry in lesson_audio_paths.
+            _AUDIO_PATH_KEY_MAP = {
+                "Standard": "original",
+                "Enhanced": "enhanced",
+                "Future": "future",
+                "Present": "present",
+            }
+            variant_key = _AUDIO_PATH_KEY_MAP.get(
+                self.variant_name, self.variant_name.lower()
+            )
+            day.lesson_audio_paths[variant_key] = rel_path
+            save_diary_json(diary_db, json_path)
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not record lesson audio path in diary.json: {exc}"
             )
 
     def _create_audio_for_day_block(self, day_block_data, date_str):
@@ -1613,13 +1340,15 @@ class TprsVariantHandler:
 
         os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
 
-        if (
-            os.path.exists(tprs_audio_lesson_filepath)
-            and not self.config["overwrite_tprs_audio"]
+        # If the file already exists on disk and overwrite is disabled, skip and
+        # backfill lesson_audio_paths so future runs don't even reach this point.
+        if os.path.exists(tprs_audio_lesson_filepath) and not self.config.get(
+            "overwrite_tprs_audio", False
         ):
             self.logging.info(
-                f"TPRS audio file for {self.variant_name} on {date_str} already processed: {tprs_audio_lesson_filepath}"
+                f"{self.variant_name} TPRS audio already on disk for {date_str} — skipping."
             )
+            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
             return
 
         self.logging.info(
@@ -1650,11 +1379,22 @@ class TprsVariantHandler:
         media_files = []
         temp_files_to_clean = {pause_filename}  # Keep track of all temp files
 
+        total_sentences = len(day_block_data)
+        total_qa_pairs = sum(len(qa) for qa in day_block_data.values())
+        total_tts_calls = total_sentences + total_qa_pairs * 2
+        self.logging.info(
+            f"[TTS] {self.variant_name} {date_str}: {total_sentences} sentences, "
+            f"{total_qa_pairs} Q&A pairs → {total_tts_calls} TTS calls total"
+        )
+
         try:
-            for sentence, tprs_qa_list in day_block_data.items():
+            for sent_idx, (sentence, tprs_qa_list) in enumerate(
+                day_block_data.items(), 1
+            ):
                 self.logging.info(
-                    f"Generating audio for {self.variant_name} sentence: {sentence}"
+                    f"[TTS] {self.variant_name} sentence {sent_idx}/{total_sentences}: {sentence[:60]}"
                 )
+                t0 = time.time()
                 audio_filename = os.path.join(
                     tempfile.gettempdir(),
                     f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
@@ -1666,21 +1406,28 @@ class TprsVariantHandler:
                     lang=self.config["languages"]["study_language_code"],
                     voice=self.config["tts"]["piper"]["voice"],
                 )
+                self.logging.info(
+                    f"[TTS] sentence {sent_idx}/{total_sentences} done ({time.time()-t0:.1f}s)"
+                )
                 media_files.append(audio_filename)
                 media_files.append(pause_filename)
 
-                for question, answer in tprs_qa_list:
+                for qa_idx, (question, answer) in enumerate(tprs_qa_list, 1):
                     media_files.append(pause_filename)  # Pause before question
                     question_audio = os.path.join(
                         tempfile.gettempdir(),
                         f"{self.tprs_creator.generate_unique_id(question, 12)}.wav",
                     )
                     temp_files_to_clean.add(question_audio)
+                    tq = time.time()
                     tts_plugin_instance.get_tts(
                         question,
                         question_audio,
                         lang=self.config["languages"]["study_language_code"],
                         voice=self.config["tts"]["piper"]["voice"],
+                    )
+                    self.logging.info(
+                        f"[TTS]   Q {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-tq:.1f}s)"
                     )
                     media_files.append(question_audio)
 
@@ -1703,16 +1450,23 @@ class TprsVariantHandler:
                         f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav",
                     )
                     temp_files_to_clean.add(answer_audio)
+                    ta = time.time()
                     tts_plugin_instance.get_tts(
                         answer,
                         answer_audio,
                         lang=self.config["languages"]["study_language_code"],
                         voice=self.config["tts"]["piper"]["voice"],
                     )
+                    self.logging.info(
+                        f"[TTS]   A {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-ta:.1f}s)"
+                    )
                     media_files.append(answer_audio)
                     media_files.append(pause_filename)  # Pause after answer
 
             tts_plugin_instance.stop()
+            self.logging.info(
+                f"[TTS] All {total_tts_calls} calls complete for {self.variant_name} {date_str}"
+            )
 
             if not media_files:
                 self.logging.warning(
@@ -1732,6 +1486,8 @@ class TprsVariantHandler:
             self.logging.info(
                 f"Successfully exported {self.variant_name} TPRS audio to {tprs_audio_lesson_filepath}"
             )
+            # Record the audio path in diary.json so future runs can skip this date
+            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
 
         except Exception as e:
             self.logging.error(
@@ -1750,7 +1506,11 @@ class TprsVariantHandler:
                         )
 
     def convert_to_audio(self):
-        """Generates TPRS audio lessons from diary.json Q&A data for this variant."""
+        """Generates TPRS audio lessons from diary.json Q&A data for this variant.
+
+        Skips any date that already has a non-empty lesson_audio_paths entry for
+        this variant in diary.json — unless overwrite_tprs_audio is True in config.
+        """
         self.tprs_creator.validate_arguments()
 
         variant_tprs_dict = self._read_variant_tprs_from_json()
@@ -1760,8 +1520,37 @@ class TprsVariantHandler:
             )
             return
 
+        # Load diary.json once to check lesson_audio_paths per date
+        from lingodiary.diary_json import load_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        diary_db = load_diary_json(json_path) if json_path else None
+
+        force_overwrite = self.config.get("overwrite_tprs_audio", False)
+        # Use the same key convention as audio_timing.py (_VARIANT_KEYS uses "original"
+        # for the Standard variant, not "standard").
+        _AUDIO_PATH_KEY_MAP = {
+            "Standard": "original",
+            "Enhanced": "enhanced",
+            "Future": "future",
+            "Present": "present",
+        }
+        variant_key = _AUDIO_PATH_KEY_MAP.get(
+            self.variant_name, self.variant_name.lower()
+        )
+
         for date_obj, day_qa_dict in variant_tprs_dict.items():
             date_str = date_obj.strftime("%Y/%m/%d")
+
+            # Skip if audio path already recorded in diary.json for this variant
+            if not force_overwrite and diary_db:
+                day = get_day(diary_db, date_str)
+                if day and day.lesson_audio_paths.get(variant_key):
+                    self.logging.info(
+                        f"Audio already exists for {self.variant_name} on {date_str} — skipping."
+                    )
+                    continue
+
             day_block_data = {}
             for sentence_text, qa_numbered_dict in day_qa_dict.items():
                 qa_tuples = [
@@ -1779,255 +1568,10 @@ class TprsVariantHandler:
             f"All diary entries converted into {self.variant_name} TPRS audio."
         )
 
-    # def _create_audio_for_day_block(self, day_block_data, date_str):
-    #     """Generates a TPRS audio lesson for a given day's content for this variant."""
-    #     if (
-    #         not hasattr(self.tprs_creator, "titles_diary_dict")
-    #         or not self.tprs_creator.titles_diary_dict
-    #     ):
-    #         self.tprs_creator.get_all_diary_titles()
-    #
-    #     current_titles_dict = self.tprs_creator.titles_diary_dict
-    #     try:
-    #         title_date_obj = datetime.strptime(date_str, "%Y/%m/%d")
-    #     except ValueError:
-    #         self.logging.error(
-    #             f"Invalid date string format '{date_str}' for TPRS audio generation. Skipping."
-    #         )
-    #         return
-    #
-    #     title = current_titles_dict.get(
-    #         title_date_obj,
-    #         self.tprs_creator.titles_dict.get(title_date_obj, "No Title"),
-    #     )
-    #
-    #     if not title or title == "No Title":
-    #         self.logging.warning(
-    #             f"Skipping audio for {self.variant_name} on {date_str} due to missing/default title."
-    #         )
-    #         return
-    #
-    #     base_filename = f"{self.config['tprs_lesson_name']}_TPRS_{date_str.replace('/', '-')}_{title}{self.file_suffix}.mp3"
-    #     # Sanitize filename
-    #     base_filename = re.sub(r'[\\/*?:"<>|]', "", base_filename)
-    #     tprs_audio_lesson_filepath = os.path.join(
-    #         self.config["output_dir"], "TPRS", base_filename
-    #     )
-    #
-    #     os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
-    #
-    #     if (
-    #         os.path.exists(tprs_audio_lesson_filepath)
-    #         and not self.config["overwrite_tprs_audio"]
-    #     ):
-    #         self.logging.info(
-    #             f"TPRS audio file for {self.variant_name} on {date_str} already processed: {tprs_audio_lesson_filepath}"
-    #         )
-    #         return
-    #
-    #     self.logging.info(
-    #         f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
-    #     )
-    #
-    #     tts_model = self.config["tts"]["model"]
-    #     if tts_model == "piper":
-    #         tts_plugin_instance = PiperTTSPlugin()
-    #         tts_plugin_instance.length_scale = self.config["tts"]["piper"][
-    #             "piper_length_scale_tprs"
-    #         ]
-    #     elif tts_model == "bark":
-    #         tts_plugin_instance = None  # handled per-sentence
-    #     elif tts_model == "melo":
-    #         melo_cfg = self.config["tts"]["melo"]
-    #         TTSClass = load_tts_plugin(melo_cfg["module"])
-    #         tts_plugin_instance = TTSClass(config=melo_cfg)
-    #     else:
-    #         raise ValueError(f"Unsupported TTS model: {tts_model}")
-    #
-    #     pause_filename = os.path.join(
-    #         tempfile.gettempdir(),
-    #         f"{self.tprs_creator.generate_unique_id('pause', 5)}.wav",
-    #     )
-    #     paused_duration = self.config["tts"]["pause_between_sentences_duration"]
-    #     repeat_tprs = (
-    #         self.config["tts"]["repeat_sentence_tprs"]
-    #         if self.config["tts"]["repeat_sentence_tprs"] > 0
-    #         else 1
-    #     )
-    #
-    #     # Ensure pause duration is not negative if repeat_tprs is large
-    #     actual_pause_duration = max(0, paused_duration / repeat_tprs)
-    #     pause_segment = AudioSegment.silent(duration=actual_pause_duration)
-    #     pause_segment.export(pause_filename, format="wav")
-    #
-    #     media_files = []
-    #     temp_files_to_clean = {pause_filename}  # Keep track of all temp files
-    #
-    #     try:
-    #         for sentence, tprs_qa_list in day_block_data.items():
-    #             self.logging.info(
-    #                 f"Generating audio for {self.variant_name} sentence: {sentence}"
-    #             )
-    #             audio_filename = os.path.join(
-    #                 tempfile.gettempdir(),
-    #                 f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
-    #             )
-    #             temp_files_to_clean.add(audio_filename)
-    #             if tts_model == "piper":
-    #                 tts_plugin_instance.get_tts(
-    #                     sentence,
-    #                     audio_filename,
-    #                     lang=self.config["languages"]["study_language_code"],
-    #                     voice=self.config["tts"]["piper"]["voice"],
-    #                 )
-    #             elif tts_model == "bark":
-    #                 self.logging.info("Using Bark TTS for TPRS")
-    #                 bark_cfg = self.config["tts"]["bark"]
-    #                 breakpoint()
-    #                 from bark import tts_to_file as bark_tts_to_file
-    #
-    #                 bark_tts_to_file(
-    #                     text=sentence,
-    #                     filename=audio_filename,
-    #                     sample_rate=bark_cfg["sample_rate"],
-    #                 )
-    #             elif tts_model == "melo":
-    #                 self.logging.info("Using MeloTTS for TPRS")
-    #                 tts_plugin_instance.tts_to_file(
-    #                     text=sentence,
-    #                     filename=audio_filename,
-    #                     speaker_ids=melo_cfg["speaker_ids"],
-    #                     speed=melo_cfg["speed"],
-    #                 )
-    #             else:
-    #                 raise ValueError(f"Unsupported TTS model: {tts_model}")
-    #             media_files.append(audio_filename)
-    #             media_files.append(pause_filename)
-    #
-    #             for question, answer in tprs_qa_list:
-    #                 media_files.append(pause_filename)  # Pause before question
-    #                 question_audio = os.path.join(
-    #                     tempfile.gettempdir(),
-    #                     f"{self.tprs_creator.generate_unique_id(question, 12)}.wav",
-    #                 )
-    #                 temp_files_to_clean.add(question_audio)
-    #                 tts_plugin_instance.get_tts(
-    #                     question,
-    #                     question_audio,
-    #                     lang=self.config["languages"]["study_language_code"],
-    #                     voice=self.config["tts"]["piper"]["voice"],
-    #                 )
-    #                 media_files.append(question_audio)
-    #
-    #                 silence_file = os.path.join(
-    #                     tempfile.gettempdir(),
-    #                     f"{self.tprs_creator.generate_unique_id('silence_answer', 5)}.wav",
-    #                 )
-    #                 temp_files_to_clean.add(silence_file)
-    #                 # Ensure silence duration is not negative
-    #                 actual_silence_duration = max(
-    #                     0, self.config["tts"]["answer_silence_duration"] / repeat_tprs
-    #                 )
-    #                 AudioSegment.silent(duration=actual_silence_duration).export(
-    #                     silence_file, format="wav"
-    #                 )
-    #                 media_files.append(silence_file)  # Silence for user to answer
-    #
-    #                 answer_audio = os.path.join(
-    #                     tempfile.gettempdir(),
-    #                     f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav",
-    #                 )
-    #                 temp_files_to_clean.add(answer_audio)
-    #                 tts_plugin_instance.get_tts(
-    #                     answer,
-    #                     answer_audio,
-    #                     lang=self.config["languages"]["study_language_code"],
-    #                     voice=self.config["tts"]["piper"]["voice"],
-    #                 )
-    #                 media_files.append(answer_audio)
-    #                 media_files.append(pause_filename)  # Pause after answer
-    #
-    #         tts_plugin_instance.stop()
-    #
-    #         if not media_files:
-    #             self.logging.warning(
-    #                 f"No audio segments generated for {self.variant_name} TPRS on {date_str}. Skipping MP3 export."
-    #             )
-    #             return
-    #
-    #         playlist_media = [
-    #             AudioSegment.from_wav(wav_file) for wav_file in media_files
-    #         ]
-    #         combined = AudioSegment.empty()
-    #         for segment in playlist_media:
-    #             for _ in range(repeat_tprs):
-    #                 combined += segment
-    #
-    #         combined.export(tprs_audio_lesson_filepath, format="mp3")
-    #         self.logging.info(
-    #             f"Successfully exported {self.variant_name} TPRS audio to {tprs_audio_lesson_filepath}"
-    #         )
-    #
-    #     except Exception as e:
-    #         self.logging.error(
-    #             f"Error during audio generation for {self.variant_name} TPRS on {date_str}: {e}",
-    #             exc_info=True,
-    #         )
-    #     finally:
-    #         # Clean up temporary files
-    #         for f_path in temp_files_to_clean:
-    #             if os.path.exists(f_path):
-    #                 try:
-    #                     os.remove(f_path)
-    #                 except Exception as e_clean:
-    #                     self.logging.warning(
-    #                         f"Could not remove temporary file {f_path}: {e_clean}"
-    #                     )
-
-    def _read_variant_tprs_to_dict(self):
-        """Reads this variant's TPRS markdown file and parses it into a structured dictionary."""
-        path_to_read = self.markdown_script_generated_path
-        if not os.path.exists(path_to_read):
-            path_to_read = self.markdown_path
-
-        if not os.path.exists(path_to_read):
-            self.logging.info(
-                f"Markdown file for {self.variant_name} not found at {path_to_read} (or original {self.markdown_path}). Cannot read to dict."
-            )
-            return {}
-
-        content = self.tprs_creator.read_markdown_file(path_to_read)
-        days = re.split(r"^##\s+", content, flags=re.MULTILINE)
-        variant_tprs_dict = {}
-        for day_block_text in days:
-            if day_block_text.strip():
-                parsed_day_data, date_str = self.tprs_creator.read_tprs_day_block(
-                    day_block_text
-                )
-                if parsed_day_data and date_str:
-                    try:
-                        date_obj = datetime.strptime(date_str, "%Y/%m/%d")
-                    except ValueError:
-                        self.logging.error(
-                            f"Invalid date string '{date_str}' in {self.variant_name} TPRS file {path_to_read}. Skipping block."
-                        )
-                        continue
-
-                    day_output_dict = {}
-                    for sentence, qa_list_tuples in parsed_day_data.items():
-                        qa_map_for_sentence = {
-                            str(i + 1): {"question": q_tuple[0], "answer": q_tuple[1]}
-                            for i, q_tuple in enumerate(qa_list_tuples)
-                        }
-                        day_output_dict[sentence] = qa_map_for_sentence
-                    variant_tprs_dict[date_obj] = day_output_dict
-        return variant_tprs_dict
-
     def _read_variant_tprs_from_json(self):
         """Reads this variant's TPRS Q&A data from diary.json into a structured dictionary.
 
-        Returns same format as _read_variant_tprs_to_dict():
-            dict: {datetime_obj: {sentence_text: {"1": {"question": ..., "answer": ...}, ...}}}
+        Returns a dict keyed by datetime: {datetime_obj: {sentence_text: {"1": {"question": ..., "answer": ...}, ...}}}
         """
         json_path = self.tprs_creator.config.get("json_diary_path")
         if not json_path:
@@ -2046,7 +1590,7 @@ class TprsVariantHandler:
         if json_key is None:
             return {}
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2090,6 +1634,7 @@ class TprsVariantHandler:
 
         openai_func = self.get_openai_generator()
         updated = False
+        updated_dates: set = set()  # tracks dates where new Q&A was generated
 
         if (
             not hasattr(self.tprs_creator, "titles_diary_dict")
@@ -2120,7 +1665,6 @@ class TprsVariantHandler:
             # Ensure the date entry exists in the variant's content dictionary
             if diary_date_key not in variant_tprs_content_dict:
                 variant_tprs_content_dict[diary_date_key] = {}
-                # updated = True # Adding a new date means we will likely update
 
             current_day_variant_content = variant_tprs_content_dict[diary_date_key]
 
@@ -2137,18 +1681,11 @@ class TprsVariantHandler:
                     if diary_sentence_text not in current_day_variant_content:
                         needs_processing = True
                 else:  # For 'Enhanced', 'Future', 'Present'
-                    # If the date itself is new to this variant's content, process all its sentences.
-                    # Or, if we want to re-evaluate based on base_tprs_dict changes (more complex).
-                    # Simplification: if date is new, current_day_variant_content will be empty.
-                    # This means all sentences for a new date will be processed.
-                    # If date exists, we assume sentences are covered unless a more sophisticated check is added.
-                    # For now, let's assume if the date exists, we don't add new sentences here for non-standard,
-                    # as their generation depends on base_tprs_dict.
-                    # The primary way non-standard variants get populated is via create_initial_markdown_if_needed.
-                    # This add_missing_entries for non-standard is more about adding *entirely new dates* from diary.
-                    if (
-                        not current_day_variant_content
-                    ):  # If the day is new to this variant
+                    # Check at the sentence level: a sentence is missing if the base
+                    # Standard TPRS sentence is not yet present in this variant's content
+                    # for this date. This handles both brand-new dates AND new sentences
+                    # added to an existing date.
+                    if diary_sentence_text not in current_day_variant_content:
                         needs_processing = True
 
                 if needs_processing:
@@ -2175,10 +1712,22 @@ class TprsVariantHandler:
                             qa_block = openai_func(
                                 diary_sentence_text, existing_qa_for_sentence
                             )
-                            current_day_variant_content.update(qa_block)
+                            # openai_tprs_enhanced/future/present() returns
+                            # {revised_sentence: {qa}}.  The revised sentence
+                            # is NOT a valid lookup key for _write_json_tprs
+                            # (which matches by output_language_translation).
+                            # Extract the Q&A values and store under the
+                            # original sentence key instead.
+                            qa_data = next(iter(qa_block.values()), {})
+                            current_day_variant_content[diary_sentence_text] = qa_data
+                            date_str = diary_date_key.strftime("%Y/%m/%d")
+                            updated_dates.add(date_str)
                         else:  # Standard TPRS
                             qa_data = openai_func(diary_sentence_text)
                             current_day_variant_content[diary_sentence_text] = qa_data
+                        self.logging.info(
+                            f"{self.variant_name} TPRS: Generated Q&A for '{diary_sentence_text[:60]}' on {diary_date_key}."
+                        )
                     except Exception as e:
                         self.logging.error(
                             f"Error generating {self.variant_name} TPRS for sentence '{diary_sentence_text}' during add_missing: {e}",
@@ -2186,17 +1735,54 @@ class TprsVariantHandler:
                         )
                         continue  # Skip this sentence
 
-        # breakpoint()
-        # if updated:
-        #     self.logging.info(
-        #         f"Updating {self.variant_name} TPRS markdown file with missing/new entries: {self.markdown_script_generated_path}"
-        #     )
         sorted_tprs_variant_dict = dict(sorted(variant_tprs_content_dict.items()))
-        self.write_json_tprs(sorted_tprs_variant_dict)
-        # else:
-        #     self.logging.info(
-        #         f"No missing/new entries found or generated for {self.variant_name} TPRS based on diary."
-        #     )
+        if updated:
+            self.logging.info(
+                f"{self.variant_name} TPRS: writing updated Q&A to diary.json."
+            )
+            self.write_json_tprs(sorted_tprs_variant_dict)
+            # Clear this variant's audio path for any dates that received new Q&A
+            # so convert_to_audio() regenerates audio (avoids keeping stale/partial MP3s).
+            if updated_dates:
+                self._clear_variant_audio_paths(updated_dates)
+        else:
+            self.logging.info(
+                f"{self.variant_name} TPRS: all sentences already present — nothing to generate."
+            )
+
+    def _clear_variant_audio_paths(self, date_strs: set):
+        """Clear this variant's audio path for the given dates so audio is regenerated."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        _AUDIO_PATH_KEY_MAP = {
+            "Standard": "original",
+            "Enhanced": "enhanced",
+            "Future": "future",
+            "Present": "present",
+        }
+        variant_key = _AUDIO_PATH_KEY_MAP.get(
+            self.variant_name, self.variant_name.lower()
+        )
+        json_path = self.tprs_creator.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            changed = False
+            for date_str in date_strs:
+                day = get_day(diary_db, date_str)
+                if day and variant_key in day.lesson_audio_paths:
+                    del day.lesson_audio_paths[variant_key]
+                    changed = True
+                    self.logging.info(
+                        f"Cleared stale {self.variant_name} audio path for {date_str} — will regenerate."
+                    )
+            if changed:
+                save_diary_json(diary_db, json_path)
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not clear {self.variant_name} audio paths: {exc}"
+            )
 
 
 class StandardTprsVariantHandler(TprsVariantHandler):
@@ -2255,14 +1841,14 @@ def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None
     """
     import json as _json
     from openai import OpenAI
-    from lingoanki.diary_json import load_diary_json, save_diary_json
+    from lingodiary.diary_json import load_diary_json, save_diary_json
 
     if logger is None:
         logger = logging.getLogger(__name__)
 
     primary = config["languages"]["primary_language"]
     study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"])
+    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
     model = config["openai"]["model"]
 
     def _translate_batch(qa_items):
@@ -2396,14 +1982,14 @@ def _backfill_variant_sentence_inputs(
     """
     import json as _json
     from openai import OpenAI
-    from lingoanki.diary_json import load_diary_json, save_diary_json
+    from lingodiary.diary_json import load_diary_json, save_diary_json
 
     if logger is None:
         logger = logging.getLogger(__name__)
 
     primary = config["languages"]["primary_language"]
     study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"])
+    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
     model = config["openai"]["model"]
 
     def _translate_sentences(sentences: list[str]) -> list[str]:
@@ -2570,7 +2156,7 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2584,6 +2170,27 @@ class TprsCreation(DiaryHandler):
         except Exception as exc:
             self.logging.warning(f"Could not load TPRS titles from diary.json: {exc}")
 
+    def _clear_lesson_audio_path_for_date(self, date_str: str):
+        """Clear the lesson_audio_path for all variants on a date so audio is regenerated."""
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        json_path = self.config.get("json_diary_path")
+        if not json_path:
+            return
+        try:
+            diary_db = load_diary_json(json_path)
+            day = get_day(diary_db, date_str)
+            if day:
+                day.lesson_audio_paths.clear()
+                save_diary_json(diary_db, json_path)
+                self.logging.info(
+                    f"Cleared lesson_audio_paths for {date_str} — audio will be regenerated."
+                )
+        except Exception as exc:
+            self.logging.warning(
+                f"Could not clear lesson_audio_paths for {date_str}: {exc}"
+            )
+
     def get_all_diary_titles(self):
         """Loads diary titles from diary.json into self.titles_diary_dict."""
         self.titles_diary_dict = {}
@@ -2591,7 +2198,7 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingoanki.diary_json import load_diary_json
+        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2670,7 +2277,10 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(
+            f"[OpenAI] Enhanced TPRS for: {study_language_sentence[:80].strip()}..."
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2684,6 +2294,7 @@ class TprsCreation(DiaryHandler):
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs_future(self, study_language_sentence, qa_org_dict):
@@ -2748,7 +2359,10 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(
+            f"[OpenAI] Future TPRS for: {study_language_sentence[:80].strip()}..."
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2761,6 +2375,7 @@ class TprsCreation(DiaryHandler):
 
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs_present(self, study_language_sentence, qa_org_dict):
@@ -2825,7 +2440,10 @@ class TprsCreation(DiaryHandler):
         {qa_org_dict}
         """
 
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(
+            f"[OpenAI] Present TPRS for: {study_language_sentence[:80].strip()}..."
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2838,6 +2456,7 @@ class TprsCreation(DiaryHandler):
 
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Present TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_tprs(self, study_language_sentence):
@@ -2936,8 +2555,10 @@ class TprsCreation(DiaryHandler):
         } for the following sentence: "{study_language_sentence}"
         """
         # Make the API call
-
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        self.logging.info(
+            f"[OpenAI] Standard TPRS Q&A for: {study_language_sentence[:80].strip()}..."
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
 
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2951,61 +2572,8 @@ class TprsCreation(DiaryHandler):
         # Extract and parse the JSON response
         output = response.choices[0].message.content
         qa_dict = json.loads(output)
+        self.logging.info(f"[OpenAI] Standard TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
-
-    def create_tprs_block_day(self, study_language_sentences):
-        """Creates a markdown block of TPRS content for a list of sentences for one day.
-
-        For each sentence, it generates TPRS questions and answers using `openai_tprs`
-        and formats them into a markdown string.
-
-        Args:
-            study_language_sentences (list[str]): A list of sentences in the study
-                                                  language for a single day.
-
-        Returns:
-            str: A multiline string containing the formatted TPRS content for the day.
-        """
-        multiline_text = ""
-
-        for study_language_sentence in study_language_sentences:
-            self.logging.info(study_language_sentence)
-            qa_dict = self.openai_tprs(study_language_sentence)
-            multiline_text += f"{_TMPL_TPRS_SENTENCE} {study_language_sentence.strip()}\n"  # Add each item with a newline
-
-            for id, item in qa_dict.items():
-                multiline_text += f"{_TMPL_TPRS_QUESTION} {item['question'].strip()}\n"  # Add each item with a newline
-                multiline_text += f"{_TMPL_TPRS_ANSWER} {item['answer'].strip()}\n"  # Add each item with a newline
-
-            multiline_text += "\n"
-
-        return multiline_text
-
-    def create_tprs_other_version_block_day(self, qa_tprs_day_dict):
-        """Creates a markdown block for alternative TPRS versions (e.g., enhanced, future).
-
-        Formats a given dictionary of TPRS Q&A (where keys are sentences) into
-        a markdown string.
-
-        Args:
-            qa_tprs_day_dict (dict): A dictionary where keys are study language sentences
-                                     (potentially revised) and values are dictionaries
-                                     of their corresponding TPRS questions and answers.
-
-        Returns:
-            str: A multiline string containing the formatted TPRS content for the day.
-        """
-        multiline_text = ""
-        for study_language_sentence, qa_dict in qa_tprs_day_dict.items():
-            multiline_text += f"{_TMPL_TPRS_SENTENCE} {study_language_sentence.strip()}\n"  # Add each item with a newline
-
-            for id, item in qa_dict.items():
-                multiline_text += f"{_TMPL_TPRS_QUESTION} {item['question'].strip()}\n"  # Add each item with a newline
-                multiline_text += f"{_TMPL_TPRS_ANSWER} {item['answer'].strip()}\n"  # Add each item with a newline
-
-            multiline_text += "\n"
-
-        return multiline_text
 
     def openai_translate_qa_batch(self, qa_items: list[dict]) -> list[dict]:
         """Translate a batch of Q&A pairs from study language to primary language.
@@ -3035,7 +2603,7 @@ Rules:
 Input:
 {json.dumps(qa_items, ensure_ascii=False)}
 """
-        client = OpenAI(api_key=self.config["openai"]["key"])
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
             messages=[
@@ -3094,9 +2662,6 @@ Input:
 
         for date_diary_key, day_entry_in_diary in diary_dict.items():
             # date_diary_key from diary_dict is datetime.datetime
-            # new_or_updated_tprs_dict_for_standard (from standard_variant._read_variant_tprs_to_dict)
-            # is also keyed by datetime.datetime.
-            # So, use date_diary_key directly.
             current_date_key = date_diary_key
 
             if current_date_key not in new_or_updated_tprs_dict_for_standard:
@@ -3106,6 +2671,7 @@ Input:
                 current_date_key
             ]
 
+            date_changed = False
             for sentence_no, sentence_detail_in_diary in day_entry_in_diary.get(
                 "sentences", {}
             ).items():
@@ -3134,13 +2700,27 @@ Input:
                         current_day_tprs_sentences_data[
                             study_lang_sentence
                         ] = qa_dict_for_sentence
+                        self.logging.info(
+                            f"Standard TPRS: Generated Q&A for '{study_lang_sentence[:60]}...' on {current_date_key}."
+                        )
                         made_changes = True
+                        date_changed = True
                     except Exception as e:
                         self.logging.error(
                             f"Error generating standard TPRS for sentence '{study_lang_sentence}': {e}",
                             exc_info=True,
                         )
                         continue  # Skip this sentence
+
+            if date_changed:
+                date_str = (
+                    current_date_key.strftime("%Y/%m/%d")
+                    if hasattr(current_date_key, "strftime")
+                    else current_date_key
+                )
+                # Clearing the lesson_audio_paths entry ensures the next
+                # convert_to_audio run will regenerate audio for this date.
+                self._clear_lesson_audio_path_for_date(date_str)
 
         if made_changes:
             self.logging.info(
@@ -3150,11 +2730,6 @@ Input:
                 sorted(new_or_updated_tprs_dict_for_standard.items())
             )
             standard_variant.write_json_tprs(sorted_tprs_dict)
-            # Optionally trigger audio regeneration if content changed
-            self.config["overwrite_tprs_audio"] = True
-            self.logging.info(
-                "Set overwrite_tprs_audio to True due to changes in standard TPRS content."
-            )
         else:
             self.logging.info(
                 "No new sentences from diary found missing in Standard TPRS. No changes made by check_missing_sentences_from_existing_tprs."
@@ -3173,73 +2748,63 @@ def main(config_path=None, run_interactive_prompts=False):
                                                   Defaults to False.
 
     Initializes DiaryHandler, prompts for new entries (if run_interactive_prompts is True),
-    completes translations, and converts entries to an Anki deck.
+    completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
     and finally converts all TPRS markdown entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
+    _log = diary_instance.logging  # named logger — goes to output.log
     if run_interactive_prompts:
         diary_instance.prompt_new_diary_entry()
+    _log.info("=== Phase 1/3: Diary translations ===")
     diary_instance.diary_complete_translations()
-    diary_instance.convert_diary_entries_to_ankideck()
+    _log.info("=== Diary translations complete ===")
     diary_instance.stop()
-    logging.info("Diary processing complete.")
 
     # --- TPRS Processing ---
-    # TprsCreation __init__ handles initial setup of variant handlers,
-    # creation/update of standard TPRS MD, and initial creation of other variant MDs.
-    tprs_instance = TprsCreation(
-        config_path=config_path
-    )  # Uses its own config loading, inherits from DiaryHandler
-    logging.info(
-        "TPRS Creation initialized. Variant handlers set up and initial MD files processed."
-    )
+    tprs_instance = TprsCreation(config_path=config_path)
+    _log = tprs_instance.logging  # re-bind after stop() re-opens handlers
+    _log.info("=== Phase 2/3: TPRS Q&A generation ===")
 
-    # Load the latest diary data (potentially updated by DiaryHandler)
     diary_dict = tprs_instance.json_diary_to_dict()
     if not diary_dict:
-        logging.warning(
+        _log.warning(
             "Diary dictionary is empty. TPRS processing might not generate much content."
         )
+    else:
+        _log.info(f"Loaded {len(diary_dict)} diary day(s) for TPRS processing.")
 
-    # Get the latest standard TPRS data (which was updated in TprsCreation.__init__)
-    standard_variant = tprs_instance.variants[0]  # Assuming standard is always first
+    standard_variant = tprs_instance.variants[0]
     base_tprs_dict = standard_variant._read_variant_tprs_from_json()
     if not base_tprs_dict and any(
         v.needs_base_tprs_data for v in tprs_instance.variants[1:]
     ):
-        logging.warning(
+        _log.warning(
             "Base (Standard) TPRS dictionary is empty. Variants requiring it may not generate correctly."
         )
 
-    # Process each TPRS variant for adding missing entries and generating audio
     for variant in tprs_instance.variants:
-        tprs_instance.logging.info(
-            f"--- Processing TPRS Variant: {variant.variant_name} ---"
+        _log.info(
+            f"--- Processing TPRS Variant: {variant.variant_name} ({tprs_instance.variants.index(variant)+1}/{len(tprs_instance.variants)}) ---"
         )
-
-        # Add missing entries based on the latest diary and (for some variants) base_tprs_dict
-        # For Standard variant, check_missing_sentences_from_existing_tprs in __init__ already did a pass.
-        # Calling add_missing_entries here ensures any further logic in that method is applied.
-        # It's designed to be safe if called multiple times.
         if variant.variant_name == "Standard":
             variant.add_missing_entries(diary_dict)
         else:
             variant.add_missing_entries(diary_dict, base_tprs_dict)
+        _log.info(f"Q&A generation done for {variant.variant_name}.")
 
-        # Convert the (potentially updated) markdown for this variant to audio
-        if tprs_instance.config.get(
-            "create_tprs_audio", True
-        ):  # Check if TPRS audio creation is enabled
+        _log.info(f"=== Phase 3/3: Audio generation — {variant.variant_name} ===")
+        if tprs_instance.config.get("create_tprs_audio", True):
             variant.convert_to_audio()
         else:
-            logging.info(
+            _log.info(
                 f"Skipping audio generation for {variant.variant_name} as per configuration."
             )
+        _log.info(f"Audio done for {variant.variant_name}.")
 
     tprs_instance.stop()
-    logging.info("TPRS processing complete.")
+    _log.info("=== All generation complete ===")
 
 
 if __name__ == "__main__":

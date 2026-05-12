@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -79,6 +80,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _stickyEntryIndex = -1;
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _sentenceKeys = {};
+  // Keys for individual Q/A rows: "${entryIdx}_${qaIdx}_q" / "_a"
+  final Map<String, GlobalKey> _qaKeys = {};
 
   // Translation toggle — set of entry indices whose translation is revealed
   final Set<int> _expandedTranslations = {};
@@ -130,13 +133,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
     final filename = _variants[variantName] as String? ?? '';
     if (filename.isEmpty) return;
-    final mp3Path = await SyncService.localPath('TPRS/$filename');
-    final audioFile = File(mp3Path);
-    if (!await audioFile.exists()) return;
+    final relPath = 'TPRS/$filename';
+
+    // On Android: check local cache exists before loading.
+    if (!kIsWeb) {
+      final mp3Path = await SyncService.localPath(relPath);
+      final audioFile = File(mp3Path);
+      if (!await audioFile.exists()) return;
+    }
 
     bool audioSet = false;
     try {
-      await _player.setAudioSource(AudioSource.uri(Uri.file(mp3Path)));
+      final uri = await SyncService.audioUri(relPath);
+      await _player.setAudioSource(AudioSource.uri(uri));
       audioSet = true;
     } catch (_) {}
     if (audioSet && mounted) {
@@ -214,8 +223,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// Parse entries for [variantKey] from the locally cached diary.json.
+  /// On web there is no local file cache — this is skipped and the server
+  /// data (already loaded via the API) is used instead.
   Future<void> _loadEntriesFromLocalJson(String variantKey) async {
-    if (_lessonDate == null) return;
+    if (_lessonDate == null || kIsWeb) return;
     try {
       final jsonPath = await SyncService.localPath('diary.json');
       final jsonFile = File(jsonPath);
@@ -267,8 +278,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeQaIndex = -1;
       _activeIsQuestion = false;
       _sentenceKeys.clear();
+      _qaKeys.clear();
       for (var i = 0; i < entries.length; i++) {
         _sentenceKeys[i] = GlobalKey();
+        final qa = entries[i]['qa'] as List<dynamic>? ?? [];
+        for (var j = 0; j < qa.length; j++) {
+          _qaKeys['${i}_${j}_q'] = GlobalKey();
+          _qaKeys['${i}_${j}_a'] = GlobalKey();
+        }
       }
     });
     _buildSegmentList();
@@ -372,14 +389,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
           qaIdx != _activeQaIndex ||
           isQ != _activeIsQuestion) {
         final prevEntryIdx = _activeEntryIndex;
+        final prevQaIdx = _activeQaIndex;
+        final prevIsQ = _activeIsQuestion;
         setState(() {
           _activeEntryIndex = entryIdx;
           _activeQaIndex = qaIdx;
           _activeIsQuestion = isQ;
         });
-        // Scroll to entry when sentence block starts
+        // New sentence block → center on the sentence container
         if (entryIdx >= 0 && entryIdx != prevEntryIdx) {
           _scrollToSentence(entryIdx);
+        } else if (entryIdx >= 0 && qaIdx >= 0 &&
+            (qaIdx != prevQaIdx || isQ != prevIsQ)) {
+          // Q/A changed within same block → center on the active Q or A row
+          _scrollToQA(entryIdx, qaIdx, isQ);
         }
       }
     });
@@ -394,7 +417,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ctx,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.3,
+      alignment: 0.5,
+    );
+  }
+
+  void _scrollToQA(int entryIdx, int qaIdx, bool isQuestion) {
+    final mapKey = '${entryIdx}_${qaIdx}_${isQuestion ? 'q' : 'a'}';
+    final key = _qaKeys[mapKey];
+    if (key == null) return;
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.5,
     );
   }
 
@@ -496,12 +533,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final base = widget.lesson['base'] as String? ?? '';
-    final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
-    final cacheFile = File(cachePath);
 
-    if (await cacheFile.exists()) {
-      setState(() => _diaryContent = cacheFile.readAsStringSync());
-      return;
+    // On Android: check/use local text cache.
+    if (!kIsWeb) {
+      final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+      final cacheFile = File(cachePath);
+      if (await cacheFile.exists()) {
+        setState(() => _diaryContent = cacheFile.readAsStringSync());
+        return;
+      }
     }
 
     // Not cached — fetch entries from any available variant to get sentences.
@@ -521,7 +561,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
       }
       final content = buf.toString().trim();
-      if (content.isNotEmpty) {
+      if (content.isNotEmpty && !kIsWeb) {
+        final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+        final cacheFile = File(cachePath);
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }
@@ -718,16 +760,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '$_kwQuestion $question',
-                          style: TextStyle(
-                            color: isQActive
-                                ? const Color(0xFFBF360C)
-                                : const Color(0xFFE65100),
-                            fontWeight: isQActive
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            fontSize: _fontSize,
+                        KeyedSubtree(
+                          key: _qaKeys['${i}_${j}_q'],
+                          child: Text(
+                            '$_kwQuestion $question',
+                            style: TextStyle(
+                              color: isQActive
+                                  ? const Color(0xFFBF360C)
+                                  : const Color(0xFFE65100),
+                              fontWeight: isQActive
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: _fontSize,
+                            ),
                           ),
                         ),
                         if (isExpanded && questionInput.isNotEmpty)
@@ -742,18 +787,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ),
                             ),
                           ),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 12),
-                          child: Text(
-                            '$_kwAnswer $answer',
-                            style: TextStyle(
-                              color: isAActive
-                                  ? const Color(0xFF1B5E20)
-                                  : const Color(0xFF2E7D32),
-                              fontWeight: isAActive
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              fontSize: _fontSize,
+                        KeyedSubtree(
+                          key: _qaKeys['${i}_${j}_a'],
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Text(
+                              '$_kwAnswer $answer',
+                              style: TextStyle(
+                                color: isAActive
+                                    ? const Color(0xFF1B5E20)
+                                    : const Color(0xFF2E7D32),
+                                fontWeight: isAActive
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                fontSize: _fontSize,
+                              ),
                             ),
                           ),
                         ),
@@ -939,9 +987,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             tooltip: _loopEnabled ? 'Loop: on' : 'Loop: off',
             icon: Icon(
               _loopEnabled ? Icons.repeat_one : Icons.repeat,
-              color: _loopEnabled
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
+              color: _loopEnabled ? Colors.blue.shade400 : null,
             ),
             onPressed: _toggleLoop,
           ),
@@ -951,9 +997,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 : 'Cycle variants: off',
             icon: Icon(
               Icons.playlist_play,
-              color: _cycleVariants
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
+              color: _cycleVariants ? Colors.blue.shade400 : null,
             ),
             onPressed: _toggleCycleVariants,
           ),
@@ -1203,9 +1247,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
                         icon: Icon(
                           _loopBlock ? Icons.repeat_one : Icons.repeat,
-                          color: _loopBlock
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
+                          color: _loopBlock ? Colors.blue.shade400 : null,
                         ),
                         onPressed: _audioReady ? _toggleLoopBlock : null,
                       ),

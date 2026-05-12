@@ -23,11 +23,11 @@ Audio structure (per sentence S, R = repeat_tprs):
     per Q&A: pause_ms + [Q x R] + answer_silence_ms + [A x R] + pause_ms
 
 Usage:
-    python -m lingoanki.audio_timing \\
+    python -m lingodiary.audio_timing \\
         --config ~/.config/lingoDiary/config.yaml \\
         --json ~/Documents/lingodiary/<user>/diary.json
 
-    from lingoanki.audio_timing import backfill_audio_timings
+    from lingodiary.audio_timing import backfill_audio_timings
     backfill_audio_timings(config_path, diary_json_path)
 """
 
@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,40 @@ def _assemble_full_mp3(
     return True
 
 
+def _mp3_stale(day, variant_key: str) -> bool:
+    """Return True if the full lesson MP3 is stale relative to its Q&A segments.
+
+    Checks both sentence_audio_generated_at and qa.generated_at against the
+    stored lesson_mp3_timestamps[variant_key].  Any segment newer than the
+    full MP3 — or missing a timestamp — triggers a rebuild.
+    """
+    mp3_ts_str = day.lesson_mp3_timestamps.get(variant_key)
+    if mp3_ts_str is None:
+        # No MP3 timestamp — can't evaluate; let segments_newly_generated handle it
+        return False
+
+    mp3_ts = datetime.fromisoformat(mp3_ts_str)
+
+    for entry in day.entries:
+        v = entry.lessons.get_variant(variant_key)
+
+        # Check sentence segment
+        if v.sentence_audio_path:
+            if v.sentence_audio_generated_at is None:
+                return True
+            if datetime.fromisoformat(v.sentence_audio_generated_at) > mp3_ts:
+                return True
+
+        # Check Q&A segments
+        for qa in v.qa:
+            if qa.generated_at is None:
+                return True
+            if datetime.fromisoformat(qa.generated_at) > mp3_ts:
+                return True
+
+    return False
+
+
 def _compute_day_timings(
     entries: list,
     variant_key: str,
@@ -230,7 +265,7 @@ def _compute_day_timings(
     Returns list of (start_ms, end_ms) per entry for the sentence block start/end.
     Q&A timings are stored directly onto each QA object.
     """
-    from lingoanki.diary_json import AudioTiming  # type: ignore
+    from lingodiary.diary_json import AudioTiming  # type: ignore
 
     R = max(1, repeat_tprs)
     segs_dir = _segments_dir(output_dir, date_str, variant_key)
@@ -255,6 +290,7 @@ def _compute_day_timings(
         entry_end = int(entry_start + s_dur * R)
         timings.append((int(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
+        variant.sentence_audio_generated_at = datetime.now(timezone.utc).isoformat()
 
         # Advance past sentence + its trailing pause
         cumulative = entry_end + pause_ms
@@ -278,6 +314,8 @@ def _compute_day_timings(
             cumulative = int(cumulative + a_dur * R)
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
             qa.answer_audio_path = os.path.relpath(a_path, output_dir)
+
+            qa.generated_at = datetime.now(timezone.utc).isoformat()
 
             cumulative += pause_ms  # pause after answer
 
@@ -307,7 +345,7 @@ def backfill_audio_timings(
     import yaml  # type: ignore
     from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
 
-    from lingoanki.diary_json import AudioTiming, load_diary_json, save_diary_json
+    from lingodiary.diary_json import AudioTiming, load_diary_json, save_diary_json
 
     variants = variants or list(_VARIANT_KEYS)
     diary_json_path = Path(diary_json_path)
@@ -369,6 +407,7 @@ def backfill_audio_timings(
 
                 segs_dir = _segments_dir(output_dir, day.date, variant_key)
 
+                segments_newly_generated = False
                 if not overwrite_existing and _segments_complete(
                     segs_dir, day.entries, variant_key
                 ):
@@ -429,12 +468,19 @@ def backfill_audio_timings(
                         f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
                         f"(~{timings[-1][1]//1000}s)"
                     )
+                    segments_newly_generated = True
 
-                # Always rebuild the full MP3 from segment files so timing in
-                # diary.json is guaranteed to match the audio the player sees.
+                # Rebuild the full MP3 from segment files only when needed:
+                # - segments were newly generated (timing must stay in sync), OR
+                # - the MP3 file is missing (segments exist but the MP3 was lost), OR
+                # - Q&A segments are newer than the full MP3 (stale MP3 detection)
                 mp3_rel = day.lesson_audio_paths.get(variant_key, "")
                 mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
-                if mp3_path:
+                if mp3_path and (
+                    segments_newly_generated
+                    or not os.path.exists(mp3_path)
+                    or _mp3_stale(day, variant_key)
+                ):
                     rebuilt = _assemble_full_mp3(
                         day.entries,
                         variant_key,
@@ -446,10 +492,12 @@ def backfill_audio_timings(
                     )
                     if rebuilt:
                         day_modified = True
+                        day.lesson_mp3_timestamps[variant_key] = datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                        logger.info(f"  {variant_key}: rebuilt MP3 at {mp3_path}.")
                 else:
-                    logger.debug(
-                        f"  {variant_key}: no MP3 path known, skipping rebuild."
-                    )
+                    logger.debug(f"  {variant_key}: MP3 up-to-date, skipping rebuild.")
 
             # Save after each day so progress is not lost on interruption
             if day_modified:

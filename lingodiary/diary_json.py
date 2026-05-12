@@ -96,6 +96,9 @@ class QA:
         ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_q0.mp3"
     )
     answer_audio_path: str = ""  # relative to output_dir
+    generated_at: Optional[
+        str
+    ] = None  # ISO-8601 UTC — when this Q&A's audio segments were generated
 
     def to_dict(self) -> dict:
         return {
@@ -107,6 +110,7 @@ class QA:
             "answer_timing": self.answer_timing.to_dict(),
             "question_audio_path": self.question_audio_path,
             "answer_audio_path": self.answer_audio_path,
+            "generated_at": self.generated_at,
         }
 
     @classmethod
@@ -120,6 +124,7 @@ class QA:
             answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
             question_audio_path=d.get("question_audio_path", ""),
             answer_audio_path=d.get("answer_audio_path", ""),
+            generated_at=d.get("generated_at"),
         )
 
 
@@ -132,6 +137,9 @@ class VariantLesson:
     sentence_audio_path: str = (
         ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_s.mp3"
     )
+    sentence_audio_generated_at: Optional[
+        str
+    ] = None  # ISO-8601 UTC — when this sentence's audio segment was generated
 
     def to_dict(self) -> dict:
         return {
@@ -140,6 +148,7 @@ class VariantLesson:
             "audio_timing": self.audio_timing.to_dict(),
             "qa": [q.to_dict() for q in self.qa],
             "sentence_audio_path": self.sentence_audio_path,
+            "sentence_audio_generated_at": self.sentence_audio_generated_at,
         }
 
     @classmethod
@@ -150,6 +159,7 @@ class VariantLesson:
             audio_timing=AudioTiming.from_dict(d.get("audio_timing", {})),
             qa=[QA.from_dict(q) for q in d.get("qa", [])],
             sentence_audio_path=d.get("sentence_audio_path", ""),
+            sentence_audio_generated_at=d.get("sentence_audio_generated_at"),
         )
 
 
@@ -258,12 +268,16 @@ class DiaryDay:
     lesson_audio_paths: dict = field(
         default_factory=dict
     )  # variant → relative path to full lesson MP3
+    lesson_mp3_timestamps: dict = field(
+        default_factory=dict
+    )  # variant → ISO-8601 UTC datetime when the full MP3 was last assembled
 
     def to_dict(self) -> dict:
         return {
             "date": self.date,
             "title": self.title,
             "lesson_audio_paths": self.lesson_audio_paths,
+            "lesson_mp3_timestamps": self.lesson_mp3_timestamps,
             "entries": [e.to_dict() for e in self.entries],
         }
 
@@ -274,6 +288,7 @@ class DiaryDay:
             title=d.get("title", ""),
             entries=[DiaryEntry.from_dict(e) for e in d.get("entries", [])],
             lesson_audio_paths=d.get("lesson_audio_paths", {}),
+            lesson_mp3_timestamps=d.get("lesson_mp3_timestamps", {}),
         )
 
 
@@ -312,6 +327,8 @@ def save_diary_json(diary: DiaryJson, path: str | Path) -> None:
     """Atomically write diary JSON to disk (write-to-tmp then rename)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ── Atomic write ──────────────────────────────────────────────────────────
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -368,6 +385,8 @@ def upsert_day(
                         old_variant = old_entry.lessons.get_variant(variant_name)
                         if old_variant is not None:
                             new_entry.lessons.set_variant(variant_name, old_variant)
+            # Preserve the lesson audio paths recorded by previous runs
+            new_day.lesson_audio_paths = day.lesson_audio_paths.copy()
             diary.diaries[i] = new_day
             return diary
     diary.diaries.append(new_day)

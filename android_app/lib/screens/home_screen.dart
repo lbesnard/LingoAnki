@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../l10n/app_localizations.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import 'player_screen.dart';
@@ -84,14 +86,79 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildStatsCard(),
-          const SizedBox(height: 12),
+          if (_isNewUser()) ...[
+            _buildOnboardingCard(),
+            const SizedBox(height: 12),
+          ] else ...[
+            _buildStatsCard(),
+            const SizedBox(height: 12),
+          ],
           if (_homeData?['recommended'] != null) ...[
             _buildRecommendationCard(),
             const SizedBox(height: 12),
           ],
           _buildRecentLessonsCard(),
         ],
+      ),
+    );
+  }
+
+  bool _isNewUser() {
+    final stats = _homeData?['stats'] as Map<String, dynamic>? ?? {};
+    final total = (stats['total'] as int?) ?? 0;
+    return total == 0;
+  }
+
+  Widget _buildOnboardingCard() {
+    final l10n = AppLocalizations.of(context);
+    return Card(
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.waving_hand,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.homeWelcomeTitle,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(l10n.homeWelcomeBody,
+                style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                l10n.homeWelcomeTip,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontStyle: FontStyle.italic),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.edit_note, size: 18),
+                label: Text(l10n.homeGoDiary),
+                onPressed: () => context.go('/diary'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

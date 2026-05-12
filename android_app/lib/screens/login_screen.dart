@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -21,7 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedServer();
+    if (!kIsWeb) _loadSavedServer();
   }
 
   Future<void> _loadSavedServer() async {
@@ -31,20 +33,22 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
+      // On web the app is served from the same origin — use relative URL ('').
+      final serverUrl = kIsWeb ? '' : _serverController.text.trim();
       final result = await ApiService.login(
-        _serverController.text.trim(),
+        serverUrl,
         _usernameController.text.trim(),
         _passwordController.text,
       );
       await AuthService.saveSession(
         result['token'] as String,
-        _serverController.text.trim(),
+        serverUrl,
       );
       await AuthService.saveUsername(_usernameController.text.trim());
       // Fetch and cache TPRS keywords for the TPRS renderer
@@ -59,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       if (mounted) {
         // Replace with main shell
-        Navigator.of(context).pushReplacementNamed('/home');
+        context.go('/');
       }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -89,18 +93,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: Theme.of(context).textTheme.headlineMedium,
                       textAlign: TextAlign.center),
                   const SizedBox(height: 32),
-                  TextFormField(
-                    controller: _serverController,
-                    decoration: const InputDecoration(
-                      labelText: 'Server URL',
-                      hintText: 'http://192.168.1.x:8084',
-                      border: OutlineInputBorder(),
+                  if (!kIsWeb) ...[
+                    TextFormField(
+                      controller: _serverController,
+                      decoration: const InputDecoration(
+                        labelText: 'Server URL',
+                        hintText: 'http://192.168.1.x:8084',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.url,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Enter the server URL' : null,
                     ),
-                    keyboardType: TextInputType.url,
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Enter the server URL' : null,
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
+                  ],
                   TextFormField(
                     controller: _usernameController,
                     decoration: const InputDecoration(

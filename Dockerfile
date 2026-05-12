@@ -41,7 +41,50 @@ RUN pip install --no-cache-dir \
 
 RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 
-# ── Stage 2: app — lightweight deps + source code ────────────────────────────
+# ── Stage 2: flutter-web — build the Flutter web app ─────────────────────────
+# Rebuilt only when the Flutter source or pubspec changes.
+# The output (build/web/) is copied into stage 3 so no Flutter SDK ends up in
+# the final image.
+FROM debian:bookworm-slim AS flutter-web
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        unzip \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Flutter as root into /opt/flutter (pinned to the same version used in CI)
+ENV FLUTTER_VERSION=3.41.9
+RUN git config --global --add safe.directory /opt/flutter && \
+    curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+    | tar -xJ -C /opt && \
+    git config --global --add safe.directory /opt/flutter && \
+    /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
+    /opt/flutter/bin/flutter precache --web
+
+ENV PATH="/opt/flutter/bin:$PATH"
+ENV FLUTTER_SUPPRESS_ANALYTICS=true
+
+# Run Flutter as a non-root user to suppress the "running as root" warning
+RUN useradd -m -u 1000 flutteruser && \
+    chown -R flutteruser:flutteruser /opt/flutter
+ENV GIT_GLOBAL_CONFIG_DIR=/home/flutteruser
+USER flutteruser
+
+WORKDIR /flutter_app
+COPY --chown=flutteruser:flutteruser android_app/pubspec.yaml android_app/pubspec.lock* ./
+RUN git config --global --add safe.directory /opt/flutter && flutter pub get
+
+# Copy only the source that affects the web build
+COPY --chown=flutteruser:flutteruser android_app/lib/ ./lib/
+COPY --chown=flutteruser:flutteruser android_app/web/ ./web/
+
+RUN git config --global --add safe.directory /opt/flutter && \
+    flutter build web --release
+
+# ── Stage 3: app — lightweight deps + source code ────────────────────────────
 # Rebuilt on every poetry.lock or source change, but stays fast because
 # the heavy ML packages are already present from stage 1.
 
@@ -69,10 +112,13 @@ RUN poetry config virtualenvs.in-project true && \
     poetry install --with dev --no-root
 
 # 🔁 Copy source (invalidates cache only on code changes, not dep changes)
-COPY lingoanki/ /app/lingoanki
+COPY lingodiary/ /app/lingodiary
 COPY README.md /app/
 
-# ✅ Install the lingoanki package itself; write lock hash for entrypoint check
+# ✅ Copy Flutter web build from stage 2
+COPY --from=flutter-web /flutter_app/build/web/ /app/web_build/
+
+# ✅ Install the lingodiary package itself; write lock hash for entrypoint check
 RUN poetry install --only-root && \
     sha256sum /app/poetry.lock | awk '{print $1}' > /app/.poetry.lock.sha256
 

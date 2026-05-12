@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 import 'local_db_service.dart';
@@ -59,22 +58,29 @@ class SyncManager extends ChangeNotifier {
     try {
       await _syncPendingDiaryEntries();
       await _syncPendingScores();
-      final count = await SyncService.syncFromServer(
-        onProgress: (msg) {
-          message = msg;
-          notifyListeners();
-        },
-        onProgressCount: (current, total) {
-          progress = total > 0 ? current / total : 1.0;
-          message = '$current / $total';
-          notifyListeners();
-        },
-        isCancelled: () => _cancelled,
-      );
-      filesDownloaded = count;
-      message = _cancelled ? 'Cancelled.' : 'Synced $count file(s) ✓';
-      progress = 1.0;
-      notifyListeners();
+      if (kIsWeb) {
+        // Web: audio streams directly from server, no local caching needed.
+        message = 'Web mode — audio streams from server ✓';
+        progress = 1.0;
+        notifyListeners();
+      } else {
+        final count = await SyncService.syncFromServer(
+          onProgress: (msg) {
+            message = msg;
+            notifyListeners();
+          },
+          onProgressCount: (current, total) {
+            progress = total > 0 ? current / total : 1.0;
+            message = '$current / $total';
+            notifyListeners();
+          },
+          isCancelled: () => _cancelled,
+        );
+        filesDownloaded = count;
+        message = _cancelled ? 'Cancelled.' : 'Synced $count file(s) ✓';
+        progress = 1.0;
+        notifyListeners();
+      }
     } catch (e) {
       message = 'Sync failed: $e';
       progress = null;
@@ -107,10 +113,11 @@ class SyncManager extends ChangeNotifier {
           row['score'] as int,
         );
         await LocalDbService.markScoreSynced(row['id'] as int);
-      } on SocketException {
-        // Network unreachable — no point continuing, try again on next sync.
-        break;
       } catch (e) {
+        // Network unreachable or other error — no point continuing, try again on next sync.
+        if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+          break;
+        }
         // Log but continue so remaining scores are still attempted.
         debugPrint('SyncManager: score sync failed for row ${row['id']}: $e');
       }
@@ -128,9 +135,10 @@ class SyncManager extends ChangeNotifier {
       try {
         await ApiService.addDiaryEntry(date, sentences);
         await LocalDbService.markDiarySynced(id);
-      } on SocketException {
-        break; // Network unreachable — retry on next sync.
       } catch (e) {
+        if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+          break; // Network unreachable — retry on next sync.
+        }
         debugPrint('SyncManager: diary entry sync failed for row $id: $e');
       }
     }

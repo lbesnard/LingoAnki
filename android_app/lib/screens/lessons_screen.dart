@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
@@ -60,6 +61,11 @@ class _LessonsScreenState extends State<LessonsScreen> {
   }
 
   Future<void> _checkSyncStatus(List<Map<String, dynamic>> lessons) async {
+    // On web all audio streams from the server; no local files to check.
+    if (kIsWeb) {
+      if (mounted) setState(() => _syncedBases = lessons.map((l) => l['base'] as String? ?? '').toSet());
+      return;
+    }
     final synced = <String>{};
     for (final lesson in lessons) {
       final base = lesson['base'] as String? ?? '';

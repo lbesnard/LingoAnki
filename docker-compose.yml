@@ -2,6 +2,7 @@ services:
   lingo-diary:
     build: .
     image: lozzaroo/lingodiary
+    user: "1000:1000"
     ports:
       - 8083:8084
     stdin_open: true
