@@ -51,3 +51,10 @@ poetry-pre-commit-plugin = ">0.1.2"
 [tool.pre_commit]
 version = "2.3.0"
 config = ".pre-commit-config.yaml"
+
+[tool.pytest.ini_options]
+testpaths = ["test_lingodiary"]
+
+[tool.coverage.run]
+source = ["lingodiary"]
+omit = ["**/test_*", "lingodiary/migrate_to_json.py"]
