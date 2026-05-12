@@ -222,14 +222,23 @@ def api_generate():
         # Back up diary.json before anything mutates it.
         try:
             import shutil
-            from datetime import datetime as _dt
+            from datetime import datetime as _dt, timezone as _tz
+            from pathlib import Path as _Path
 
             json_src = os.path.join(output_folder, "diary.json")
             if os.path.exists(json_src):
-                backup_dir = os.path.join(output_folder, ".backup")
-                os.makedirs(backup_dir, exist_ok=True)
-                ts = _dt.now().strftime("%Y-%m-%d_%H-%M-%S")
-                shutil.copy2(json_src, os.path.join(backup_dir, f"diary_{ts}.json"))
+                backup_dir = _Path(output_folder) / ".backup"
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                ts = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
+                shutil.copy2(json_src, backup_dir / f"diary_{ts}.json")
+                # Prune backups older than 7 days
+                cutoff = _dt.now(_tz.utc).timestamp() - 7 * 86400
+                for old in backup_dir.glob("diary_*.json"):
+                    try:
+                        if old.stat().st_mtime < cutoff:
+                            old.unlink()
+                    except OSError:
+                        pass
         except Exception as exc:
             app.logger.warning(f"diary.json backup failed: {exc}")
 
