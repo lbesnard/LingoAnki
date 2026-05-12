@@ -23,11 +23,11 @@ services:
       SECRET_KEY: "change-me-to-a-random-string"
 ```
 
-Then create the directories and config files the container expects (replace `laurent` with your username):
+Then create the directories and config files the container expects (replace `myuser` with your username):
 
 ```bash
-mkdir -p ~/.config/lingoDiary/laurent
-mkdir -p ~/Documents/lingodiary/laurent
+mkdir -p ~/.config/lingoDiary/myuser
+mkdir -p ~/Documents/lingodiary/myuser
 ```
 
 Generate a bcrypt hash for your password:
@@ -40,12 +40,12 @@ Create `~/.config/lingoDiary/users.yaml`:
 
 ```yaml
 users:
-  laurent:
-    password: "$2b$12$..."   # paste your bcrypt hash here
+  myuser:
+    password: "$2b$12$..." # paste your bcrypt hash here
     language: "en"
 ```
 
-Create `~/.config/lingoDiary/laurent/config.yaml`:
+Create `~/.config/lingoDiary/myuser/config.yaml`:
 
 ```yaml
 openai:
@@ -53,9 +53,9 @@ openai:
   model: "gpt-4o-mini"
 
 languages:
-  primary_language: "english"       # the language you write your diary in
+  primary_language: "english" # the language you write your diary in
   primary_language_code: "en"
-  study_language: "norwegian"       # the language you are learning
+  study_language: "norwegian" # the language you are learning
   study_language_code: "no"
 
 gender: "male"
@@ -64,7 +64,7 @@ tts:
   model: "piper"
   piper:
     voice: "talesyntese-medium"
-    piper_length_scale_tprs: 2      # speech speed (higher = slower)
+    piper_length_scale_tprs: 2 # speech speed (higher = slower)
     piper_length_scale_diary: 2
   repeat_sentence_tprs: 2
   repeat_sentence_diary: 2
