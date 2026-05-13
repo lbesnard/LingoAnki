@@ -158,7 +158,8 @@ jobs:
       - name: Sync version from pyproject.toml to pubspec.yaml
         run: |
           # Extract version from pyproject.toml
-          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          # VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          VERSION=$(poetry version -s)
           # Convert to Flutter version format: major.minor.patch+buildNumber
           # For now, use patch as build number (e.g., 5.0.0 -> 5.0.0+500 where 500 is patch*100 + minor*10 + major)
           MAJOR=$(echo $VERSION | cut -d. -f1)
