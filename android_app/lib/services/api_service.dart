@@ -233,11 +233,18 @@ class ApiService {
 
   /// Trigger audio timing backfill (background job on server).
   /// Regenerates per-sentence segment MP3s and writes timing data to diary.json.
-  static Future<void> triggerAudioTimingBackfill() async {
+  /// When [overwrite] is true, forces TTS re-generation for all days (slow).
+  /// When false (default), only recomputes timing from existing segment files
+  /// when zero timing is detected — much faster.
+  static Future<void> triggerAudioTimingBackfill({bool overwrite = false}) async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
     await http
-        .post(Uri.parse('$base/api/backfill/audio_timing'), headers: headers)
+        .post(
+          Uri.parse('$base/api/backfill/audio_timing'),
+          headers: headers,
+          body: jsonEncode({'overwrite': overwrite}),
+        )
         .timeout(_timeout);
   }
 

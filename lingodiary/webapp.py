@@ -308,18 +308,30 @@ def api_backfill_qa_translations():
 @app.route("/api/backfill/audio_timing", methods=["POST"])
 @_jwt_required
 def api_backfill_audio_timing():
-    """Background job: generate per-sentence audio segments and write timings to diary.json."""
-    from flask import g as _g
+    """Background job: generate per-sentence audio segments and write timings to diary.json.
+
+    Accepts optional JSON body: {"overwrite": true} to force TTS re-generation for all
+    days (slow).  Without the flag (default false), only recomputes timing from existing
+    segment files when zero timing is detected — much faster.
+    """
+    from flask import g as _g, request as _req
 
     config_path = _g.api_config_path
     output_folder = _g.api_output_folder
+
+    body = _req.get_json(silent=True) or {}
+    overwrite = bool(body.get("overwrite", False))
 
     def _run():
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
             json_path = os.path.join(output_folder, "diary.json")
-            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+            backfill_audio_timings(
+                config_path=config_path,
+                diary_json_path=json_path,
+                overwrite_existing=overwrite,
+            )
         except Exception as exc:
             app.logger.error(f"Audio timing backfill error: {exc}")
 

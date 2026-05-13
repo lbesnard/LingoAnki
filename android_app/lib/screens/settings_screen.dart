@@ -25,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _clearing = false;
   bool _loopDefault = false;
   bool _cycleVariants = false;
+  bool _forceTimingRegen = false;
 
   // Tracks which maintenance job is currently running (null = none)
   String? _maintenanceRunning;
@@ -329,11 +330,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 : const Icon(Icons.timer_outlined),
             title: const Text('Rebuild audio timing'),
             subtitle: const Text(
-                'Regenerates audio segments and fixes sentence-highlight sync for old lessons'),
+                'Recomputes sentence-highlight sync for all lessons'),
             onTap: _maintenanceRunning != null
                 ? null
                 : () => _runMaintenanceJob(
-                    'timing', ApiService.triggerAudioTimingBackfill),
+                    'timing',
+                    () => ApiService.triggerAudioTimingBackfill(
+                        overwrite: _forceTimingRegen)),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.replay_outlined),
+            title: const Text('Force audio re-generation'),
+            subtitle: const Text(
+                'Re-runs TTS for every lesson (slow). Leave off to only recompute timing from existing files.'),
+            value: _forceTimingRegen,
+            onChanged: _maintenanceRunning != null
+                ? null
+                : (v) => setState(() => _forceTimingRegen = v),
           ),
           const Divider(),
 
