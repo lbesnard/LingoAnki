@@ -155,6 +155,38 @@ jobs:
       - name: Regenerate Flutter project scaffold
         run: bash scripts/setup_flutter_app.sh
 
+      - name: Sync version from pyproject.toml to pubspec.yaml
+        run: |
+          # Extract version from pyproject.toml
+          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          # Convert to Flutter version format: major.minor.patch+buildNumber
+          # For now, use patch as build number (e.g., 5.0.0 -> 5.0.0+500 where 500 is patch*100 + minor*10 + major)
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+
+          # Update pubspec.yaml version
+          sed -i "s/^version: .*/version: $VERSION+$BUILD_NUMBER/" android_app/pubspec.yaml
+          echo "Updated pubspec.yaml to version: $VERSION+$BUILD_NUMBER"
+          cat android_app/pubspec.yaml | grep version
+
+      - name: Set up Android signing
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ secrets.ANDROID_KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_FILE" ]; then
+            echo "Warning: Android keystore secrets not configured. Using debug signing."
+            exit 0
+          fi
+          # Decode base64 keystore file
+          echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$HOME/release.jks"
+          echo "KEYSTORE_PATH=$HOME/release.jks" >> $GITHUB_ENV
+          echo "Keystore file created at $HOME/release.jks"
+
       - name: Install Flutter dependencies
         working-directory: android_app
         run: flutter pub get
@@ -169,6 +201,11 @@ jobs:
 
       - name: Build release APK
         working-directory: android_app
+        env:
+          KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Upload APK artifact
