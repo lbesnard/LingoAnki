@@ -345,6 +345,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
             _activeEntryIndex = _activeEntryIndex;
             _activeQaIndex = -1;
             _activeIsQuestion = false;
+            // Reset sticky state to ensure clean transition
+            _stickyQaIndex = -1;
+            _stickyIsQuestion = false;
+            _stickyEntryIndex = _activeEntryIndex;
           });
           _scrollToSentence(_activeEntryIndex);
           return;
@@ -478,6 +482,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleLoopBlock() {
     setState(() => _loopBlock = !_loopBlock);
+    // If enabling block repeat and we're currently playing, immediately position cursor
+    if (_loopBlock && _activeEntryIndex >= 0) {
+      setState(() {
+        _activeQaIndex = -1;
+        _activeIsQuestion = false;
+        _stickyQaIndex = -1;
+        _stickyIsQuestion = false;
+      });
+      _scrollToSentence(_activeEntryIndex);
+    }
   }
 
   void _toggleCycleVariants() async {
