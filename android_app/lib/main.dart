@@ -10,6 +10,7 @@ import 'screens/lessons_screen.dart';
 import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/connection_badge.dart';
+import 'widgets/scaled_app.dart';
 import 'services/auth_service.dart';
 import 'services/sync_manager.dart';
 
@@ -61,6 +62,9 @@ class LingoDiaryApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
+      builder: (context, child) {
+        return ScaledApp(child: child ?? Container());
+      },
     );
   }
 }
