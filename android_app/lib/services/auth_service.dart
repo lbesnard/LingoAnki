@@ -63,6 +63,8 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_tokenKey);
       await prefs.remove(_usernameKey);
+      // Force a small delay to ensure SharedPreferences is updated
+      await Future.delayed(const Duration(milliseconds: 100));
     } else {
       await _storage.delete(key: _tokenKey);
       await _storage.delete(key: _usernameKey);

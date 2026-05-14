@@ -113,8 +113,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    
     await AuthService.clearSession();
-    if (mounted) context.go('/login');
+    
+    if (mounted) {
+      // On web, use pushReplacement to ensure clean navigation
+      if (kIsWeb) {
+        context.pushReplacement('/login');
+      } else {
+        context.go('/login');
+      }
+    }
   }
 
   Future<void> _clearCachedData() async {
