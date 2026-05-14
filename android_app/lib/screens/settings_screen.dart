@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:html' as html show window;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -125,8 +124,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Also force a page reload after a short delay to ensure clean state
         Future.delayed(const Duration(milliseconds: 500), () {
           if (kIsWeb) {
-            // This will force a complete page reload, clearing all app state
-            html.window.location.reload();
+            // Force a page reload on web to clear all app state
+            // Use js interop or window.location.reload() equivalent
+            // For now, just rely on the navigation change
           }
         });
       } else {

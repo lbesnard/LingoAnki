@@ -193,6 +193,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Update server in background
     ApiService.updateLessonLastReviewed(_lessonDate!).catchError((_) {
       // Will sync later when online
+      return <String, dynamic>{};
     });
   }
 
