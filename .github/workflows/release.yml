@@ -236,10 +236,16 @@ jobs:
         working-directory: android_app
         run: flutter test
 
+      - name: Decode Keystore
+        run: |
+          # Use an absolute path in the runner's home directory
+          echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > /home/runner/release.jks
+
       - name: Build release APK
         working-directory: android_app
         env:
-          KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
+          KEYSTORE_PATH: /home/runner/release.jks
+          # KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
