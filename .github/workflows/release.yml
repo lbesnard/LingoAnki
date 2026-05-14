@@ -186,13 +186,13 @@ jobs:
             echo "Please configure the following secrets in your repository:"
             echo "- ANDROID_KEYSTORE_FILE (base64 encoded .jks file)"
             echo "- KEYSTORE_PASSWORD"
-            echo "- KEY_ALIAS" 
+            echo "- KEY_ALIAS"
             echo "- KEY_PASSWORD"
             exit 1
           fi
-          
+
           echo "Setting up release signing with keystore..."
-          
+
           # Decode base64 keystore file
           echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$HOME/release.jks"
           echo "KEYSTORE_PATH=$HOME/release.jks" >> $GITHUB_ENV
@@ -220,7 +220,7 @@ jobs:
             echo "ERROR: Keystore file not found!"
             exit 1
           fi
-          
+
           echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
 
       - name: Install Flutter dependencies
@@ -250,14 +250,14 @@ jobs:
             echo "ERROR: Signing not properly configured!"
             exit 1
           fi
-          
+
           flutter build apk --release
-          
+
           # Verify the APK was signed correctly
           if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
             echo "APK built successfully"
             echo "APK size: $(ls -lh build/app/outputs/flutter-apk/app-release.apk | awk '{print $5}')"
-            
+
             # Check APK signature (requires aapt, which should be available)
             if command -v aapt >/dev/null 2>&1; then
               echo "APK package info:"

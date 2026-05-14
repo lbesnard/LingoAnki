@@ -34,7 +34,7 @@ android {
         create("release") {
             val keystorePropertiesFile = rootProject.file("key.properties")
             var signingConfigured = false
-            
+
             if (keystorePropertiesFile.exists()) {
                 println("Found key.properties file, configuring release signing...")
                 val keystoreProperties = java.util.Properties()
@@ -42,7 +42,7 @@ android {
 
                 val storeFilePath = keystoreProperties["storeFile"] as String
                 val storeFileObj = file(storeFilePath)
-                
+
                 if (storeFileObj.exists()) {
                     storeFile = storeFileObj
                     storePassword = keystoreProperties["storePassword"] as String
@@ -77,7 +77,7 @@ android {
                     println("WARNING: No signing configuration found (neither key.properties nor environment variables)")
                 }
             }
-            
+
             if (!signingConfigured) {
                 println("ERROR: Release signing not configured! APK will be unsigned or debug-signed.")
                 throw GradleException("Release signing configuration is required but not found. Please ensure key.properties exists or environment variables are set.")
