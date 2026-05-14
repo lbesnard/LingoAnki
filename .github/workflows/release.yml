@@ -191,13 +191,13 @@ jobs:
           # Decode base64 keystore file to consistent location
           KEYSTORE_PATH="$HOME/release.jks"
           echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$KEYSTORE_PATH"
-          
+
           # Verify keystore was created
           if [ ! -f "$KEYSTORE_PATH" ]; then
             echo "ERROR: Failed to create keystore file!"
             exit 1
           fi
-          
+
           echo "Keystore file created: $(ls -la $KEYSTORE_PATH)"
 
           # Test keystore accessibility
@@ -215,7 +215,7 @@ jobs:
           storeFile=$KEYSTORE_PATH
           EOF
           echo "Created key.properties file with keystore path: $KEYSTORE_PATH"
-          
+
           # Verify key.properties was created correctly
           echo "key.properties contents:"
           cat android_app/android/key.properties
@@ -236,28 +236,28 @@ jobs:
         working-directory: android_app
         run: |
           echo "Building release APK..."
-          
+
           # Verify key.properties exists
           if [ ! -f "android/key.properties" ]; then
             echo "ERROR: key.properties file not found!"
             exit 1
           fi
-          
+
           echo "key.properties found, contents:"
           cat android/key.properties
-          
+
           # Build the APK
           flutter build apk --release --verbose
-          
+
           # Verify the APK was created
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           if [ ! -f "$APK_PATH" ]; then
             echo "ERROR: APK not found after build!"
             exit 1
           fi
-          
+
           echo "APK built successfully: $(ls -lh $APK_PATH)"
-          
+
           # Verify APK signature (if apksigner is available)
           if command -v apksigner >/dev/null 2>&1; then
             echo "Verifying APK signature..."
