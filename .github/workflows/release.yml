@@ -188,6 +188,23 @@ jobs:
           echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$HOME/release.jks"
           echo "KEYSTORE_PATH=$HOME/release.jks" >> $GITHUB_ENV
           echo "Keystore file created at $HOME/release.jks"
+          
+          # Create key.properties file for Flutter
+          cat > android_app/android/key.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=$HOME/release.jks
+          EOF
+          echo "Created key.properties file"
+          
+          # Verify the keystore file exists and is readable
+          if [ -f "$HOME/release.jks" ]; then
+            echo "Keystore file verified: $(ls -la $HOME/release.jks)"
+          else
+            echo "ERROR: Keystore file not found!"
+            exit 1
+          fi
 
       - name: Install Flutter dependencies
         working-directory: android_app
