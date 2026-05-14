@@ -95,8 +95,9 @@ Download the latest APK from the [Releases](../../releases) tab and install it o
 
 Open the app, and enter your server URL (e.g. `http://192.168.1.x:8083`). Log in with your username and password.
 
-<img src="assets/home.png" width="50%" />
-<img src="assets/lesson.png" width="50%" />
+|               Home Screen                |               Lesson Screen                |
+| :--------------------------------------: | :----------------------------------------: |
+| <img src="assets/home.png" width="100%"> | <img src="assets/lesson.png" width="100%"> |
 
 ---
 
