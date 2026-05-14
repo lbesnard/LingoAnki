@@ -18,7 +18,7 @@ class UiScaleService extends ChangeNotifier {
     // For now, let's use a more conservative approach
     // Only scale text, not the entire layout
     double newScale = 1.0;
-    
+
     // Scale up text on larger screens
     if (screenSize.width > 600) {
       newScale = 1.1;
@@ -29,15 +29,15 @@ class UiScaleService extends ChangeNotifier {
     if (screenSize.width > 1200) {
       newScale = 1.3;
     }
-    
+
     // Scale down on very small screens
     if (screenSize.width < 360) {
       newScale = screenSize.width / 360.0;
     }
-    
+
     // Clamp to reasonable bounds
     newScale = newScale.clamp(minScale, maxScale);
-    
+
     if ((newScale - _scaleFactor).abs() > 0.01) {
       _scaleFactor = newScale;
       notifyListeners();

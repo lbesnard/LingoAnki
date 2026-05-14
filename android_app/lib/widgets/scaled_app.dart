@@ -3,7 +3,7 @@ import '../services/ui_scale_service.dart';
 
 class ScaledApp extends StatefulWidget {
   final Widget child;
-  
+
   const ScaledApp({Key? key, required this.child}) : super(key: key);
 
   @override
@@ -35,10 +35,10 @@ class _ScaledAppState extends State<ScaledApp> {
       builder: (context, constraints) {
         // Update scale based on available space
         _scaleService.updateScale(Size(constraints.maxWidth, constraints.maxHeight));
-        
+
         // Use MediaQuery to provide the scaling instead of Transform
         final scale = _scaleService.scaleFactor;
-        
+
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
             textScaleFactor: scale,
