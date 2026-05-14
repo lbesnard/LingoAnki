@@ -119,6 +119,7 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     needs: bump
+    environment: android_release
 
     steps:
       - name: Checkout repository
