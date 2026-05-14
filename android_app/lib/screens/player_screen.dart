@@ -340,6 +340,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final span = _entrySpans[_activeEntryIndex];
         if (span != null && ms >= span['end']!) {
           _player.seek(Duration(milliseconds: span['start']!));
+          // Immediately update cursor and scroll to first sentence in block
+          setState(() {
+            _activeEntryIndex = _activeEntryIndex;
+            _activeQaIndex = -1;
+            _activeIsQuestion = false;
+          });
+          _scrollToSentence(_activeEntryIndex);
           return;
         }
       }
