@@ -28,10 +28,18 @@ final _router = GoRouter(
     // If no token and not on login page, redirect to login
     if (token == null && !isLogin) return '/login';
     
-    // If has token and trying to access login, redirect to home
-    // BUT only if this isn't a fresh navigation (to prevent redirect loops)
-    if (token != null && isLogin && state.uri.toString() == '/login') {
-      return '/';
+    // If has token and on login page, redirect to home
+    // BUT only if this is the initial route or a direct navigation to /login
+    // Don't redirect if we just navigated to /login (like during sign out)
+    if (token != null && isLogin) {
+      // Check if this is a programmatic navigation to /login (sign out)
+      // by looking at the previous location in the router state
+      final uri = state.uri;
+      // If there are no query parameters and it's a simple /login, redirect to home
+      // If there are any indicators this was a sign-out navigation, allow it
+      if (uri.queryParameters.isEmpty && uri.fragment.isEmpty) {
+        return '/';
+      }
     }
     
     return null;
