@@ -36,17 +36,17 @@ class _ScaledAppState extends State<ScaledApp> {
         // Update scale based on available space
         _scaleService.updateScale(Size(constraints.maxWidth, constraints.maxHeight));
         
-        // Calculate the scaled dimensions that will fit in the available space
+        // Use MediaQuery to provide the scaling instead of Transform
         final scale = _scaleService.scaleFactor;
-        final scaledWidth = constraints.maxWidth / scale;
-        final scaledHeight = constraints.maxHeight / scale;
         
-        return Transform.scale(
-          scale: scale,
-          alignment: Alignment.topLeft,
-          child: SizedBox(
-            width: scaledWidth,
-            height: scaledHeight,
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaleFactor: scale,
+            size: Size(constraints.maxWidth, constraints.maxHeight),
+          ),
+          child: Container(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
             child: widget.child,
           ),
         );

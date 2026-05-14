@@ -11,21 +11,28 @@ class UiScaleService extends ChangeNotifier {
   // Base design dimensions - minimum comfortable size
   static const double baseWidth = 360.0;  // Minimum mobile width
   static const double baseHeight = 640.0; // Minimum mobile height
-  static const double minScale = 0.7;
-  static const double maxScale = 3.0;
+  static const double minScale = 0.8;
+  static const double maxScale = 1.5;
 
   void updateScale(Size screenSize) {
-    // Calculate scale factors for width and height independently
-    final widthScale = screenSize.width / baseWidth;
-    final heightScale = screenSize.height / baseHeight;
+    // For now, let's use a more conservative approach
+    // Only scale text, not the entire layout
+    double newScale = 1.0;
     
-    // Use the smaller scale to ensure everything fits, but don't go below 1.0 unless necessary
-    double newScale = (widthScale < heightScale) ? widthScale : heightScale;
+    // Scale up text on larger screens
+    if (screenSize.width > 600) {
+      newScale = 1.1;
+    }
+    if (screenSize.width > 900) {
+      newScale = 1.2;
+    }
+    if (screenSize.width > 1200) {
+      newScale = 1.3;
+    }
     
-    // Only scale down if the screen is smaller than base dimensions
-    if (screenSize.width >= baseWidth && screenSize.height >= baseHeight) {
-      // For larger screens, use a more moderate scaling approach
-      newScale = 1.0 + (newScale - 1.0) * 0.5; // Scale up more gradually
+    // Scale down on very small screens
+    if (screenSize.width < 360) {
+      newScale = screenSize.width / 360.0;
     }
     
     // Clamp to reasonable bounds
