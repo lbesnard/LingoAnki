@@ -113,8 +113,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+
     await AuthService.clearSession();
-    if (mounted) context.go('/login');
+
+    if (mounted) {
+      if (kIsWeb) {
+        // On web, use a more forceful approach to ensure clean navigation
+        // Add a query parameter to signal this is a sign-out
+        context.go('/login?signout=true');
+        // Also force a page reload after a short delay to ensure clean state
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (kIsWeb) {
+            // Force a page reload on web to clear all app state
+            // Use js interop or window.location.reload() equivalent
+            // For now, just rely on the navigation change
+          }
+        });
+      } else {
+        context.go('/login');
+      }
+    }
   }
 
   Future<void> _clearCachedData() async {

@@ -4,7 +4,7 @@ import '../services/ui_scale_service.dart';
 class ScaledApp extends StatefulWidget {
   final Widget child;
 
-  const ScaledApp({Key? key, required this.child}) : super(key: key);
+  const ScaledApp({super.key, required this.child});
 
   @override
   State<ScaledApp> createState() => _ScaledAppState();
@@ -41,10 +41,10 @@ class _ScaledAppState extends State<ScaledApp> {
 
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
-            textScaleFactor: scale,
+            textScaler: TextScaler.linear(scale),
             size: Size(constraints.maxWidth, constraints.maxHeight),
           ),
-          child: Container(
+          child: SizedBox(
             width: constraints.maxWidth,
             height: constraints.maxHeight,
             child: widget.child,

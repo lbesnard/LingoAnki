@@ -89,4 +89,14 @@ class LocalDbService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('web_lessons_cache');
   }
+
+  // ---- Lesson last_reviewed tracking (no-op on web) ----
+
+  static Future<void> saveLessonLastReviewed(String date, String timestamp) async {}
+
+  static Future<List<Map<String, dynamic>>> getUnsyncedLessonReviews() async => [];
+
+  static Future<void> markLessonReviewSynced(String date) async {}
+
+  static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons({int limit = 10}) async => [];
 }

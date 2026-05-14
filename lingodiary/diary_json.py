@@ -264,6 +264,7 @@ class DiaryEntry:
 class DiaryDay:
     date: str = ""  # "YYYY/MM/DD"
     title: str = ""
+    last_reviewed: Optional[str] = None  # ISO-8601 UTC when lesson was last played
     entries: list[DiaryEntry] = field(default_factory=list)
     lesson_audio_paths: dict = field(
         default_factory=dict
@@ -276,6 +277,7 @@ class DiaryDay:
         return {
             "date": self.date,
             "title": self.title,
+            "last_reviewed": self.last_reviewed,
             "lesson_audio_paths": self.lesson_audio_paths,
             "lesson_mp3_timestamps": self.lesson_mp3_timestamps,
             "entries": [e.to_dict() for e in self.entries],
@@ -286,6 +288,7 @@ class DiaryDay:
         return cls(
             date=d.get("date", ""),
             title=d.get("title", ""),
+            last_reviewed=d.get("last_reviewed"),
             entries=[DiaryEntry.from_dict(e) for e in d.get("entries", [])],
             lesson_audio_paths=d.get("lesson_audio_paths", {}),
             lesson_mp3_timestamps=d.get("lesson_mp3_timestamps", {}),

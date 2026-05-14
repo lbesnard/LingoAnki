@@ -665,23 +665,20 @@ def api_home():
 
     stats = compute_stats(diary)
 
-    recent_days = get_recently_reviewed(diary, limit=5)
+    # Get recently studied lessons (by lesson last_reviewed, not entry last_reviewed)
+    recently_studied = [day for day in diary.diaries if day.last_reviewed is not None]
+    recently_studied.sort(key=lambda d: d.last_reviewed, reverse=True)
+
     recent_lessons = []
-    for day in recent_days:
-        for entry in day.entries:
-            lr = entry.lessons.reviewing.last_reviewed
-            if lr:
-                recent_lessons.append(
-                    {
-                        "date": day.date,
-                        "title": day.title,
-                        "entry_index": entry.index,
-                        "last_reviewed": lr,
-                        "status": entry.lessons.reviewing.status,
-                    }
-                )
-    recent_lessons.sort(key=lambda x: x["last_reviewed"], reverse=True)
-    recent_lessons = recent_lessons[:5]
+    for day in recently_studied[:5]:
+        recent_lessons.append(
+            {
+                "date": day.date,
+                "title": day.title,
+                "last_reviewed": day.last_reviewed,
+                "entry_count": len(day.entries),
+            }
+        )
 
     recommended = None
     due = get_due_entries(diary)
@@ -780,37 +777,6 @@ def api_sentences_due():
         )
     return jsonify({"sentences": sentences, "total": len(sentences)})
 
-    """Return the diary section for a specific date.
-
-    date_str format: YYYY-MM-DD (as embedded in lesson base names).
-    Returns JSON {"content": "<text>"} or {"content": ""} if not found.
-    """
-    from flask import g as _g
-
-    diary_file = _g.api_diary_file
-    if not os.path.exists(diary_file):
-        return jsonify({"content": ""})
-
-    # Convert YYYY-MM-DD -> YYYY/MM/DD for matching diary headers (## YYYY/MM/DD)
-    try:
-        date_slash = datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y/%m/%d")
-    except ValueError:
-        return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
-
-    with open(diary_file, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Split on diary section headers  ## YYYY/MM/DD
-    sections = re.split(r"(^##\s+\d{4}/\d{2}/\d{2}.*)", content, flags=re.MULTILINE)
-    # sections: ["preamble", "## header", "body", "## header2", "body2", ...]
-    for i in range(1, len(sections) - 1, 2):
-        header = sections[i]
-        body = sections[i + 1] if i + 1 < len(sections) else ""
-        if date_slash in header:
-            return jsonify({"content": (header + body).strip()})
-
-    return jsonify({"content": ""})
-
 
 @app.route("/api/diary/entry", methods=["POST"])
 @_jwt_required
@@ -884,6 +850,96 @@ def api_get_config():
             }
         }
     )
+
+
+@app.route("/api/lessons/last_reviewed/<date>", methods=["GET"])
+@_jwt_required
+def api_get_lesson_last_reviewed(date):
+    """Get the last_reviewed timestamp for a specific lesson date."""
+    from flask import g as _g
+    from lingodiary.diary_json import load_diary_json, get_day
+
+    # Normalize date to YYYY/MM/DD
+    date_slash = date.replace("-", "/")
+
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+        day = get_day(diary, date_slash)
+        if day is None:
+            return jsonify({"error": "Lesson not found"}), 404
+
+        return jsonify({"date": date_slash, "last_reviewed": day.last_reviewed})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/lessons/last_reviewed/<date>", methods=["PUT"])
+@_jwt_required
+def api_update_lesson_last_reviewed(date):
+    """Update the last_reviewed timestamp for a specific lesson date."""
+    from flask import g as _g
+    from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+    from datetime import datetime, timezone
+
+    # Normalize date to YYYY/MM/DD
+    date_slash = date.replace("-", "/")
+
+    data = request.get_json(silent=True) or {}
+    timestamp = data.get("timestamp")
+
+    # If no timestamp provided, use current time
+    if not timestamp:
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+        day = get_day(diary, date_slash)
+        if day is None:
+            return jsonify({"error": "Lesson not found"}), 404
+
+        day.last_reviewed = timestamp
+        save_diary_json(diary, _g.api_json_diary_path)
+
+        return jsonify(
+            {"date": date_slash, "last_reviewed": day.last_reviewed, "success": True}
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/lessons/recently_studied", methods=["GET"])
+@_jwt_required
+def api_recently_studied_lessons():
+    """Get the 10 most recently studied lessons (by last_reviewed timestamp)."""
+    from flask import g as _g
+    from lingodiary.diary_json import load_diary_json
+
+    limit = int(request.args.get("limit", 10))
+
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+
+        # Filter days that have been reviewed and sort by last_reviewed desc
+        reviewed_days = [day for day in diary.diaries if day.last_reviewed is not None]
+        reviewed_days.sort(key=lambda d: d.last_reviewed, reverse=True)
+
+        # Take the most recent ones
+        recent = reviewed_days[:limit]
+
+        result = []
+        for day in recent:
+            result.append(
+                {
+                    "date": day.date,
+                    "title": day.title,
+                    "last_reviewed": day.last_reviewed,
+                    "entry_count": len(day.entries),
+                }
+            )
+
+        return jsonify({"lessons": result, "total": len(result)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 def main():

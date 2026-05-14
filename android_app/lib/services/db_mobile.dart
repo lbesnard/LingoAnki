@@ -64,6 +64,13 @@ class LocalDbService {
         synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lesson_last_reviewed (
+        date TEXT PRIMARY KEY,
+        last_reviewed TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   // ---- Diary ----
@@ -272,5 +279,41 @@ class LocalDbService {
     await database.delete('lessons_cache');
     await database.delete('home_cache');
     await database.delete('srs_scores');
+    await database.delete('lesson_last_reviewed');
+  }
+
+  // ---- Lesson last_reviewed tracking ----
+
+  static Future<void> saveLessonLastReviewed(String date, String timestamp) async {
+    final database = await db;
+    await database.insert(
+      'lesson_last_reviewed',
+      {
+        'date': date,
+        'last_reviewed': timestamp,
+        'synced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getUnsyncedLessonReviews() async {
+    final database = await db;
+    return database.query('lesson_last_reviewed', where: 'synced = 0');
+  }
+
+  static Future<void> markLessonReviewSynced(String date) async {
+    final database = await db;
+    await database.update('lesson_last_reviewed', {'synced': 1},
+        where: 'date = ?', whereArgs: [date]);
+  }
+
+  static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons({int limit = 10}) async {
+    final database = await db;
+    return database.query(
+      'lesson_last_reviewed',
+      orderBy: 'last_reviewed DESC',
+      limit: limit,
+    );
   }
 }
