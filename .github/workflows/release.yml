@@ -181,9 +181,18 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -z "$ANDROID_KEYSTORE_FILE" ]; then
-            echo "Warning: Android keystore secrets not configured. Using debug signing."
-            exit 0
+            echo "ERROR: Android keystore secrets not configured!"
+            echo "This will result in debug signing and signature mismatch issues."
+            echo "Please configure the following secrets in your repository:"
+            echo "- ANDROID_KEYSTORE_FILE (base64 encoded .jks file)"
+            echo "- KEYSTORE_PASSWORD"
+            echo "- KEY_ALIAS" 
+            echo "- KEY_PASSWORD"
+            exit 1
           fi
+          
+          echo "Setting up release signing with keystore..."
+          
           # Decode base64 keystore file
           echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$HOME/release.jks"
           echo "KEYSTORE_PATH=$HOME/release.jks" >> $GITHUB_ENV
@@ -201,10 +210,18 @@ jobs:
           # Verify the keystore file exists and is readable
           if [ -f "$HOME/release.jks" ]; then
             echo "Keystore file verified: $(ls -la $HOME/release.jks)"
+            # Test keystore accessibility
+            keytool -list -keystore "$HOME/release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" || {
+              echo "ERROR: Cannot access keystore or alias!"
+              exit 1
+            }
+            echo "Keystore and alias verified successfully"
           else
             echo "ERROR: Keystore file not found!"
             exit 1
           fi
+          
+          echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
 
       - name: Install Flutter dependencies
         working-directory: android_app
@@ -225,7 +242,31 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: flutter build apk --release
+          SIGNING_CONFIGURED: ${{ env.SIGNING_CONFIGURED }}
+        run: |
+          if [ "$SIGNING_CONFIGURED" = "true" ]; then
+            echo "Building release APK with custom signing..."
+          else
+            echo "ERROR: Signing not properly configured!"
+            exit 1
+          fi
+          
+          flutter build apk --release
+          
+          # Verify the APK was signed correctly
+          if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+            echo "APK built successfully"
+            echo "APK size: $(ls -lh build/app/outputs/flutter-apk/app-release.apk | awk '{print $5}')"
+            
+            # Check APK signature (requires aapt, which should be available)
+            if command -v aapt >/dev/null 2>&1; then
+              echo "APK package info:"
+              aapt dump badging build/app/outputs/flutter-apk/app-release.apk | head -5
+            fi
+          else
+            echo "ERROR: APK not found after build!"
+            exit 1
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
