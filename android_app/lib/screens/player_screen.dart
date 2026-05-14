@@ -182,14 +182,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _trackLessonPlay() async {
     if (_lessonDate == null) return;
-    
+
     final timestamp = DateTime.now().toUtc().toIso8601String();
-    
+
     // Save locally first (offline support)
     try {
       await LocalDbService.saveLessonLastReviewed(_lessonDate!, timestamp);
     } catch (_) {}
-    
+
     // Update server in background
     ApiService.updateLessonLastReviewed(_lessonDate!).catchError((_) {
       // Will sync later when online
@@ -1255,7 +1255,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     if (!playing && !completed) {
                                       _trackLessonPlay();
                                     }
-                                    
+
                                     if (completed) {
                                       await _player.seek(Duration.zero);
                                       await _player.play();

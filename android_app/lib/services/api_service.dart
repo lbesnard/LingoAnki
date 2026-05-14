@@ -281,7 +281,7 @@ class ApiService {
     final headers = await _authHeaders();
     final dateFmt = date.replaceAll('/', '-');
     final body = timestamp != null ? {'timestamp': timestamp} : {};
-    
+
     final resp = await http
         .put(
           Uri.parse('$base/api/lessons/last_reviewed/$dateFmt'),

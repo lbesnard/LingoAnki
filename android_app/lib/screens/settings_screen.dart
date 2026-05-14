@@ -114,9 +114,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    
+
     await AuthService.clearSession();
-    
+
     if (mounted) {
       if (kIsWeb) {
         // On web, use a more forceful approach to ensure clean navigation

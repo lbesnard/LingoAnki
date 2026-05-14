@@ -65,7 +65,7 @@ class AuthService {
       await prefs.remove(_usernameKey);
       // Force a longer delay to ensure SharedPreferences is fully updated
       await Future.delayed(const Duration(milliseconds: 200));
-      
+
       // Also clear any browser storage that might be cached
       try {
         // Force a storage event to ensure all tabs/windows are notified

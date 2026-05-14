@@ -324,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final reviewTime = DateTime.parse(lastReviewed);
         final now = DateTime.now();
         final diff = now.difference(reviewTime);
-        
+
         if (diff.inDays > 0) {
           timeAgo = '${diff.inDays}d ago';
         } else if (diff.inHours > 0) {

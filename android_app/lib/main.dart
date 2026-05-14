@@ -24,10 +24,10 @@ final _router = GoRouter(
   redirect: (context, state) async {
     final token = await AuthService.getToken();
     final isLogin = state.matchedLocation == '/login';
-    
+
     // If no token and not on login page, redirect to login
     if (token == null && !isLogin) return '/login';
-    
+
     // If has token and on login page, redirect to home
     // BUT only if this is the initial route or a direct navigation to /login
     // Don't redirect if we just navigated to /login (like during sign out)
@@ -41,7 +41,7 @@ final _router = GoRouter(
         return '/';
       }
     }
-    
+
     return null;
   },
   routes: [
