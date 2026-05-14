@@ -8,21 +8,24 @@ class UiScaleService extends ChangeNotifier {
   double _scaleFactor = 1.0;
   double get scaleFactor => _scaleFactor;
 
-  // Base design dimensions - use more web-friendly dimensions
-  static const double baseWidth = 1200.0;
-  static const double baseHeight = 800.0;
-  static const double minScale = 0.5;
-  static const double maxScale = 2.0;
+  // Base design dimensions - minimum comfortable size
+  static const double baseWidth = 360.0;  // Minimum mobile width
+  static const double baseHeight = 640.0; // Minimum mobile height
+  static const double minScale = 0.7;
+  static const double maxScale = 3.0;
 
   void updateScale(Size screenSize) {
-    // For web, we want to be more conservative with scaling
-    // Only scale down if the screen is significantly smaller
-    double newScale = 1.0;
+    // Calculate scale factors for width and height independently
+    final widthScale = screenSize.width / baseWidth;
+    final heightScale = screenSize.height / baseHeight;
     
-    if (screenSize.width < baseWidth || screenSize.height < baseHeight) {
-      final widthScale = screenSize.width / baseWidth;
-      final heightScale = screenSize.height / baseHeight;
-      newScale = (widthScale < heightScale) ? widthScale : heightScale;
+    // Use the smaller scale to ensure everything fits, but don't go below 1.0 unless necessary
+    double newScale = (widthScale < heightScale) ? widthScale : heightScale;
+    
+    // Only scale down if the screen is smaller than base dimensions
+    if (screenSize.width >= baseWidth && screenSize.height >= baseHeight) {
+      // For larger screens, use a more moderate scaling approach
+      newScale = 1.0 + (newScale - 1.0) * 0.5; // Scale up more gradually
     }
     
     // Clamp to reasonable bounds
