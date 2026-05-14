@@ -340,6 +340,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final span = _entrySpans[_activeEntryIndex];
         if (span != null && ms >= span['end']!) {
           _player.seek(Duration(milliseconds: span['start']!));
+          // Immediately update cursor and scroll to first sentence in block
+          setState(() {
+            _activeEntryIndex = _activeEntryIndex;
+            _activeQaIndex = -1;
+            _activeIsQuestion = false;
+            // Reset sticky state to ensure clean transition
+            _stickyQaIndex = -1;
+            _stickyIsQuestion = false;
+            _stickyEntryIndex = _activeEntryIndex;
+          });
+          _scrollToSentence(_activeEntryIndex);
           return;
         }
       }
@@ -413,11 +424,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (key == null) return;
     final ctx = key.currentContext;
     if (ctx == null) return;
+    // The scoring bar is always at the top, so align the sentence just below it.
+    // alignment: 0.0 aligns to the top, but we add a small offset for padding.
     Scrollable.ensureVisible(
       ctx,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.5,
+      alignment: 0.08, // Just below the scoring bar (tweak as needed)
     );
   }
 
@@ -469,6 +482,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleLoopBlock() {
     setState(() => _loopBlock = !_loopBlock);
+    // If enabling block repeat and we're currently playing, immediately position cursor
+    if (_loopBlock && _activeEntryIndex >= 0) {
+      setState(() {
+        _activeQaIndex = -1;
+        _activeIsQuestion = false;
+        _stickyQaIndex = -1;
+        _stickyIsQuestion = false;
+      });
+      _scrollToSentence(_activeEntryIndex);
+    }
   }
 
   void _toggleCycleVariants() async {

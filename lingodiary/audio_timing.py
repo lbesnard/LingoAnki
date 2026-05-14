@@ -325,6 +325,89 @@ def _compute_day_timings(
     return timings
 
 
+def _recompute_timings_from_segments(
+    entries: list,
+    variant_key: str,
+    segs_dir: str,
+    repeat_tprs: int,
+    pause_ms: int,
+    answer_silence_ms: int,
+    output_dir: str,
+) -> list[tuple[int, int]]:
+    """
+    Recompute per-sentence start/end_ms timings from **existing** segment MP3 files
+    without re-running TTS.  Mirror of _compute_day_timings() — same cumulative
+    formula — but uses pydub to measure the duration of files already on disk.
+
+    Updates v.sentence_audio_path, v.audio_timing, qa.question/answer_timing, and
+    audio paths in-place on each entry object.
+
+    Returns list of (start_ms, end_ms) per entry (sentence block only, same contract
+    as _compute_day_timings).  Returns [] if no populated entries are found or if
+    the segment directory / files are missing.
+    """
+    from pydub import AudioSegment  # type: ignore
+
+    from lingodiary.diary_json import AudioTiming  # type: ignore
+
+    R = max(1, repeat_tprs)
+    cumulative = 0
+    timings: list[tuple[int, int]] = []
+    has_any = False
+
+    for idx, entry in enumerate(entries):
+        variant = entry.lessons.get_variant(variant_key)
+        if not variant.sentence:
+            timings.append((cumulative, cumulative))
+            continue
+
+        s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
+        if not os.path.exists(s_path):
+            logger.warning(
+                f"  Segment missing for timing recompute, skipping entry {idx}: {s_path}"
+            )
+            timings.append((cumulative, cumulative))
+            continue
+
+        has_any = True
+        entry_start = cumulative
+
+        s_dur = len(AudioSegment.from_mp3(s_path))
+        entry_end = int(entry_start + s_dur * R)
+        timings.append((int(entry_start), entry_end))
+        variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
+
+        cumulative = entry_end + pause_ms
+
+        for j, qa in enumerate(variant.qa):
+            cumulative += pause_ms
+
+            q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
+            q_start = int(cumulative)
+            if os.path.exists(q_path):
+                q_dur = len(AudioSegment.from_mp3(q_path))
+                cumulative = int(cumulative + q_dur * R)
+                qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
+                qa.question_audio_path = os.path.relpath(q_path, output_dir)
+
+            cumulative += answer_silence_ms
+
+            a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
+            a_start = int(cumulative)
+            if os.path.exists(a_path):
+                a_dur = len(AudioSegment.from_mp3(a_path))
+                cumulative = int(cumulative + a_dur * R)
+                qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
+                qa.answer_audio_path = os.path.relpath(a_path, output_dir)
+
+            cumulative += pause_ms
+
+    if not has_any:
+        return []
+
+    return timings
+
+
 def backfill_audio_timings(
     config_path: str | Path,
     diary_json_path: str | Path,
@@ -436,6 +519,43 @@ def backfill_audio_timings(
                                     a_path, output_dir
                                 )
                                 day_modified = True
+
+                    # Recompute timing from segment files if any entry has zero end_ms.
+                    # This fixes days where TTS was generated successfully but the
+                    # sentence-level audio_timing was stored as {start_ms:0, end_ms:0}.
+                    needs_timing = any(
+                        entry.lessons.get_variant(variant_key).sentence
+                        and entry.lessons.get_variant(variant_key).audio_timing.end_ms
+                        == 0
+                        for entry in day.entries
+                    )
+                    if needs_timing:
+                        logger.info(
+                            f"  {variant_key}: zero timing detected — recomputing from segments."
+                        )
+                        fixed_timings = _recompute_timings_from_segments(
+                            day.entries,
+                            variant_key,
+                            segs_dir,
+                            repeat_tprs,
+                            pause_ms,
+                            answer_silence_ms,
+                            output_dir,
+                        )
+                        if fixed_timings:
+                            for entry, (start_ms, end_ms) in zip(
+                                day.entries, fixed_timings
+                            ):
+                                v = entry.lessons.get_variant(variant_key)
+                                if v.sentence:
+                                    v.audio_timing = AudioTiming(
+                                        start_ms=start_ms, end_ms=end_ms
+                                    )
+                                    day_modified = True
+                            logger.info(
+                                f"  {variant_key}: timing fixed. Last end_ms={fixed_timings[-1][1]}ms "
+                                f"(~{fixed_timings[-1][1]//1000}s)"
+                            )
                 else:
                     logger.info(
                         f"  {variant_key}: generating segments for {len(populated)} entries "
