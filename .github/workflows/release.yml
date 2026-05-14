@@ -208,7 +208,7 @@ jobs:
           echo "Keystore and alias verified successfully"
 
           # Create key.properties file for Flutter (use absolute path)
-          cat > android_app/key.properties << EOF
+          cat > android_app/android/key.properties << EOF
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
