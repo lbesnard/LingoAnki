@@ -420,11 +420,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (key == null) return;
     final ctx = key.currentContext;
     if (ctx == null) return;
+    // The scoring bar is always at the top, so align the sentence just below it.
+    // alignment: 0.0 aligns to the top, but we add a small offset for padding.
     Scrollable.ensureVisible(
       ctx,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.5,
+      alignment: 0.08, // Just below the scoring bar (tweak as needed)
     );
   }
 
