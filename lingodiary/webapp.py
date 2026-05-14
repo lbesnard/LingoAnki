@@ -778,20 +778,6 @@ def api_sentences_due():
         )
     return jsonify({"sentences": sentences, "total": len(sentences)})
 
-    with open(diary_file, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Split on diary section headers  ## YYYY/MM/DD
-    sections = re.split(r"(^##\s+\d{4}/\d{2}/\d{2}.*)", content, flags=re.MULTILINE)
-    # sections: ["preamble", "## header", "body", "## header2", "body2", ...]
-    for i in range(1, len(sections) - 1, 2):
-        header = sections[i]
-        body = sections[i + 1] if i + 1 < len(sections) else ""
-        if date_slash in header:
-            return jsonify({"content": (header + body).strip()})
-
-    return jsonify({"content": ""})
-
 
 @app.route("/api/diary/entry", methods=["POST"])
 @_jwt_required
