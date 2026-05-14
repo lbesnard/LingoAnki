@@ -257,4 +257,56 @@ class ApiService {
         .post(Uri.parse('$base/api/backfill/all'), headers: headers)
         .timeout(_timeout);
   }
+
+  /// Get the last_reviewed timestamp for a specific lesson date
+  static Future<Map<String, dynamic>> getLessonLastReviewed(String date) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final dateFmt = date.replaceAll('/', '-');
+    final resp = await http
+        .get(
+          Uri.parse('$base/api/lessons/last_reviewed/$dateFmt'),
+          headers: headers,
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get lesson last_reviewed');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Update the last_reviewed timestamp for a specific lesson date
+  static Future<Map<String, dynamic>> updateLessonLastReviewed(String date, {String? timestamp}) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final dateFmt = date.replaceAll('/', '-');
+    final body = timestamp != null ? {'timestamp': timestamp} : {};
+    
+    final resp = await http
+        .put(
+          Uri.parse('$base/api/lessons/last_reviewed/$dateFmt'),
+          headers: headers,
+          body: jsonEncode(body),
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to update lesson last_reviewed');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Get recently studied lessons (by last_reviewed timestamp)
+  static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons({int limit = 10}) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final uri = Uri.parse('$base/api/lessons/recently_studied').replace(
+      queryParameters: {'limit': '$limit'},
+    );
+    final resp = await http.get(uri, headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get recently studied lessons');
+    }
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(data['lessons'] as List);
+  }
 }

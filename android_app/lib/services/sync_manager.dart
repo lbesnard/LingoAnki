@@ -23,6 +23,7 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingLessonReviews();
       await _syncPendingDiaryEntries();
       await _syncPendingScores();
       final count = await SyncService.syncLesson(
@@ -56,6 +57,7 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
+      await _syncPendingLessonReviews();
       await _syncPendingDiaryEntries();
       await _syncPendingScores();
       if (kIsWeb) {
@@ -98,6 +100,25 @@ class SyncManager extends ChangeNotifier {
     message = initialMessage;
     filesDownloaded = 0;
     notifyListeners();
+  }
+
+  /// Sync pending lesson last_reviewed timestamps to server
+  Future<void> _syncPendingLessonReviews() async {
+    final pending = await LocalDbService.getUnsyncedLessonReviews();
+    for (final row in pending) {
+      if (_cancelled) break;
+      try {
+        final date = row['date'] as String;
+        final timestamp = row['last_reviewed'] as String;
+        await ApiService.updateLessonLastReviewed(date, timestamp: timestamp);
+        await LocalDbService.markLessonReviewSynced(date);
+      } catch (e) {
+        if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+          break; // Network unreachable — retry on next sync
+        }
+        debugPrint('SyncManager: lesson review sync failed for ${row['date']}: $e');
+      }
+    }
   }
 
   /// Replay any locally saved scores that weren't sent to the server yet.

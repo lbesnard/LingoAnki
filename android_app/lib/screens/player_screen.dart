@@ -180,6 +180,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
   }
 
+  Future<void> _trackLessonPlay() async {
+    if (_lessonDate == null) return;
+    
+    final timestamp = DateTime.now().toUtc().toIso8601String();
+    
+    // Save locally first (offline support)
+    try {
+      await LocalDbService.saveLessonLastReviewed(_lessonDate!, timestamp);
+    } catch (_) {}
+    
+    // Update server in background
+    ApiService.updateLessonLastReviewed(_lessonDate!).catchError((_) {
+      // Will sync later when online
+    });
+  }
+
   Future<void> _loadVariant(String variantName) async {
     if (variantName.isEmpty || variantName == _kInputDiaryTab) return;
 
@@ -1235,6 +1251,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     _triggerSync();
                                   }
                                 : () async {
+                                    // Track lesson play when starting playback
+                                    if (!playing && !completed) {
+                                      _trackLessonPlay();
+                                    }
+                                    
                                     if (completed) {
                                       await _player.seek(Duration.zero);
                                       await _player.play();

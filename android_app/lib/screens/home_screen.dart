@@ -297,11 +297,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Recent Lessons',
+            Text('Recently Studied',
                 style: Theme.of(context).textTheme.titleMedium),
             const Divider(),
             if (recent.isEmpty)
-              const Text('No lessons reviewed yet.',
+              const Text('No lessons studied yet.',
                   style: TextStyle(color: Colors.grey))
             else
               ...recent.map((item) => _recentTile(item)),
@@ -314,30 +314,40 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _recentTile(Map<String, dynamic> item) {
     final date = item['date'] as String? ?? '';
     final title = item['title'] as String? ?? date;
-    final status = item['status'] as String? ?? 'new';
+    final lastReviewed = item['last_reviewed'] as String? ?? '';
+    final entryCount = item['entry_count'] as int? ?? 0;
 
-    Color statusColor;
-    IconData statusIcon;
-    switch (status) {
-      case 'mastered':
-        statusColor = Colors.green;
-        statusIcon = Icons.star;
-        break;
-      case 'learning':
-        statusColor = Colors.orange;
-        statusIcon = Icons.check_circle_outline;
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusIcon = Icons.radio_button_unchecked;
+    // Format the last reviewed time
+    String timeAgo = '';
+    if (lastReviewed.isNotEmpty) {
+      try {
+        final reviewTime = DateTime.parse(lastReviewed);
+        final now = DateTime.now();
+        final diff = now.difference(reviewTime);
+        
+        if (diff.inDays > 0) {
+          timeAgo = '${diff.inDays}d ago';
+        } else if (diff.inHours > 0) {
+          timeAgo = '${diff.inHours}h ago';
+        } else if (diff.inMinutes > 0) {
+          timeAgo = '${diff.inMinutes}m ago';
+        } else {
+          timeAgo = 'Just now';
+        }
+      } catch (_) {
+        timeAgo = '';
+      }
     }
 
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
-      leading: Icon(statusIcon, color: statusColor, size: 20),
+      leading: const Icon(Icons.play_circle_outline, color: Colors.blue, size: 20),
       title: Text(title, style: const TextStyle(fontSize: 13)),
-      subtitle: Text(date, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      subtitle: Text(
+        '$date${timeAgo.isNotEmpty ? ' • $timeAgo' : ''}${entryCount > 0 ? ' • $entryCount sentences' : ''}',
+        style: const TextStyle(fontSize: 11, color: Colors.grey)
+      ),
       trailing: const Icon(Icons.chevron_right, size: 18),
       onTap: () => _openFromRecent(item),
     );
