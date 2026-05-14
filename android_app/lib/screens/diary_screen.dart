@@ -237,7 +237,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     dense: true,
                     leading: Text('${i + 1}.',
                         style: const TextStyle(color: Colors.grey)),
-                    title: Text(_sentences[i]),
+                    title: SelectableText(_sentences[i]),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
