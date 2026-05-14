@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lingodiary"
-version = "5.5.0"
+version = "5.6.0"
 description = "Language learning diary with TPRS lesson generation."
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT"
