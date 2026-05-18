@@ -18,6 +18,7 @@ cp "$APP_DIR/pubspec.yaml" "$BACKUP_DIR/pubspec.yaml"
 cp "$APP_DIR/.gitignore" "$BACKUP_DIR/.gitignore" 2>/dev/null || true
 # Also preserve our customised AndroidManifest.xml
 cp "$APP_DIR/android/app/src/main/AndroidManifest.xml" "$BACKUP_DIR/AndroidManifest.xml" 2>/dev/null || true
+cp "$APP_DIR/android/app/build.gradle.kts" "$BACKUP_DIR/build.gradle.kts" 2>/dev/null || true
 
 echo "==> Removing old android_app/ …"
 rm -rf "$APP_DIR"
@@ -47,7 +48,13 @@ cp "$BACKUP_DIR/.gitignore" "$APP_DIR/.gitignore" 2>/dev/null || true
 echo "==> Restoring customised AndroidManifest.xml …"
 if [ -f "$BACKUP_DIR/AndroidManifest.xml" ]; then
   cp "$BACKUP_DIR/AndroidManifest.xml" \
-     "$APP_DIR/android/app/src/main/AndroidManifest.xml"
+    "$APP_DIR/android/app/src/main/AndroidManifest.xml"
+fi
+
+echo "==> Restoring customised app/build.gradle.kts …"
+if [ -f "$BACKUP_DIR/build.gradle.kts" ]; then
+  cp "$BACKUP_DIR/build.gradle.kts" \
+    "$APP_DIR/android/app/build.gradle.kts"
 fi
 
 echo "==> Cleaning up backup …"
