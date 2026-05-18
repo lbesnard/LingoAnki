@@ -19,9 +19,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // Modern compiler configurations replace the old deprecated jvmTarget string format
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
