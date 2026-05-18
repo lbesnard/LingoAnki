@@ -41,7 +41,8 @@ android {
                 keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
 
                 val storeFilePath = keystoreProperties["storeFile"] as String
-                val storeFileObj = file(storeFilePath)
+                val storeFileObj = java.io.File(projectDir, storeFilePath)
+                // val storeFileObj = file(storeFilePath)
 
                 if (storeFileObj.exists()) {
                     storeFile = storeFileObj
