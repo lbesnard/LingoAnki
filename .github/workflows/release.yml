@@ -189,7 +189,7 @@ jobs:
           echo "Setting up release signing with keystore..."
 
           # Decode base64 keystore file to consistent location
-          KEYSTORE_PATH="$HOME/release.jks"
+          KEYSTORE_PATH="android_app/android/app/release.jks"
           echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$KEYSTORE_PATH"
 
           # Verify keystore was created
@@ -207,12 +207,12 @@ jobs:
           }
           echo "Keystore and alias verified successfully"
 
-          # Create key.properties file for Flutter (use absolute path)
+          ## 2. Create key.properties file using a relative path from the app module context
           cat > android_app/android/key.properties << EOF
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
-          storeFile=$KEYSTORE_PATH
+          storeFile=release.jks
           EOF
           echo "Created key.properties file with keystore path: $KEYSTORE_PATH"
 
