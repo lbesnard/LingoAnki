@@ -1,3 +1,7 @@
+import java.io.FileInputStream
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -15,15 +19,13 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+    // Modern compiler configurations replace the old deprecated jvmTarget string format
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.lingodiary.lingodiary_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -37,12 +39,11 @@ android {
 
             if (keystorePropertiesFile.exists()) {
                 println("Found key.properties file, configuring release signing...")
-                val keystoreProperties = java.util.Properties()
-                keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
+                val keystoreProperties = Properties()
+                keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 
                 val storeFilePath = keystoreProperties["storeFile"] as String
-                val storeFileObj = java.io.File(projectDir, storeFilePath)
-                // val storeFileObj = file(storeFilePath)
+                val storeFileObj = File(projectDir, storeFilePath)
 
                 if (storeFileObj.exists()) {
                     storeFile = storeFileObj
@@ -52,7 +53,7 @@ android {
                     signingConfigured = true
                     println("Release signing configured with keystore: ${storeFileObj.absolutePath}")
                 } else {
-                    println("ERROR: Keystore file not found at: $storeFilePath")
+                    println("ERROR: Keystore file not found at: ${storeFileObj.absolutePath}")
                 }
             } else {
                 // Fallback to environment variables for local development
@@ -63,7 +64,7 @@ android {
 
                 if (!keystorePath.isNullOrEmpty() && !keystorePassword.isNullOrEmpty() &&
                     !keyAliasEnv.isNullOrEmpty() && !keyPasswordEnv.isNullOrEmpty()) {
-                    val storeFileObj = file(keystorePath)
+                    val storeFileObj = File(keystorePath)
                     if (storeFileObj.exists()) {
                         storeFile = storeFileObj
                         storePassword = keystorePassword
