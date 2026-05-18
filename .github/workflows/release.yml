@@ -247,10 +247,10 @@ jobs:
           cat android/key.properties
 
           # Bypasses the Flutter wrapper to show the real error stacktrace
-          cd android
-          ./gradlew :app:assembleRelease --stacktrace
+          # cd android
+          # ./gradlew :app:assembleRelease --stacktrace
           # Build the APK
-          # flutter build apk --release --verbose
+          flutter build apk --release --verbose
 
           # Verify the APK was created
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
