@@ -178,7 +178,11 @@ class _SentencesScreenState extends State<SentencesScreen> {
   }
 
   void _playAudio() async {
-    if (!_audioLoaded) return;
+    // If audio is not ready, try to load it on demand (and autoplay)
+    if (!_audioLoaded) {
+      _loadAudio(autoPlay: true);
+      return;
+    }
     // Stop any Q&A playback first
     if (_qaPlaying) {
       await _qaPlayer.stop();
