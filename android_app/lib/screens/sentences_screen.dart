@@ -228,7 +228,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
     }
   }
 
-  /// Play all Q&A audio clips for the current sentence in sequence.
+   /// Play all Q&A audio clips for the current sentence in sequence.
   /// Calling again while playing stops playback.
   Future<void> _playAllQa(List<Map<String, dynamic>> qa) async {
     if (_playingAllQa) {
@@ -261,12 +261,10 @@ class _SentencesScreenState extends State<SentencesScreen> {
         await _qaPlayer.seek(Duration.zero);
         _qaPlayer.play();
 
-        // Wait for this clip to complete before playing the next one.
-        await _qaPlayer.playerStateStream.firstWhere(
-          (s) =>
-              s.processingState == ProcessingState.completed ||
-              s.processingState == ProcessingState.idle ||
-              (!s.playing && s.processingState != ProcessingState.buffering),
+        // Safe evaluation: Wait specifically for the audio track to hit completed state.
+        // It skips checking structural state combinations that can drop the first block early.
+        await _qaPlayer.processingStateStream.firstWhere(
+          (state) => state == ProcessingState.completed || !_playingAllQa || !mounted
         );
       }
     }
