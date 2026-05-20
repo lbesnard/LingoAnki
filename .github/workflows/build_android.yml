@@ -55,6 +55,22 @@ jobs:
         working-directory: android_app
         run: flutter test
 
+      - name: Set up Android signing
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ secrets.ANDROID_KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          KEYSTORE_PATH="android_app/android/app/release.jks"
+          echo "$ANDROID_KEYSTORE_FILE" | base64 -d > "$KEYSTORE_PATH"
+          cat > android_app/android/key.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=release.jks
+          EOF
+
       - name: Build debug APK
         working-directory: android_app
         run: flutter build apk --debug
