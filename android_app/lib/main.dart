@@ -1,3 +1,4 @@
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +17,8 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await WakelockPlus.enable();
   runApp(const LingoDiaryApp());
 }
 
@@ -198,8 +201,7 @@ class MainShell extends StatelessWidget {
                       const Icon(Icons.check_circle_outline,
                           size: 14, color: Colors.green),
                       const SizedBox(width: 6),
-                      Text(sync.message,
-                          style: const TextStyle(fontSize: 11)),
+                      Text(sync.message, style: const TextStyle(fontSize: 11)),
                     ],
                   ),
                 ),
@@ -220,11 +222,9 @@ class MainShell extends StatelessWidget {
                 type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.home_outlined),
-                      label: 'Home'),
+                      icon: const Icon(Icons.home_outlined), label: 'Home'),
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.quiz_outlined),
-                      label: 'Review'),
+                      icon: const Icon(Icons.quiz_outlined), label: 'Review'),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
                       label: AppLocalizations.of(context).navLessons),
