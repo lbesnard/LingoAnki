@@ -55,12 +55,12 @@ jobs:
         working-directory: android_app
         run: flutter test
 
-      - name: Build release APK
+      - name: Build debug APK
         working-directory: android_app
-        run: flutter build apk --release
+        run: flutter build apk --debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: lingodiary-apk-${{ github.run_number }}
-          path: android_app/build/app/outputs/flutter-apk/app-release.apk
+          path: android_app/build/app/outputs/flutter-apk/app-debug.apk
