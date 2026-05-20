@@ -19,6 +19,8 @@ cp "$APP_DIR/.gitignore" "$BACKUP_DIR/.gitignore" 2>/dev/null || true
 # Also preserve our customised AndroidManifest.xml
 cp "$APP_DIR/android/app/src/main/AndroidManifest.xml" "$BACKUP_DIR/AndroidManifest.xml" 2>/dev/null || true
 cp "$APP_DIR/android/app/build.gradle.kts" "$BACKUP_DIR/build.gradle.kts" 2>/dev/null || true
+cp "$APP_DIR/android/build.gradle.kts" "$BACKUP_DIR/root_build.gradle.kts" 2>/dev/null || true
+cp "$APP_DIR/android/settings.gradle.kts" "$BACKUP_DIR/settings.gradle.kts" 2>/dev/null || true
 
 echo "==> Removing old android_app/ …"
 rm -rf "$APP_DIR"
@@ -57,9 +59,16 @@ if [ -f "$BACKUP_DIR/build.gradle.kts" ]; then
     "$APP_DIR/android/app/build.gradle.kts"
 fi
 
+if [ -f "$BACKUP_DIR/root_build.gradle.kts" ]; then
+  cp "$BACKUP_DIR/root_build.gradle.kts" "$APP_DIR/android/build.gradle.kts"
+fi
+if [ -f "$BACKUP_DIR/settings.gradle.kts" ]; then
+  cp "$BACKUP_DIR/settings.gradle.kts" "$APP_DIR/android/settings.gradle.kts"
+fi
+
 echo "==> Cleaning up backup …"
 rm -rf "$BACKUP_DIR"
 
 echo ""
 echo "✅ Done! Now run:"
-echo "   cd android_app && flutter pub get && flutter build apk --release"
+echo "   cd android_app && flutter clean && flutter pub get && flutter build apk --release"
