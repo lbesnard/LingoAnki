@@ -359,20 +359,20 @@ def api_backfill_all():
     def _run():
         json_path = os.path.join(output_folder, "diary.json")
 
-        app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
-        try:
-            from lingodiary.migrate_to_json import (
-                migrate_markdown_to_json as migrate_to_json,
-            )
-
-            migrate_to_json(
-                config_path=config_path,
-                output_json_path=json_path,
-                overwrite=True,
-            )
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
-
+        # app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
+        # try:
+        #     from lingodiary.migrate_to_json import (
+        #         migrate_markdown_to_json as migrate_to_json,
+        #     )
+        #
+        #     migrate_to_json(
+        #         config_path=config_path,
+        #         output_json_path=json_path,
+        #         overwrite=True,
+        #     )
+        # except Exception as exc:
+        #     app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
+        #
         app.logger.info("Backfill all: step 2/3 — Q&A translations")
         try:
             with open(config_path, encoding="utf-8") as f:
@@ -712,25 +712,25 @@ def api_home():
     )
 
 
-@app.route("/api/migrate", methods=["POST"])
-@_jwt_required
-def api_migrate():
-    """Trigger server-side migration from Markdown to JSON in a background thread."""
-    from flask import g as _g
+# @app.route("/api/migrate", methods=["POST"])
+# @_jwt_required
+# def api_migrate():
+#     """Trigger server-side migration from Markdown to JSON in a background thread."""
+# from flask import g as _g
 
-    config_path = _g.api_config_path
-    json_path = _g.api_json_diary_path
-
-    def _run():
-        try:
-            from lingodiary.migrate_to_json import migrate_markdown_to_json
-
-            migrate_markdown_to_json(config_path, json_path, overwrite=True)
-        except Exception as exc:
-            app.logger.error("Migration failed: %s", exc)
-
-    Thread(target=_run, daemon=True).start()
-    return jsonify({"ok": True, "message": "Migration started"})
+# config_path = _g.api_config_path
+# json_path = _g.api_json_diary_path
+#
+# def _run():
+#     try:
+#         from lingodiary.migrate_to_json import migrate_markdown_to_json
+#
+#         migrate_markdown_to_json(config_path, json_path, overwrite=True)
+#     except Exception as exc:
+#         app.logger.error("Migration failed: %s", exc)
+#
+# Thread(target=_run, daemon=True).start()
+# return jsonify({"ok": True, "message": "Migration started"})
 
 
 @app.route("/api/sentences/due", methods=["GET"])
