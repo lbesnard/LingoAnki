@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,8 +18,11 @@ import 'services/sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await WakelockPlus.enable();
+// 1. Check that we are NOT on the web
+  // 2. Check that the underlying platform is Android
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    await WakelockPlus.enable();
+  }
   runApp(const LingoDiaryApp());
 }
 

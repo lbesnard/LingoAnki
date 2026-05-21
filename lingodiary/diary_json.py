@@ -370,32 +370,79 @@ def get_entry(diary: DiaryJson, date_str: str, index: int) -> Optional[DiaryEntr
 def upsert_day(
     diary: DiaryJson, date_str: str, title: str, entries: list[DiaryEntry]
 ) -> DiaryJson:
-    """Insert or replace the DiaryDay for the given date.
+    """Insert or update the DiaryDay for the given date.
 
-    When updating an existing day, preserves both the SRS reviewing state
-    and any variant Q&A data already stored for each entry.
+    If the day exists, we mutate it in-place to preserve all existing metadata
+    (like last_reviewed, timestamps, etc.) while carefully merging nested entry data.
     """
-    new_day = DiaryDay(date=date_str, title=title, entries=entries)
-    for i, day in enumerate(diary.diaries):
-        if day.date == date_str:
-            for new_entry in new_day.entries:
-                old_entry = get_entry(diary, date_str, new_entry.index)
-                if old_entry is not None:
-                    # Preserve SRS state
-                    new_entry.lessons.reviewing = old_entry.lessons.reviewing
-                    # Preserve variant Q&A already written
-                    for variant_name in ("original", "enhanced", "present", "future"):
-                        old_variant = old_entry.lessons.get_variant(variant_name)
-                        if old_variant is not None:
-                            new_entry.lessons.set_variant(variant_name, old_variant)
-            # Preserve the lesson audio paths recorded by previous runs
-            new_day.lesson_audio_paths = day.lesson_audio_paths.copy()
-            diary.diaries[i] = new_day
-            return diary
-    diary.diaries.append(new_day)
-    # Keep diaries sorted by date descending (newest first)
-    diary.diaries.sort(key=lambda d: d.date, reverse=True)
+    # 1. Check if the day already exists in the dictionary
+    existing_day = get_day(diary, date_str)
+
+    if existing_day:
+        # Update the title (if a new one was provided)
+        if title:
+            existing_day.title = title
+
+        # Merge new entries with old entries to preserve SRS state and variants
+        for new_entry in entries:
+            # Find the corresponding old entry by index
+            old_entry = next(
+                (e for e in existing_day.entries if e.index == new_entry.index), None
+            )
+
+            if old_entry:
+                # Preserve SRS state
+                new_entry.lessons.reviewing = old_entry.lessons.reviewing
+
+                # Preserve variant Q&A already written
+                for variant_name in ("original", "enhanced", "present", "future"):
+                    old_variant = old_entry.lessons.get_variant(variant_name)
+                    if old_variant:
+                        new_entry.lessons.set_variant(variant_name, old_variant)
+
+        # Overwrite the old entries list with the freshly merged one
+        existing_day.entries = entries
+
+    else:
+        # 2. If it doesn't exist, append a brand new day and sort
+        new_day = DiaryDay(date=date_str, title=title, entries=entries)
+        diary.diaries.append(new_day)
+        diary.diaries.sort(key=lambda d: d.date, reverse=True)
+
     return diary
+
+
+#
+# def upsert_day(
+#     diary: DiaryJson, date_str: str, title: str, entries: list[DiaryEntry]
+# ) -> DiaryJson:
+#     """Insert or replace the DiaryDay for the given date.
+#
+#     When updating an existing day, preserves both the SRS reviewing state
+#     and any variant Q&A data already stored for each entry.
+#     """
+#     new_day = DiaryDay(date=date_str, title=title, entries=entries)
+#     for i, day in enumerate(diary.diaries):
+#         if day.date == date_str:
+#             for new_entry in new_day.entries:
+#                 old_entry = get_entry(diary, date_str, new_entry.index)
+#                 if old_entry is not None:
+#                     # Preserve SRS state
+#                     new_entry.lessons.reviewing = old_entry.lessons.reviewing
+#                     # Preserve variant Q&A already written
+#                     for variant_name in ("original", "enhanced", "present", "future"):
+#                         old_variant = old_entry.lessons.get_variant(variant_name)
+#                         if old_variant is not None:
+#                             new_entry.lessons.set_variant(variant_name, old_variant)
+#             # Preserve the lesson audio paths recorded by previous runs
+#             new_day.lesson_audio_paths = day.lesson_audio_paths.copy()
+#             diary.diaries[i] = new_day
+#             return diary
+#     diary.diaries.append(new_day)
+#     # Keep diaries sorted by date descending (newest first)
+#     diary.diaries.sort(key=lambda d: d.date, reverse=True)
+#     return diary
+#
 
 
 def upsert_variant(

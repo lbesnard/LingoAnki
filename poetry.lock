@@ -2491,13 +2491,14 @@ voice-helpers = ["numpy (>=2.0.2)", "sounddevice (>=0.5.1)"]
 
 [[package]]
 name = "openai-whisper"
-version = "20240930"
+version = "20250625"
 description = "Robust Speech Recognition via Large-Scale Weak Supervision"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "openai_whisper-20250625.tar.gz", hash = "sha256:37a91a3921809d9f44748ffc73c0a55c9f366c85a3ef5c2ae0cc09540432eb96"},
+]
 
 [package.dependencies]
 more-itertools = "*"
@@ -2510,12 +2511,6 @@ triton = {version = ">=2", markers = "platform_machine == \"x86_64\" and sys_pla
 
 [package.extras]
 dev = ["black", "flake8", "isort", "pytest", "scipy"]
-
-[package.source]
-type = "git"
-url = "https://github.com/openai/whisper"
-reference = "main"
-resolved_reference = "517a43ecd132a2089d85f4ebc044728a71d49f6e"
 
 [[package]]
 name = "orjson"
@@ -4761,4 +4756,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "f2bc4e52744059d0ffc9de492e9ce7565fb56bb90aa2b0fbd0f2d7494a9784d7"
+content-hash = "dd83ff5f43ac2db4dd5d2bb639d25163b10929f7b448481d4d9d9be9d3460325"
