@@ -234,6 +234,10 @@ class _NativeFirstSentencesScreenState
       return;
     }
     if (_audioPlaying) await _player.stop();
+    // Stop any currently playing Q&A audio when switching to a different pair/type
+    if (_qaPlaying && _activeQaKey != key) {
+      await _qaPlayer.stop();
+    }
     try {
       if (!kIsWeb &&
           !File(await SyncService.localPath(audioPath)).existsSync()) {
