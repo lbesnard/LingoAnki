@@ -709,6 +709,7 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                                     Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
+                                        if (revealed) qaPlayBtn('q', qAudioPath),
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -740,6 +741,7 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                                       child: Row(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
+                                          if (revealed) qaPlayBtn('a', aAudioPath),
                                           Expanded(
                                             child: Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
