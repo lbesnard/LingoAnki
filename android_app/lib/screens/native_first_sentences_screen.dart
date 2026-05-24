@@ -215,7 +215,8 @@ class _NativeFirstSentencesScreenState
         _activeQaKey = null;
       });
     }
-    if (_player.processingState == ProcessingState.completed) {
+    // Always seek to start when play is pressed (unless already playing)
+    if (!_audioPlaying) {
       await _player.seek(Duration.zero);
     }
     _player.play();
@@ -234,10 +235,14 @@ class _NativeFirstSentencesScreenState
       return;
     }
     if (_audioPlaying) await _player.stop();
-    // Stop any currently playing Q&A audio when switching to a different pair/type
-    if (_qaPlaying && _activeQaKey != key) {
+
+    // Always stop and reset before loading a different Q&A audio
+    if (_qaPlaying) {
       await _qaPlayer.stop();
+      // Wait a moment for the player to fully stop before loading new source
+      await Future.delayed(const Duration(milliseconds: 100));
     }
+
     try {
       if (!kIsWeb &&
           !File(await SyncService.localPath(audioPath)).existsSync()) {
