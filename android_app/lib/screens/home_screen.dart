@@ -250,71 +250,75 @@ class _HomeScreenState extends State<HomeScreen> {
     final reason = rec['reason'] as String? ?? '';
     final reasonLabel = reason == 'due_for_review' ? 'Due for review' : 'New lesson';
 
-    return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.push_pin, size: 18),
-                const SizedBox(width: 6),
-                Text('Study Now',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 4),
-            Text(
-              '$variant · $reasonLabel',
-              style: TextStyle(
-                  fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: PopupMenuButton<String>(
-               tooltip: 'Review options',
-               icon: const Icon(Icons.headphones, size: 16),
-               onSelected: (value) {
-                 if (value == 'original') {
-                   context.go('/review');
-                 } else if (value == 'translation') {
-                   context.go('/translation-review');
-                 }
-               },
-               itemBuilder: (context) => [
-                 const PopupMenuItem(
-                   value: 'original',
-                   child: ListTile(
-                     leading: Icon(Icons.rate_review_outlined),
-                     title: Text('Original Review'),
-                     contentPadding: EdgeInsets.zero,
-                     dense: true,
-                   ),
-                 ),
-                 const PopupMenuItem(
-                   value: 'translation',
-                   child: ListTile(
-                     leading: Icon(Icons.translate_outlined),
-                     title: Text('Translation Excercice'),
-                     contentPadding: EdgeInsets.zero,
-                     dense: true,
-                   ),
-                 ),
-               ],
-               position: PopupMenuPosition.under, // closest to dropup, but Flutter default is dropdown
-               // For true dropup, a custom widget is needed; this is visually consistent
+    return InkWell(
+      onTap: () {
+        // Default to original review when clicking the card
+        context.pushNamed('review');
+      },
+      child: Card(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.push_pin, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text('Study Now',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'Review options',
+                    icon: const Icon(Icons.headphones, size: 16),
+                    onSelected: (value) {
+                      if (value == 'original') {
+                        context.pushNamed('review');
+                      } else if (value == 'translation') {
+                        context.pushNamed('nativeFirstReview');
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'original',
+                        child: ListTile(
+                          leading: Icon(Icons.rate_review_outlined),
+                          title: Text('Original Review'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'translation',
+                        child: ListTile(
+                          leading: Icon(Icons.translate_outlined),
+                          title: Text('Translation Excercice'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                    ],
+                    position: PopupMenuPosition.under, // closest to dropup, but Flutter default is dropdown
+                    // For true dropup, a custom widget is needed; this is visually consistent
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(
+                '$variant · $reasonLabel',
+                style: TextStyle(
+                    fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
+              ),
+            ],
+          ),
         ),
       ),
     );
