@@ -11,7 +11,6 @@ import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
 import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
-import 'screens/translation_review_screen.dart';
 import 'screens/native_first_sentences_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'widgets/scaled_app.dart';
@@ -60,8 +59,9 @@ final _router = GoRouter(
       routes: [
         GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
         GoRoute(path: '/review', builder: (_, __) => const SentencesScreen()),
-        GoRoute(path: '/translation-review', builder: (_, __) => const TranslationReviewScreen()),
-GoRoute(path: '/native-first-review', builder: (_, __) => const NativeFirstSentencesScreen()),
+        GoRoute(
+            path: '/native-first-review',
+            builder: (_, __) => const NativeFirstSentencesScreen()),
         GoRoute(path: '/lessons', builder: (_, __) => const LessonsScreen()),
         GoRoute(path: '/diary', builder: (_, __) => const DiaryScreen()),
         GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
@@ -101,30 +101,31 @@ class MainShell extends StatelessWidget {
   const MainShell({super.key, required this.child});
 
   void _showReviewMenu(BuildContext context) {
-    final RenderBox barBox = context.findRenderObject() as RenderBox;
-    final Offset barOffset = barBox.localToGlobal(Offset.zero);
-    final Size barSize = barBox.size;
+    final screenSize = MediaQuery.of(context).size;
+    final appBarHeight = AppBar().preferredSize.height;
+    final navBarHeight = kBottomNavigationBarHeight;
+
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(
-        barOffset.dx + barSize.width / 2,
-        barOffset.dy - 120,
-        barOffset.dx + barSize.width / 2,
-        barOffset.dy,
+        screenSize.width / 2 - 50,
+        screenSize.height - navBarHeight - 120,
+        screenSize.width / 2 + 50,
+        navBarHeight,
       ),
       items: [
         PopupMenuItem(
           value: 'review',
           child: ListTile(
             leading: const Icon(Icons.quiz_outlined),
-            title: const Text('Review'),
+            title: const Text('Review Lessons'),
           ),
         ),
         PopupMenuItem(
           value: 'nativeFirst',
           child: ListTile(
             leading: const Icon(Icons.translate),
-            title: const Text('Translation Review'),
+            title: const Text('Translation Excercice'),
           ),
         ),
       ],
@@ -256,19 +257,18 @@ class MainShell extends StatelessWidget {
                   switch (i) {
                     case 0:
                       context.go('/');
-                     break;
-                   case 1:
-                     _showReviewMenu(context);
-                     break;
-                   case 2:
-                     context.go('/lessons');
-                     break;
-                   case 3:
-                     context.go('/diary');
-                     break;
+                      break;
+                    case 1:
+                      _showReviewMenu(context);
+                      break;
+                    case 2:
+                      context.go('/lessons');
+                      break;
+                    case 3:
+                      context.go('/diary');
+                      break;
                   }
                 },
-
                 type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(

@@ -21,10 +21,15 @@ class NativeFirstSentencesScreen extends StatefulWidget {
   const NativeFirstSentencesScreen({super.key});
 
   @override
-  State<NativeFirstSentencesScreen> createState() => _NativeFirstSentencesScreenState();
+  State<NativeFirstSentencesScreen> createState() =>
+      _NativeFirstSentencesScreenState();
 }
 
-class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen> {
+class _NativeFirstSentencesScreenState
+    extends State<NativeFirstSentencesScreen> {
+  late TextEditingController _sentenceInputController;
+  late List<TextEditingController> _qaQuestionControllers;
+  late List<TextEditingController> _qaAnswerControllers;
   List<Map<String, dynamic>> _sentences = [];
   int _currentIndex = 0;
   bool _loading = true;
@@ -54,6 +59,9 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
   @override
   void initState() {
     super.initState();
+    _sentenceInputController = TextEditingController();
+    _qaQuestionControllers = [];
+    _qaAnswerControllers = [];
     _player = AudioPlayer();
     _player.playerStateStream.listen((state) {
       if (mounted) {
@@ -96,6 +104,15 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
           _sentences = sentences;
           _currentIndex = 0;
           _loading = false;
+          // Initialize controllers for the first sentence's Q&A
+          final qa = sentences.isNotEmpty
+              ? (sentences[0]['qa'] as List?)?.cast<Map<String, dynamic>>() ??
+                  []
+              : [];
+          _qaQuestionControllers =
+              List.generate(qa.length, (_) => TextEditingController());
+          _qaAnswerControllers =
+              List.generate(qa.length, (_) => TextEditingController());
         });
         _loadAudio(autoPlay: false);
       }
@@ -104,13 +121,24 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
         final prefs = await SharedPreferences.getInstance();
         final cached = prefs.getString(_cacheKey);
         if (cached != null) {
-          final sentences = List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+          final sentences =
+              List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
           if (mounted) {
             setState(() {
               _sentences = sentences;
               _currentIndex = 0;
               _loading = false;
               _offlineMode = true;
+              // Initialize controllers for the first sentence's Q&A (offline)
+              final qa = sentences.isNotEmpty
+                  ? (sentences[0]['qa'] as List?)
+                          ?.cast<Map<String, dynamic>>() ??
+                      []
+                  : [];
+              _qaQuestionControllers =
+                  List.generate(qa.length, (_) => TextEditingController());
+              _qaAnswerControllers =
+                  List.generate(qa.length, (_) => TextEditingController());
             });
             _loadAudio(autoPlay: false);
           }
@@ -120,7 +148,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Offline — sync the app when connected to load new sentences.';
+          _error =
+              'Offline — sync the app when connected to load new sentences.';
         });
       }
     }
@@ -138,7 +167,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
       return;
     }
     try {
-      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
+      if (!kIsWeb &&
+          !File(await SyncService.localPath(audioPath)).existsSync()) {
         setState(() {
           _audioDownloading = true;
           _audioLoaded = false;
@@ -158,11 +188,19 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
       final uri = await SyncService.audioUri(audioPath);
       await _player.setAudioSource(AudioSource.uri(uri));
       if (mounted) {
-        setState(() { _audioLoaded = true; _audioUnavailable = false; });
+        setState(() {
+          _audioLoaded = true;
+          _audioUnavailable = false;
+        });
         if (autoPlay) _player.play();
       }
     } catch (_) {
-      if (mounted) setState(() { _audioLoaded = false; _audioDownloading = false; _audioUnavailable = true; });
+      if (mounted)
+        setState(() {
+          _audioLoaded = false;
+          _audioDownloading = false;
+          _audioUnavailable = true;
+        });
     }
   }
 
@@ -173,7 +211,10 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
     }
     if (_qaPlaying) {
       await _qaPlayer.stop();
-      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      setState(() {
+        _qaPlaying = false;
+        _activeQaKey = null;
+      });
     }
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
@@ -181,29 +222,47 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
     _player.play();
   }
 
-  Future<void> _playQaAudio(int pairIndex, String type, String? audioPath) async {
+  Future<void> _playQaAudio(
+      int pairIndex, String type, String? audioPath) async {
     if (audioPath == null || audioPath.isEmpty) return;
     final key = '${pairIndex}_$type';
     if (_activeQaKey == key && _qaPlaying) {
       await _qaPlayer.stop();
-      setState(() { _qaPlaying = false; _activeQaKey = null; });
+      setState(() {
+        _qaPlaying = false;
+        _activeQaKey = null;
+      });
       return;
     }
     if (_audioPlaying) await _player.stop();
     try {
-      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
-        setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
+      if (!kIsWeb &&
+          !File(await SyncService.localPath(audioPath)).existsSync()) {
+        setState(() {
+          _qaDownloading = true;
+          _qaDownloadingKey = key;
+        });
         final ok = await SyncService.downloadFile(audioPath);
         if (!mounted) return;
-        setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+        setState(() {
+          _qaDownloading = false;
+          _qaDownloadingKey = null;
+        });
         if (!ok) return;
       }
       final uri = await SyncService.audioUri(audioPath);
-      setState(() { _activeQaKey = key; _qaPlaying = true; });
+      setState(() {
+        _activeQaKey = key;
+        _qaPlaying = true;
+      });
       await _qaPlayer.setAudioSource(AudioSource.uri(uri));
       _qaPlayer.play();
     } catch (_) {
-      if (mounted) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+      if (mounted)
+        setState(() {
+          _qaDownloading = false;
+          _qaDownloadingKey = null;
+        });
     }
   }
 
@@ -215,7 +274,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
       setState(() => _syncing = false);
       _loadAudio();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Audio synced'), duration: Duration(seconds: 2)),
+        const SnackBar(
+            content: Text('Audio synced'), duration: Duration(seconds: 2)),
       );
     }
   }
@@ -260,6 +320,17 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
   void _next() {
     _player.stop();
     _qaPlayer.stop();
+    _sentenceInputController.clear();
+    // Recreate controllers for Q&A fields based on new sentence's Q&A count
+    final qa = (_sentences.length > _currentIndex + 1)
+        ? (_sentences[_currentIndex + 1]['qa'] as List?)
+                ?.cast<Map<String, dynamic>>() ??
+            []
+        : <Map<String, dynamic>>[];
+    _qaQuestionControllers =
+        List.generate(qa.length, (_) => TextEditingController());
+    _qaAnswerControllers =
+        List.generate(qa.length, (_) => TextEditingController());
     setState(() {
       _playingAllQa = false;
       _revealedQa.clear();
@@ -355,7 +426,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+              const Icon(Icons.check_circle_outline,
+                  size: 64, color: Colors.green),
               const SizedBox(height: 16),
               const Text(
                 'All caught up!',
@@ -380,7 +452,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
     }
     final item = _sentences[_currentIndex];
     final inputSentence = item['input_language_sentence'] as String? ?? '';
-    final outputTranslation = item['output_language_translation'] as String? ?? '';
+    final outputTranslation =
+        item['output_language_translation'] as String? ?? '';
     final sentence = item['sentence'] as String? ?? '';
     final tips = item['tips'] as String? ?? '';
     final qa = (item['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
@@ -392,7 +465,7 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Native-First Sentences'),
+        title: const Text('Translation Excercice'),
         actions: [
           _syncing
               ? const Padding(
@@ -424,7 +497,8 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                       value: 'all',
                       child: ListTile(
                         leading: const Icon(Icons.cloud_download_outlined),
-                        title: Text('Sync all (${_sentences.length - _currentIndex} sentences)'),
+                        title: Text(
+                            'Sync all (${_sentences.length - _currentIndex} sentences)'),
                         contentPadding: EdgeInsets.zero,
                         dense: true,
                       ),
@@ -520,90 +594,31 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                     elevation: 2,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _showTranslation = !_showTranslation),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12)),
+                            icon: Icon(
+                              _showTranslation ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              size: 20,
+                            ),
+                            label: const SizedBox.shrink(),
+                            onPressed: () => setState(() => _showTranslation = !_showTranslation),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                IconButton(
-                                  onPressed: _audioLoaded
-                                      ? (_audioPlaying ? () => _player.stop() : _playAudio)
-                                      : null,
-                                  icon: Icon(
-                                    _audioPlaying
-                                        ? Icons.stop_circle_outlined
-                                        : Icons.play_circle_outline,
-                                    size: 32,
-                                    color: _audioLoaded
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.grey.shade400,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    inputSentence,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF3F51B5),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_showTranslation) ...[
-                              const SizedBox(height: 12),
-                              const Divider(),
-                              if (sentence.isNotEmpty && sentence != inputSentence)
-                                Text(
-                                  sentence,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade700,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              if (outputTranslation.isNotEmpty && outputTranslation != inputSentence)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    outputTranslation,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.teal.shade700,
-                                    ),
-                                  ),
-                                ),
-                              if (tips.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    '💡 $tips',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.amber.shade800,
-                                    ),
-                                  ),
-                                ),
-                              Row(
-                                children: [
-                                  if (_audioDownloading)
-                                    const SizedBox(
-                                      width: 32,
-                                      height: 32,
-                                      child: Padding(
-                                        padding: EdgeInsets.all(6),
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      ),
-                                    )
-                                  else
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     IconButton(
                                       onPressed: _audioLoaded
-                                          ? (_audioPlaying ? () => _player.stop() : _playAudio)
+                                          ? (_audioPlaying
+                                              ? () => _player.stop()
+                                              : _playAudio)
                                           : null,
                                       icon: Icon(
                                         _audioPlaying
@@ -615,35 +630,136 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                                             : Colors.grey.shade400,
                                       ),
                                     ),
-                                  if (_audioDownloading)
-                                    const Text(
-                                      'Downloading audio…',
-                                      style: TextStyle(fontSize: 11, color: Colors.grey),
-                                    )
-                                  else if (_audioUnavailable)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Text(
-                                          'Audio unavailable',
-                                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            inputSentence,
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w500,
+                                              color: Color(0xFF3F51B5),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          TextField(
+                                            controller: _sentenceInputController,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Your translation attempt',
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            minLines: 1,
+                                            maxLines: 3,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (_showTranslation) ...[
+                                  const SizedBox(height: 12),
+                                  const Divider(),
+                                  if (sentence.isNotEmpty &&
+                                      sentence != inputSentence)
+                                    Text(
+                                      sentence,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey.shade700,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  if (outputTranslation.isNotEmpty &&
+                                      outputTranslation != inputSentence)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        outputTranslation,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.teal.shade700,
                                         ),
+                                      ),
+                                    ),
+                                  if (tips.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        '💡 $tips',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.amber.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  Row(
+                                    children: [
+                                      if (_audioDownloading)
+                                        const SizedBox(
+                                          width: 32,
+                                          height: 32,
+                                          child: Padding(
+                                            padding: EdgeInsets.all(6),
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2),
+                                          ),
+                                        )
+                                      else
                                         IconButton(
-                                          onPressed: _loadAudio,
-                                          icon: const Icon(Icons.refresh, size: 16, color: Colors.grey),
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          visualDensity: VisualDensity.compact,
+                                          onPressed: _audioLoaded
+                                              ? (_audioPlaying
+                                                  ? () => _player.stop()
+                                                  : _playAudio)
+                                              : null,
+                                          icon: Icon(
+                                            _audioPlaying
+                                                ? Icons.stop_circle_outlined
+                                                : Icons.play_circle_outline,
+                                            size: 32,
+                                            color: _audioLoaded
+                                                ? Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
+                                                : Colors.grey.shade400,
+                                          ),
                                         ),
-                                      ],
-                                    )
-                                  else if (!_audioLoaded)
-                                    const SizedBox.shrink(),
+                                      if (_audioDownloading)
+                                        const Text(
+                                          'Downloading audio…',
+                                          style: TextStyle(
+                                              fontSize: 11, color: Colors.grey),
+                                        )
+                                      else if (_audioUnavailable)
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Text(
+                                              'Audio unavailable',
+                                              style: TextStyle(
+                                                  fontSize: 11, color: Colors.grey),
+                                            ),
+                                            IconButton(
+                                              onPressed: _loadAudio,
+                                              icon: const Icon(Icons.refresh,
+                                                  size: 16, color: Colors.grey),
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              visualDensity: VisualDensity.compact,
+                                            ),
+                                          ],
+                                        )
+                                      else if (!_audioLoaded)
+                                        const SizedBox.shrink(),
+                                    ],
+                                  ),
                                 ],
-                              ),
-                            ],
-                          ],
-                        ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -659,27 +775,37 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                           children: qa.asMap().entries.map((e) {
                             final idx = e.key;
                             final qaPair = e.value;
-                            final questionInput = qaPair['question_input'] as String? ?? '';
-                            final answerInput = qaPair['answer_input'] as String? ?? '';
-                            final question = qaPair['question'] as String? ?? '';
+                            final questionInput =
+                                qaPair['question_input'] as String? ?? '';
+                            final answerInput =
+                                qaPair['answer_input'] as String? ?? '';
+                            final question =
+                                qaPair['question'] as String? ?? '';
                             final answer = qaPair['answer'] as String? ?? '';
-                            final qAudioPath = qaPair['question_audio_path'] as String? ?? '';
-                            final aAudioPath = qaPair['answer_audio_path'] as String? ?? '';
+                            final qAudioPath =
+                                qaPair['question_audio_path'] as String? ?? '';
+                            final aAudioPath =
+                                qaPair['answer_audio_path'] as String? ?? '';
                             final revealed = _revealedQa.contains(idx);
                             Widget qaPlayBtn(String type, String path) {
                               final key = '${idx}_$type';
                               final isActive = _activeQaKey == key;
-                              final isLoading = _qaDownloading && _qaDownloadingKey == key;
+                              final isLoading =
+                                  _qaDownloading && _qaDownloadingKey == key;
                               if (path.isEmpty) return const SizedBox.shrink();
                               return GestureDetector(
-                                onTap: isLoading ? null : () => _playQaAudio(idx, type, path),
+                                onTap: isLoading
+                                    ? null
+                                    : () => _playQaAudio(idx, type, path),
                                 child: Padding(
-                                  padding: const EdgeInsets.only(right: 4, top: 2),
+                                  padding:
+                                      const EdgeInsets.only(right: 4, top: 2),
                                   child: isLoading
                                       ? const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 1.5),
                                         )
                                       : Icon(
                                           isActive && _qaPlaying
@@ -687,87 +813,172 @@ class _NativeFirstSentencesScreenState extends State<NativeFirstSentencesScreen>
                                               : Icons.play_circle_outline,
                                           size: 16,
                                           color: isActive && _qaPlaying
-                                              ? Theme.of(context).colorScheme.primary
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
                                               : Colors.grey.shade500,
                                         ),
                                 ),
                               );
                             }
+
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 6),
-                              child: GestureDetector(
-                                onTap: () => setState(() {
-                                  if (revealed) {
-                                    _revealedQa.remove(idx);
-                                  } else {
-                                    _revealedQa.add(idx);
-                                  }
-                                }),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8, horizontal: 12)),
+                                    icon: Icon(
+                                      revealed
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined,
+                                      size: 20,
+                                    ),
+                                    // label: Text(revealed ? 'Hide Q&A' : 'Show Q&A'),
+                                    label: const SizedBox.shrink(),
+                                    onPressed: () => setState(() {
+                                      if (revealed) {
+                                        _revealedQa.remove(idx);
+                                      } else {
+                                        _revealedQa.add(idx);
+                                      }
+                                    }),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        if (revealed) qaPlayBtn('q', qAudioPath),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (revealed)
+                                              qaPlayBtn('q', qAudioPath),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        questionInput,
+                                                        style: const TextStyle(
+                                                          color:
+                                                              Color(0xFFE65100),
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 8),
+                                                      TextField(
+                                                        controller:
+                                                            _qaQuestionControllers[
+                                                                idx],
+                                                        decoration:
+                                                            const InputDecoration(
+                                                          labelText:
+                                                              'Your translation attempt (question)',
+                                                          border:
+                                                              OutlineInputBorder(),
+                                                        ),
+                                                        minLines: 1,
+                                                        maxLines: 3,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (revealed &&
+                                                      question.isNotEmpty)
+                                                    Text(
+                                                      question,
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors
+                                                            .grey.shade500,
+                                                        fontStyle:
+                                                            FontStyle.italic,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                            // Removed right play button for Q row
+                                          ],
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              left: 4, top: 2),
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
-                                              Text(
-                                                questionInput,
-                                                style: const TextStyle(
-                                                  color: Color(0xFFE65100),
-                                                  fontWeight: FontWeight.w500,
+                                              if (revealed)
+                                                qaPlayBtn('a', aAudioPath),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                          answerInput,
+                                                          style: const TextStyle(
+                                                              color: Color(
+                                                                  0xFF2E7D32)),
+                                                        ),
+                                                        const SizedBox(
+                                                            height: 8),
+                                                        TextField(
+                                                          controller:
+                                                              _qaAnswerControllers[
+                                                                  idx],
+                                                          decoration:
+                                                              const InputDecoration(
+                                                            labelText:
+                                                                'Your translation attempt (answer)',
+                                                            border:
+                                                                OutlineInputBorder(),
+                                                          ),
+                                                          minLines: 1,
+                                                          maxLines: 3,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    if (revealed &&
+                                                        answer.isNotEmpty)
+                                                      Text(
+                                                        answer,
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors
+                                                              .grey.shade500,
+                                                          fontStyle:
+                                                              FontStyle.italic,
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
                                               ),
-                                              if (revealed && question.isNotEmpty)
-                                                Text(
-                                                  question,
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade500,
-                                                    fontStyle: FontStyle.italic,
-                                                  ),
-                                                ),
+                                              // Removed right play button for A row
                                             ],
                                           ),
                                         ),
-                                        if (revealed) qaPlayBtn('q', qAudioPath),
                                       ],
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 4, top: 2),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          if (revealed) qaPlayBtn('a', aAudioPath),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  answerInput,
-                                                  style: const TextStyle(color: Color(0xFF2E7D32)),
-                                                ),
-                                                if (revealed && answer.isNotEmpty)
-                                                  Text(
-                                                    answer,
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: Colors.grey.shade500,
-                                                      fontStyle: FontStyle.italic,
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (revealed) qaPlayBtn('a', aAudioPath),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             );
                           }).toList(),
