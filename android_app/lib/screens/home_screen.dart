@@ -275,10 +275,38 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                icon: const Icon(Icons.headphones, size: 16),
-                label: const Text('Open'),
-                onPressed: () => _openRecommended(rec),
+              child: PopupMenuButton<String>(
+               tooltip: 'Review options',
+               icon: const Icon(Icons.headphones, size: 16),
+               onSelected: (value) {
+                 if (value == 'original') {
+                   context.go('/review');
+                 } else if (value == 'translation') {
+                   context.go('/translation-review');
+                 }
+               },
+               itemBuilder: (context) => [
+                 const PopupMenuItem(
+                   value: 'original',
+                   child: ListTile(
+                     leading: Icon(Icons.rate_review_outlined),
+                     title: Text('Original Review'),
+                     contentPadding: EdgeInsets.zero,
+                     dense: true,
+                   ),
+                 ),
+                 const PopupMenuItem(
+                   value: 'translation',
+                   child: ListTile(
+                     leading: Icon(Icons.translate_outlined),
+                     title: Text('Translation Review'),
+                     contentPadding: EdgeInsets.zero,
+                     dense: true,
+                   ),
+                 ),
+               ],
+               position: PopupMenuPosition.under, // closest to dropup, but Flutter default is dropdown
+               // For true dropup, a custom widget is needed; this is visually consistent
               ),
             ),
           ],
