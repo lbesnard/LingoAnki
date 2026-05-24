@@ -386,24 +386,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _openRecommended(Map<String, dynamic> rec) async {
-    // Try to find the lesson in the lessons list and navigate to player
-    try {
-      final lessons = await ApiService.getLessons();
-      final date = (rec['date'] as String? ?? '').replaceAll('/', '-');
-      final match = lessons.cast<Map<String, dynamic>?>().firstWhere(
-        (l) => (l?['base'] as String? ?? '').contains(date),
-        orElse: () => null,
-      );
-      if (match != null && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => PlayerScreen(lesson: match)),
-        );
-      }
-    } catch (_) {}
-  }
-
   Future<void> _openFromRecent(Map<String, dynamic> item) async {
     try {
       final lessons = await ApiService.getLessons();

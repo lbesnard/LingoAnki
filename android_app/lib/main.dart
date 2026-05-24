@@ -107,7 +107,6 @@ class MainShell extends StatelessWidget {
 
   void _showReviewMenu(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    final appBarHeight = AppBar().preferredSize.height;
     final navBarHeight = kBottomNavigationBarHeight;
 
     showMenu(
@@ -136,9 +135,9 @@ class MainShell extends StatelessWidget {
       ],
     ).then((value) {
       if (value == 'review') {
-        context.go('/review');
+        context.pushNamed('review');
       } else if (value == 'nativeFirst') {
-        context.go('/native-first-review');
+        context.pushNamed('nativeFirstReview');
       }
     });
   }

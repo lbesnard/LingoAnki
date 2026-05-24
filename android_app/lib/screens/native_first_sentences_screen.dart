@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_service.dart';
-import '../services/sync_manager.dart';
 import 'stats_screen.dart';
 
 /// A screen that shows native (input) text for each sentence first,
@@ -36,10 +35,9 @@ class _NativeFirstSentencesScreenState
   String? _error;
 
   bool _showTranslation = false;
-  Set<int> _revealedQa = {}; // indices of Q&A pairs with translation revealed
+  final Set<int> _revealedQa = {}; // indices of Q&A pairs with translation revealed
   bool _scoring = false;
   bool _offlineMode = false;
-  bool _playingAllQa = false;
   bool _syncing = false;
 
   static const _cacheKey = 'sentences_due_cache';
@@ -195,12 +193,13 @@ class _NativeFirstSentencesScreenState
         if (autoPlay) _player.play();
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _audioLoaded = false;
           _audioDownloading = false;
           _audioUnavailable = true;
         });
+      }
     }
   }
 
@@ -258,11 +257,12 @@ class _NativeFirstSentencesScreenState
       await _qaPlayer.setAudioSource(AudioSource.uri(uri));
       _qaPlayer.play();
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _qaDownloading = false;
           _qaDownloadingKey = null;
         });
+      }
     }
   }
 
@@ -332,7 +332,6 @@ class _NativeFirstSentencesScreenState
     _qaAnswerControllers =
         List.generate(qa.length, (_) => TextEditingController());
     setState(() {
-      _playingAllQa = false;
       _revealedQa.clear();
       _showTranslation = false;
     });
