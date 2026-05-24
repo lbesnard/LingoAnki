@@ -11,6 +11,7 @@ import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
 import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/native_first_sentences_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'widgets/scaled_app.dart';
 import 'services/auth_service.dart';
@@ -31,9 +32,13 @@ final _router = GoRouter(
   redirect: (context, state) async {
     final token = await AuthService.getToken();
     final isLogin = state.matchedLocation == '/login';
+    print('[DEBUG] GoRouter.redirect: token=${token == null ? 'null' : 'present'}, location=${state.matchedLocation}');
 
     // If no token and not on login page, redirect to login
-    if (token == null && !isLogin) return '/login';
+    if (token == null && !isLogin) {
+      print('[DEBUG] GoRouter.redirect: redirecting to /login (no token)');
+      return '/login';
+    }
 
     // If has token and on login page, redirect to home
     // BUT only if this is the initial route or a direct navigation to /login
@@ -45,6 +50,7 @@ final _router = GoRouter(
       // If there are no query parameters and it's a simple /login, redirect to home
       // If there are any indicators this was a sign-out navigation, allow it
       if (uri.queryParameters.isEmpty && uri.fragment.isEmpty) {
+        print('[DEBUG] GoRouter.redirect: redirecting to / (has token)');
         return '/';
       }
     }
@@ -56,13 +62,17 @@ final _router = GoRouter(
     ShellRoute(
       builder: (context, state, child) => MainShell(child: child),
       routes: [
-        GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-        GoRoute(path: '/review', builder: (_, __) => const SentencesScreen()),
-        GoRoute(path: '/lessons', builder: (_, __) => const LessonsScreen()),
-        GoRoute(path: '/diary', builder: (_, __) => const DiaryScreen()),
-        GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
-      ],
-    ),
+       GoRoute(path: '/', name: 'home', builder: (_, __) => const HomeScreen()),
+       GoRoute(path: '/review', name: 'review', builder: (_, __) => const SentencesScreen()),
+        GoRoute(
+            path: '/native-first-review',
+           name: 'nativeFirstReview',
+           builder: (_, __) => const NativeFirstSentencesScreen()),
+       GoRoute(path: '/lessons', name: 'lessons', builder: (_, __) => const LessonsScreen()),
+       GoRoute(path: '/diary', name: 'diary', builder: (_, __) => const DiaryScreen()),
+       GoRoute(path: '/settings', name: 'settings', builder: (_, __) => const SettingsScreen()),
+     ],
+   ),
   ],
 );
 
@@ -95,6 +105,46 @@ class LingoDiaryApp extends StatelessWidget {
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
+
+  void _showReviewMenu(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final navBarHeight = kBottomNavigationBarHeight;
+
+    // Capture context before async operation to avoid 'use_build_context_synchronously' warning
+    final currentContext = context;
+
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        screenSize.width / 2 - 50,
+        screenSize.height - navBarHeight - 120,
+        screenSize.width / 2 + 50,
+        navBarHeight,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'review',
+          child: ListTile(
+            leading: const Icon(Icons.quiz_outlined),
+            title: const Text('Review Lessons'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'nativeFirst',
+          child: ListTile(
+            leading: const Icon(Icons.translate),
+            title: const Text('Translation Excercice'),
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'review') {
+        currentContext.pushNamed('review');
+      } else if (value == 'nativeFirst') {
+        currentContext.pushNamed('nativeFirstReview');
+      }
+    });
+  }
 
   void _showHelpDialog(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -215,12 +265,16 @@ class MainShell extends StatelessWidget {
                   switch (i) {
                     case 0:
                       context.go('/');
+                      break;
                     case 1:
-                      context.go('/review');
+                      _showReviewMenu(context);
+                      break;
                     case 2:
                       context.go('/lessons');
+                      break;
                     case 3:
                       context.go('/diary');
+                      break;
                   }
                 },
                 type: BottomNavigationBarType.fixed,

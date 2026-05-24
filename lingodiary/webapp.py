@@ -37,6 +37,20 @@ JWT_SECRET = os.getenv("JWT_SECRET", app.secret_key)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
+
+@app.after_request
+def add_cache_headers(response):
+    """Add cache-control headers to prevent browser caching of API responses."""
+    # API responses should not be cached by the browser to avoid stale data issues
+    if request.path.startswith("/api/"):
+        response.headers[
+            "Cache-Control"
+        ] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 # Flutter web build directory (copied into the image at /app/web_build)
 _WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "web_build")
 

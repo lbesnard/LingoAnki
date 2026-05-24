@@ -24,8 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
+    print('[DEBUG] HomeScreen._loadData: starting');
     // Show cached data first for instant response
     final cached = await LocalDbService.getCachedHomeData();
+    print('[DEBUG] HomeScreen._loadData: cached=${cached == null ? 'null' : 'present'}');
     if (cached != null && mounted) {
       setState(() {
         _homeData = cached;
@@ -35,7 +37,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Refresh from server
     try {
+      print('[DEBUG] HomeScreen._loadData: fetching from server');
       final data = await ApiService.getHomeData();
+      print('[DEBUG] HomeScreen._loadData: server fetch succeeded');
       await LocalDbService.saveHomeData(data);
       if (mounted) {
         setState(() {
@@ -45,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     } catch (e) {
+      print('[DEBUG] HomeScreen._loadData: server fetch failed: $e');
       if (mounted && _homeData == null) {
         setState(() {
           _loading = false;
@@ -245,43 +250,75 @@ class _HomeScreenState extends State<HomeScreen> {
     final reason = rec['reason'] as String? ?? '';
     final reasonLabel = reason == 'due_for_review' ? 'Due for review' : 'New lesson';
 
-    return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.push_pin, size: 18),
-                const SizedBox(width: 6),
-                Text('Study Now',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 4),
-            Text(
-              '$variant · $reasonLabel',
-              style: TextStyle(
-                  fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                icon: const Icon(Icons.headphones, size: 16),
-                label: const Text('Open'),
-                onPressed: () => _openRecommended(rec),
+    return InkWell(
+      onTap: () {
+        // Default to original review when clicking the card
+        context.pushNamed('review');
+      },
+      child: Card(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.push_pin, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text('Study Now',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'Review options',
+                    icon: const Icon(Icons.headphones, size: 16),
+                    onSelected: (value) {
+                      if (value == 'original') {
+                        context.pushNamed('review');
+                      } else if (value == 'translation') {
+                        context.pushNamed('nativeFirstReview');
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'original',
+                        child: ListTile(
+                          leading: Icon(Icons.rate_review_outlined),
+                          title: Text('Original Review'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'translation',
+                        child: ListTile(
+                          leading: Icon(Icons.translate_outlined),
+                          title: Text('Translation Excercice'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                    ],
+                    position: PopupMenuPosition.under, // closest to dropup, but Flutter default is dropdown
+                    // For true dropup, a custom widget is needed; this is visually consistent
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(
+                '$variant · $reasonLabel',
+                style: TextStyle(
+                    fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -351,24 +388,6 @@ class _HomeScreenState extends State<HomeScreen> {
       trailing: const Icon(Icons.chevron_right, size: 18),
       onTap: () => _openFromRecent(item),
     );
-  }
-
-  Future<void> _openRecommended(Map<String, dynamic> rec) async {
-    // Try to find the lesson in the lessons list and navigate to player
-    try {
-      final lessons = await ApiService.getLessons();
-      final date = (rec['date'] as String? ?? '').replaceAll('/', '-');
-      final match = lessons.cast<Map<String, dynamic>?>().firstWhere(
-        (l) => (l?['base'] as String? ?? '').contains(date),
-        orElse: () => null,
-      );
-      if (match != null && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => PlayerScreen(lesson: match)),
-        );
-      }
-    } catch (_) {}
   }
 
   Future<void> _openFromRecent(Map<String, dynamic> item) async {

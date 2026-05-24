@@ -39,13 +39,39 @@ class LocalDbService {
     }
   }
 
-  // ---- Home cache (in-memory) ----
+  // ---- Home cache (SharedPreferences on web, survives page reload) ----
 
   static Future<void> saveHomeData(Map<String, dynamic> data) async {
     _homeCache = data;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('web_home_cache', jsonEncode(data));
   }
 
-  static Future<Map<String, dynamic>?> getCachedHomeData() async => _homeCache;
+  static Future<Map<String, dynamic>?> getCachedHomeData() async {
+    // First check in-memory cache (fastest)
+    if (_homeCache != null) {
+      print('[DEBUG] LocalDbService.getCachedHomeData: returning in-memory cache');
+      return _homeCache;
+    }
+
+    // Fall back to SharedPreferences (survives page reload)
+    print('[DEBUG] LocalDbService.getCachedHomeData: checking SharedPreferences');
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('web_home_cache');
+    print('[DEBUG] LocalDbService.getCachedHomeData: raw=${raw == null ? 'null' : 'present (${raw.substring(0, 50)}...)'}');
+    if (raw == null) {
+      print('[DEBUG] LocalDbService.getCachedHomeData: no cached data found');
+      return null;
+    }
+    try {
+      _homeCache = jsonDecode(raw) as Map<String, dynamic>;
+      print('[DEBUG] LocalDbService.getCachedHomeData: successfully loaded from SharedPreferences');
+      return _homeCache;
+    } catch (e) {
+      print('[DEBUG] LocalDbService.getCachedHomeData: error decoding cache: $e');
+      return null;
+    }
+  }
 
   // ---- SRS scores (in-memory, synced immediately on web) ----
 
@@ -88,6 +114,7 @@ class LocalDbService {
     _pendingScores.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('web_lessons_cache');
+    await prefs.remove('web_home_cache');
   }
 
   // ---- Lesson last_reviewed tracking (no-op on web) ----

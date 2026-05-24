@@ -195,13 +195,31 @@ class ApiService {
   static Future<Map<String, dynamic>> getHomeData() async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
-    final resp = await http
-        .get(Uri.parse('$base/api/home'), headers: headers)
-        .timeout(_timeout);
-    if (resp.statusCode != 200) {
-      throw ApiException(resp.statusCode, 'Failed to get home data');
+    final url = '$base/api/home';
+    print('[DEBUG] getHomeData: base=$base, url=$url');
+    print('[DEBUG] getHomeData: headers=$headers');
+    try {
+      final resp = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(_timeout);
+      print('[DEBUG] getHomeData: statusCode=${resp.statusCode}');
+
+      // Handle unauthorized - token might be expired
+      if (resp.statusCode == 401) {
+        print('[DEBUG] getHomeData: Received 401, clearing session');
+        await AuthService.clearSession();
+        throw ApiException(401, 'Session expired. Please log in again.');
+      }
+
+      if (resp.statusCode != 200) {
+        print('[DEBUG] getHomeData: response body=${resp.body}');
+        throw ApiException(resp.statusCode, 'Failed to get home data');
+      }
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (e) {
+      print('[DEBUG] getHomeData: exception=$e');
+      rethrow;
     }
-    return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
   /// Fetch sentences due for review (Anki-style).
