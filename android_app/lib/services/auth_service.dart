@@ -52,7 +52,9 @@ class AuthService {
   static Future<String?> getToken() async {
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(_tokenKey);
+      final token = prefs.getString(_tokenKey);
+      print('[DEBUG] AuthService.getToken: kIsWeb=true, token=${token == null ? 'null' : 'present (${token.substring(0, 20)}...)'}, keys=${prefs.getKeys()}');
+      return token;
     }
     return _storage.read(key: _tokenKey);
   }

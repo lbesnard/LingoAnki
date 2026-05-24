@@ -24,8 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
+    print('[DEBUG] HomeScreen._loadData: starting');
     // Show cached data first for instant response
     final cached = await LocalDbService.getCachedHomeData();
+    print('[DEBUG] HomeScreen._loadData: cached=${cached == null ? 'null' : 'present'}');
     if (cached != null && mounted) {
       setState(() {
         _homeData = cached;
@@ -35,7 +37,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Refresh from server
     try {
+      print('[DEBUG] HomeScreen._loadData: fetching from server');
       final data = await ApiService.getHomeData();
+      print('[DEBUG] HomeScreen._loadData: server fetch succeeded');
       await LocalDbService.saveHomeData(data);
       if (mounted) {
         setState(() {
@@ -45,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     } catch (e) {
+      print('[DEBUG] HomeScreen._loadData: server fetch failed: $e');
       if (mounted && _homeData == null) {
         setState(() {
           _loading = false;
