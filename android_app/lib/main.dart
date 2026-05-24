@@ -62,16 +62,17 @@ final _router = GoRouter(
     ShellRoute(
       builder: (context, state, child) => MainShell(child: child),
       routes: [
-        GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-        GoRoute(path: '/review', builder: (_, __) => const SentencesScreen()),
+       GoRoute(path: '/', name: 'home', builder: (_, __) => const HomeScreen()),
+       GoRoute(path: '/review', name: 'review', builder: (_, __) => const SentencesScreen()),
         GoRoute(
             path: '/native-first-review',
-            builder: (_, __) => const NativeFirstSentencesScreen()),
-        GoRoute(path: '/lessons', builder: (_, __) => const LessonsScreen()),
-        GoRoute(path: '/diary', builder: (_, __) => const DiaryScreen()),
-        GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
-      ],
-    ),
+           name: 'nativeFirstReview',
+           builder: (_, __) => const NativeFirstSentencesScreen()),
+       GoRoute(path: '/lessons', name: 'lessons', builder: (_, __) => const LessonsScreen()),
+       GoRoute(path: '/diary', name: 'diary', builder: (_, __) => const DiaryScreen()),
+       GoRoute(path: '/settings', name: 'settings', builder: (_, __) => const SettingsScreen()),
+     ],
+   ),
   ],
 );
 
