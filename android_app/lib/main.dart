@@ -110,6 +110,9 @@ class MainShell extends StatelessWidget {
     final screenSize = MediaQuery.of(context).size;
     final navBarHeight = kBottomNavigationBarHeight;
 
+    // Capture context before async operation to avoid 'use_build_context_synchronously' warning
+    final currentContext = context;
+
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -136,9 +139,9 @@ class MainShell extends StatelessWidget {
       ],
     ).then((value) {
       if (value == 'review') {
-        context.pushNamed('review');
+        currentContext.pushNamed('review');
       } else if (value == 'nativeFirst') {
-        context.pushNamed('nativeFirstReview');
+        currentContext.pushNamed('nativeFirstReview');
       }
     });
   }
