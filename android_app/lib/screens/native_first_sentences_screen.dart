@@ -596,14 +596,17 @@ class _NativeFirstSentencesScreenState
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12)),
+                          IconButton(
                             icon: Icon(
                               _showTranslation ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                               size: 20,
                             ),
-                            label: const SizedBox.shrink(),
                             onPressed: () => setState(() => _showTranslation = !_showTranslation),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minHeight: 0,
+                              minWidth: 0,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -826,18 +829,13 @@ class _NativeFirstSentencesScreenState
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8, horizontal: 12)),
+                                  IconButton(
                                     icon: Icon(
                                       revealed
                                           ? Icons.visibility_off_outlined
                                           : Icons.visibility_outlined,
                                       size: 20,
                                     ),
-                                    // label: Text(revealed ? 'Hide Q&A' : 'Show Q&A'),
-                                    label: const SizedBox.shrink(),
                                     onPressed: () => setState(() {
                                       if (revealed) {
                                         _revealedQa.remove(idx);
@@ -845,6 +843,11 @@ class _NativeFirstSentencesScreenState
                                         _revealedQa.add(idx);
                                       }
                                     }),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minHeight: 0,
+                                      minWidth: 0,
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
