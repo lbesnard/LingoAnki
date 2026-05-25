@@ -1034,7 +1034,7 @@ class _NativeFirstSentencesScreenState
                                                               _qaQuestionFocusNodes[idx],
                                                           decoration: InputDecoration(
                                                             labelText:
-                                                                'Your translation attempt (press Enter to go to answer)',
+                                                                'Your translation attempt (press Tab)',
                                                             labelStyle: TextStyle(
                                                                 fontSize: 12 *
                                                                     _fontSizeScale),
