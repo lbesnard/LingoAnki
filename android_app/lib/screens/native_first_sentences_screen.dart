@@ -793,7 +793,7 @@ class _NativeFirstSentencesScreenState
                                               ),
                                               style: TextStyle(fontSize: 16 * _fontSizeScale),
                                               minLines: 1,
-                                              maxLines: 3,
+                                              maxLines: 1,
                                             ),
                                           ),
                                         ],
@@ -1045,7 +1045,7 @@ class _NativeFirstSentencesScreenState
                                                               fontSize:
                                                                   14 * _fontSizeScale),
                                                           minLines: 1,
-                                                          maxLines: 3,
+                                                          maxLines: 1,
                                                         ),
                                                       ),
                                                     ],
@@ -1130,7 +1130,7 @@ class _NativeFirstSentencesScreenState
                                                                 fontSize: 14 *
                                                                     _fontSizeScale),
                                                             minLines: 1,
-                                                            maxLines: 3,
+                                                            maxLines: 1,
                                                           ),
                                                         ),
                                                       ],
