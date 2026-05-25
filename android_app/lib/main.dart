@@ -133,7 +133,7 @@ class MainShell extends StatelessWidget {
           value: 'nativeFirst',
           child: ListTile(
             leading: const Icon(Icons.translate),
-            title: const Text('Translation Excercice'),
+            title: const Text('Translation Excercise'),
           ),
         ),
       ],

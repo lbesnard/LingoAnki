@@ -297,7 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         value: 'translation',
                         child: ListTile(
                           leading: Icon(Icons.translate_outlined),
-                          title: Text('Translation Excercice'),
+                          title: Text('Translation Excercise'),
                           contentPadding: EdgeInsets.zero,
                           dense: true,
                         ),
