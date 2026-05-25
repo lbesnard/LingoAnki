@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Web implementation of LocalDbService.
@@ -50,25 +51,25 @@ class LocalDbService {
   static Future<Map<String, dynamic>?> getCachedHomeData() async {
     // First check in-memory cache (fastest)
     if (_homeCache != null) {
-      print('[DEBUG] LocalDbService.getCachedHomeData: returning in-memory cache');
+      debugPrint('[DEBUG] LocalDbService.getCachedHomeData: returning in-memory cache');
       return _homeCache;
     }
 
     // Fall back to SharedPreferences (survives page reload)
-    print('[DEBUG] LocalDbService.getCachedHomeData: checking SharedPreferences');
+    debugPrint('[DEBUG] LocalDbService.getCachedHomeData: checking SharedPreferences');
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('web_home_cache');
-    print('[DEBUG] LocalDbService.getCachedHomeData: raw=${raw == null ? 'null' : 'present (${raw.substring(0, 50)}...)'}');
+    debugPrint('[DEBUG] LocalDbService.getCachedHomeData: raw=${raw == null ? 'null' : 'present (${raw.substring(0, 50)}...)'}');
     if (raw == null) {
-      print('[DEBUG] LocalDbService.getCachedHomeData: no cached data found');
+      debugPrint('[DEBUG] LocalDbService.getCachedHomeData: no cached data found');
       return null;
     }
     try {
       _homeCache = jsonDecode(raw) as Map<String, dynamic>;
-      print('[DEBUG] LocalDbService.getCachedHomeData: successfully loaded from SharedPreferences');
+      debugPrint('[DEBUG] LocalDbService.getCachedHomeData: successfully loaded from SharedPreferences');
       return _homeCache;
     } catch (e) {
-      print('[DEBUG] LocalDbService.getCachedHomeData: error decoding cache: $e');
+      debugPrint('[DEBUG] LocalDbService.getCachedHomeData: error decoding cache: $e');
       return null;
     }
   }

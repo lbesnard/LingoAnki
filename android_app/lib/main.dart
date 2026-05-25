@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, defaultTargetPlatform;
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -32,11 +32,11 @@ final _router = GoRouter(
   redirect: (context, state) async {
     final token = await AuthService.getToken();
     final isLogin = state.matchedLocation == '/login';
-    print('[DEBUG] GoRouter.redirect: token=${token == null ? 'null' : 'present'}, location=${state.matchedLocation}');
+    debugPrint('[DEBUG] GoRouter.redirect: token=${token == null ? 'null' : 'present'}, location=${state.matchedLocation}');
 
     // If no token and not on login page, redirect to login
     if (token == null && !isLogin) {
-      print('[DEBUG] GoRouter.redirect: redirecting to /login (no token)');
+      debugPrint('[DEBUG] GoRouter.redirect: redirecting to /login (no token)');
       return '/login';
     }
 
@@ -50,7 +50,7 @@ final _router = GoRouter(
       // If there are no query parameters and it's a simple /login, redirect to home
       // If there are any indicators this was a sign-out navigation, allow it
       if (uri.queryParameters.isEmpty && uri.fragment.isEmpty) {
-        print('[DEBUG] GoRouter.redirect: redirecting to / (has token)');
+        debugPrint('[DEBUG] GoRouter.redirect: redirecting to / (has token)');
         return '/';
       }
     }
@@ -110,10 +110,7 @@ class MainShell extends StatelessWidget {
     final screenSize = MediaQuery.of(context).size;
     final navBarHeight = kBottomNavigationBarHeight;
 
-    // Capture context before async operation to avoid 'use_build_context_synchronously' warning
-    final currentContext = context;
-
-    showMenu(
+    showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(
         screenSize.width / 2 - 50,
@@ -133,15 +130,15 @@ class MainShell extends StatelessWidget {
           value: 'nativeFirst',
           child: ListTile(
             leading: const Icon(Icons.translate),
-            title: const Text('Translation Excercice'),
+            title: const Text('Translation Excercise'),
           ),
         ),
       ],
     ).then((value) {
-      if (value == 'review') {
-        currentContext.pushNamed('review');
-      } else if (value == 'nativeFirst') {
-        currentContext.pushNamed('nativeFirstReview');
+      if (value == 'review' && context.mounted) {
+        context.pushNamed('review');
+      } else if (value == 'nativeFirst' && context.mounted) {
+        context.pushNamed('nativeFirstReview');
       }
     });
   }

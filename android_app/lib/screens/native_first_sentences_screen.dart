@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -40,6 +41,14 @@ class _NativeFirstSentencesScreenState
   bool _offlineMode = false;
   bool _syncing = false;
 
+  // Keyboard navigation
+  late FocusNode _sentenceFocusNode;
+  late List<FocusNode> _qaQuestionFocusNodes;
+  late List<FocusNode> _qaAnswerFocusNodes;
+
+  // Font size control
+  double _fontSizeScale = 1.0;
+
   static const _cacheKey = 'sentences_due_cache';
 
   late AudioPlayer _player;
@@ -60,6 +69,9 @@ class _NativeFirstSentencesScreenState
     _sentenceInputController = TextEditingController();
     _qaQuestionControllers = [];
     _qaAnswerControllers = [];
+    _sentenceFocusNode = FocusNode();
+    _qaQuestionFocusNodes = [];
+    _qaAnswerFocusNodes = [];
     _player = AudioPlayer();
     _player.playerStateStream.listen((state) {
       if (mounted) {
@@ -82,6 +94,13 @@ class _NativeFirstSentencesScreenState
 
   @override
   void dispose() {
+    _sentenceFocusNode.dispose();
+    for (var node in _qaQuestionFocusNodes) {
+      node.dispose();
+    }
+    for (var node in _qaAnswerFocusNodes) {
+      node.dispose();
+    }
     _player.dispose();
     _qaPlayer.dispose();
     super.dispose();
@@ -330,7 +349,7 @@ class _NativeFirstSentencesScreenState
     _player.stop();
     _qaPlayer.stop();
     _sentenceInputController.clear();
-    // Recreate controllers for Q&A fields based on new sentence's Q&A count
+    // Recreate controllers and focus nodes for Q&A fields based on new sentence's Q&A count
     final qa = (_sentences.length > _currentIndex + 1)
         ? (_sentences[_currentIndex + 1]['qa'] as List?)
                 ?.cast<Map<String, dynamic>>() ??
@@ -340,6 +359,15 @@ class _NativeFirstSentencesScreenState
         List.generate(qa.length, (_) => TextEditingController());
     _qaAnswerControllers =
         List.generate(qa.length, (_) => TextEditingController());
+    // Dispose old focus nodes and create new ones
+    for (var node in _qaQuestionFocusNodes) {
+      node.dispose();
+    }
+    for (var node in _qaAnswerFocusNodes) {
+      node.dispose();
+    }
+    _qaQuestionFocusNodes = List.generate(qa.length, (_) => FocusNode());
+    _qaAnswerFocusNodes = List.generate(qa.length, (_) => FocusNode());
     setState(() {
       _revealedQa.clear();
       _showTranslation = false;
@@ -473,7 +501,7 @@ class _NativeFirstSentencesScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Translation Excercice'),
+        title: const Text('Translation Excercise'),
         actions: [
           _syncing
               ? const Padding(
@@ -520,6 +548,75 @@ class _NativeFirstSentencesScreenState
               context,
               MaterialPageRoute(builder: (_) => const StatsScreen()),
             ),
+          ),
+          PopupMenuButton<double>(
+            tooltip: 'Font size',
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Center(
+                child: Text(
+                  'Tt',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            onSelected: (scale) {
+              setState(() => _fontSizeScale = scale);
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 0.8,
+                child: Row(
+                  children: [
+                    const Text('Small'),
+                    if (_fontSizeScale <= 0.9)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.check, size: 18),
+                      ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 1.0,
+                child: Row(
+                  children: [
+                    const Text('Normal'),
+                    if (_fontSizeScale > 0.9 && _fontSizeScale <= 1.1)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.check, size: 18),
+                      ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 1.3,
+                child: Row(
+                  children: [
+                    const Text('Large'),
+                    if (_fontSizeScale > 1.1 && _fontSizeScale <= 1.5)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.check, size: 18),
+                      ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 1.7,
+                child: Row(
+                  children: [
+                    const Text('Extra Large'),
+                    if (_fontSizeScale > 1.5)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.check, size: 18),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -649,21 +746,32 @@ class _NativeFirstSentencesScreenState
                                         children: [
                                           Text(
                                             inputSentence,
-                                            style: const TextStyle(
-                                              fontSize: 18,
+                                            style: TextStyle(
+                                              fontSize: 18 * _fontSizeScale,
                                               fontWeight: FontWeight.w500,
-                                              color: Color(0xFF3F51B5),
+                                              color: const Color(0xFF3F51B5),
                                             ),
                                           ),
                                           const SizedBox(height: 12),
-                                          TextField(
-                                            controller: _sentenceInputController,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Your translation attempt',
-                                              border: OutlineInputBorder(),
+                                          KeyboardListener(
+                                            focusNode: FocusNode(),
+                                            onKeyEvent: (event) {
+                                              if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                                setState(() => _showTranslation = !_showTranslation);
+                                              }
+                                            },
+                                            child: TextField(
+                                              controller: _sentenceInputController,
+                                              focusNode: _sentenceFocusNode,
+                                              decoration: InputDecoration(
+                                                labelText: 'Your translation attempt (press Enter to reveal)',
+                                                labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
+                                                border: const OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(fontSize: 16 * _fontSizeScale),
+                                              minLines: 1,
+                                              maxLines: 1,
                                             ),
-                                            minLines: 1,
-                                            maxLines: 3,
                                           ),
                                         ],
                                       ),
@@ -678,7 +786,7 @@ class _NativeFirstSentencesScreenState
                                     Text(
                                       sentence,
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 14 * _fontSizeScale,
                                         color: Colors.grey.shade700,
                                         fontStyle: FontStyle.italic,
                                       ),
@@ -690,7 +798,7 @@ class _NativeFirstSentencesScreenState
                                       child: Text(
                                         outputTranslation,
                                         style: TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 14 * _fontSizeScale,
                                           color: Colors.teal.shade700,
                                         ),
                                       ),
@@ -882,27 +990,40 @@ class _NativeFirstSentencesScreenState
                                                     children: [
                                                       Text(
                                                         questionInput,
-                                                        style: const TextStyle(
-                                                          color:
-                                                              Color(0xFFE65100),
-                                                          fontWeight:
-                                                              FontWeight.w500,
+                                                        style: TextStyle(
+                                                          fontSize: 14 * _fontSizeScale,
+                                                          color: const Color(0xFFE65100),
+                                                          fontWeight: FontWeight.w500,
                                                         ),
                                                       ),
                                                       const SizedBox(height: 8),
-                                                      TextField(
-                                                        controller:
-                                                            _qaQuestionControllers[
-                                                                idx],
-                                                        decoration:
-                                                            const InputDecoration(
-                                                          labelText:
-                                                              'Your translation attempt (question)',
-                                                          border:
-                                                              OutlineInputBorder(),
+                                                      KeyboardListener(
+                                                        focusNode: FocusNode(),
+                                                        onKeyEvent: (event) {
+                                                          if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                                            _qaAnswerFocusNodes[idx].requestFocus();
+                                                          }
+                                                        },
+                                                        child: TextField(
+                                                          controller:
+                                                              _qaQuestionControllers[idx],
+                                                          focusNode:
+                                                              _qaQuestionFocusNodes[idx],
+                                                          decoration: InputDecoration(
+                                                            labelText:
+                                                                'Your translation attempt (press Tab)',
+                                                            labelStyle: TextStyle(
+                                                                fontSize: 12 *
+                                                                    _fontSizeScale),
+                                                            border:
+                                                                const OutlineInputBorder(),
+                                                          ),
+                                                          style: TextStyle(
+                                                              fontSize:
+                                                                  14 * _fontSizeScale),
+                                                          minLines: 1,
+                                                          maxLines: 1,
                                                         ),
-                                                        minLines: 1,
-                                                        maxLines: 3,
                                                       ),
                                                     ],
                                                   ),
@@ -911,7 +1032,7 @@ class _NativeFirstSentencesScreenState
                                                     Text(
                                                       question,
                                                       style: TextStyle(
-                                                        fontSize: 11,
+                                                        fontSize: 11 * _fontSizeScale,
                                                         color: Colors
                                                             .grey.shade500,
                                                         fontStyle:
@@ -945,25 +1066,49 @@ class _NativeFirstSentencesScreenState
                                                       children: [
                                                         Text(
                                                           answerInput,
-                                                          style: const TextStyle(
-                                                              color: Color(
+                                                          style: TextStyle(
+                                                              fontSize: 14 * _fontSizeScale,
+                                                              color: const Color(
                                                                   0xFF2E7D32)),
                                                         ),
                                                         const SizedBox(
                                                             height: 8),
-                                                        TextField(
-                                                          controller:
-                                                              _qaAnswerControllers[
-                                                                  idx],
-                                                          decoration:
-                                                              const InputDecoration(
-                                                            labelText:
-                                                                'Your translation attempt (answer)',
-                                                            border:
-                                                                OutlineInputBorder(),
+                                                        KeyboardListener(
+                                                          focusNode: FocusNode(),
+                                                          onKeyEvent: (event) {
+                                                            if (event.logicalKey == LogicalKeyboardKey.enter) {
+                                                              setState(() {
+                                                                if (_revealedQa.contains(idx)) {
+                                                                  _revealedQa.remove(idx);
+                                                                } else {
+                                                                  _revealedQa.add(idx);
+                                                                }
+                                                              });
+                                                            }
+                                                          },
+                                                          child: TextField(
+                                                            controller:
+                                                                _qaAnswerControllers[
+                                                                    idx],
+                                                            focusNode:
+                                                                _qaAnswerFocusNodes[
+                                                                    idx],
+                                                            decoration:
+                                                                InputDecoration(
+                                                              labelText:
+                                                                  'Your translation attempt (press Enter to reveal)',
+                                                              labelStyle: TextStyle(
+                                                                  fontSize: 12 *
+                                                                      _fontSizeScale),
+                                                              border:
+                                                                  const OutlineInputBorder(),
+                                                            ),
+                                                            style: TextStyle(
+                                                                fontSize: 14 *
+                                                                    _fontSizeScale),
+                                                            minLines: 1,
+                                                            maxLines: 1,
                                                           ),
-                                                          minLines: 1,
-                                                          maxLines: 3,
                                                         ),
                                                       ],
                                                     ),
@@ -972,7 +1117,7 @@ class _NativeFirstSentencesScreenState
                                                       Text(
                                                         answer,
                                                         style: TextStyle(
-                                                          fontSize: 11,
+                                                          fontSize: 11 * _fontSizeScale,
                                                           color: Colors
                                                               .grey.shade500,
                                                           fontStyle:

@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
@@ -196,28 +196,28 @@ class ApiService {
     final base = await _baseUrl();
     final headers = await _authHeaders();
     final url = '$base/api/home';
-    print('[DEBUG] getHomeData: base=$base, url=$url');
-    print('[DEBUG] getHomeData: headers=$headers');
+    debugPrint('[DEBUG] getHomeData: base=$base, url=$url');
+    debugPrint('[DEBUG] getHomeData: headers=$headers');
     try {
       final resp = await http
           .get(Uri.parse(url), headers: headers)
           .timeout(_timeout);
-      print('[DEBUG] getHomeData: statusCode=${resp.statusCode}');
+      debugPrint('[DEBUG] getHomeData: statusCode=${resp.statusCode}');
 
       // Handle unauthorized - token might be expired
       if (resp.statusCode == 401) {
-        print('[DEBUG] getHomeData: Received 401, clearing session');
+        debugPrint('[DEBUG] getHomeData: Received 401, clearing session');
         await AuthService.clearSession();
         throw ApiException(401, 'Session expired. Please log in again.');
       }
 
       if (resp.statusCode != 200) {
-        print('[DEBUG] getHomeData: response body=${resp.body}');
+        debugPrint('[DEBUG] getHomeData: response body=${resp.body}');
         throw ApiException(resp.statusCode, 'Failed to get home data');
       }
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (e) {
-      print('[DEBUG] getHomeData: exception=$e');
+      debugPrint('[DEBUG] getHomeData: exception=$e');
       rethrow;
     }
   }
