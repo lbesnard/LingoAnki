@@ -412,29 +412,6 @@ class _NativeFirstSentencesScreenState
     }).catchError((_) {});
   }
 
-  void _increaseFontSize() {
-    setState(() {
-      if (_fontSizeScale < 2.0) {
-        _fontSizeScale = (_fontSizeScale * 1.2).clamp(0.8, 2.0);
-      }
-    });
-  }
-
-  void _decreaseFontSize() {
-    setState(() {
-      if (_fontSizeScale > 0.8) {
-        _fontSizeScale = (_fontSizeScale / 1.2).clamp(0.8, 2.0);
-      }
-    });
-  }
-
-  String _fontSizeLabel() {
-    if (_fontSizeScale <= 0.9) return 'Small';
-    if (_fontSizeScale <= 1.1) return 'Normal';
-    if (_fontSizeScale <= 1.5) return 'Large';
-    return 'Extra Large';
-  }
-
   Widget _scoreButton(String label, int score, Color color) {
     return Expanded(
       child: Padding(
@@ -776,10 +753,10 @@ class _NativeFirstSentencesScreenState
                                             ),
                                           ),
                                           const SizedBox(height: 12),
-                                          RawKeyboardListener(
+                                          KeyboardListener(
                                             focusNode: FocusNode(),
-                                            onKey: (event) {
-                                              if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                            onKeyEvent: (event) {
+                                              if (event.logicalKey == LogicalKeyboardKey.enter) {
                                                 setState(() => _showTranslation = !_showTranslation);
                                               }
                                             },
@@ -1020,10 +997,10 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                       ),
                                                       const SizedBox(height: 8),
-                                                      RawKeyboardListener(
+                                                      KeyboardListener(
                                                         focusNode: FocusNode(),
-                                                        onKey: (event) {
-                                                          if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                                        onKeyEvent: (event) {
+                                                          if (event.logicalKey == LogicalKeyboardKey.enter) {
                                                             _qaAnswerFocusNodes[idx].requestFocus();
                                                           }
                                                         },
@@ -1096,10 +1073,10 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                         const SizedBox(
                                                             height: 8),
-                                                        RawKeyboardListener(
+                                                        KeyboardListener(
                                                           focusNode: FocusNode(),
-                                                          onKey: (event) {
-                                                            if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                                          onKeyEvent: (event) {
+                                                            if (event.logicalKey == LogicalKeyboardKey.enter) {
                                                               setState(() {
                                                                 if (_revealedQa.contains(idx)) {
                                                                   _revealedQa.remove(idx);

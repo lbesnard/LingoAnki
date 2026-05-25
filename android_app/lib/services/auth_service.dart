@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,7 +53,7 @@ class AuthService {
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString(_tokenKey);
-      print('[DEBUG] AuthService.getToken: kIsWeb=true, token=${token == null ? 'null' : 'present (${token.substring(0, 20)}...)'}, keys=${prefs.getKeys()}');
+      debugPrint('[DEBUG] AuthService.getToken: kIsWeb=true, token=${token == null ? 'null' : 'present (${token.substring(0, 20)}...)'}, keys=${prefs.getKeys()}');
       return token;
     }
     return _storage.read(key: _tokenKey);
