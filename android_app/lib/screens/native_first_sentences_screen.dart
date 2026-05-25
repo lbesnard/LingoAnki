@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -775,18 +776,25 @@ class _NativeFirstSentencesScreenState
                                             ),
                                           ),
                                           const SizedBox(height: 12),
-                                          TextField(
-                                            controller: _sentenceInputController,
-                                            focusNode: _sentenceFocusNode,
-                                            decoration: InputDecoration(
-                                              labelText: 'Your translation attempt (press Enter to reveal)',
-                                              labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
-                                              border: const OutlineInputBorder(),
+                                          RawKeyboardListener(
+                                            focusNode: FocusNode(),
+                                            onKey: (event) {
+                                              if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                                setState(() => _showTranslation = !_showTranslation);
+                                              }
+                                            },
+                                            child: TextField(
+                                              controller: _sentenceInputController,
+                                              focusNode: _sentenceFocusNode,
+                                              decoration: InputDecoration(
+                                                labelText: 'Your translation attempt (press Enter to reveal)',
+                                                labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
+                                                border: const OutlineInputBorder(),
+                                              ),
+                                              style: TextStyle(fontSize: 16 * _fontSizeScale),
+                                              minLines: 1,
+                                              maxLines: 3,
                                             ),
-                                            style: TextStyle(fontSize: 16 * _fontSizeScale),
-                                            minLines: 1,
-                                            maxLines: 3,
-                                            onSubmitted: (_) => setState(() => _showTranslation = !_showTranslation),
                                           ),
                                         ],
                                       ),
@@ -1012,31 +1020,33 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                       ),
                                                       const SizedBox(height: 8),
-                                                      TextField(
-                                                        controller:
-                                                            _qaQuestionControllers[idx],
-                                                        focusNode:
-                                                            _qaQuestionFocusNodes[idx],
-                                                        decoration: InputDecoration(
-                                                          labelText:
-                                                              'Your translation attempt (press Tab to continue)',
-                                                          labelStyle: TextStyle(
-                                                              fontSize: 12 *
-                                                                  _fontSizeScale),
-                                                          border:
-                                                              const OutlineInputBorder(),
-                                                        ),
-                                                        style: TextStyle(
-                                                            fontSize:
-                                                                14 * _fontSizeScale),
-                                                        minLines: 1,
-                                                        maxLines: 3,
-                                                        textInputAction:
-                                                            TextInputAction.next,
-                                                        onSubmitted: (_) {
-                                                          _qaAnswerFocusNodes[idx]
-                                                              .requestFocus();
+                                                      RawKeyboardListener(
+                                                        focusNode: FocusNode(),
+                                                        onKey: (event) {
+                                                          if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                                            _qaAnswerFocusNodes[idx].requestFocus();
+                                                          }
                                                         },
+                                                        child: TextField(
+                                                          controller:
+                                                              _qaQuestionControllers[idx],
+                                                          focusNode:
+                                                              _qaQuestionFocusNodes[idx],
+                                                          decoration: InputDecoration(
+                                                            labelText:
+                                                                'Your translation attempt (press Enter to go to answer)',
+                                                            labelStyle: TextStyle(
+                                                                fontSize: 12 *
+                                                                    _fontSizeScale),
+                                                            border:
+                                                                const OutlineInputBorder(),
+                                                          ),
+                                                          style: TextStyle(
+                                                              fontSize:
+                                                                  14 * _fontSizeScale),
+                                                          minLines: 1,
+                                                          maxLines: 3,
+                                                        ),
                                                       ),
                                                     ],
                                                   ),
@@ -1086,42 +1096,42 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                         const SizedBox(
                                                             height: 8),
-                                                        TextField(
-                                                          controller:
-                                                              _qaAnswerControllers[
-                                                                  idx],
-                                                          focusNode:
-                                                              _qaAnswerFocusNodes[
-                                                                  idx],
-                                                          decoration:
-                                                              InputDecoration(
-                                                            labelText:
-                                                                'Your translation attempt (press Enter to reveal)',
-                                                            labelStyle: TextStyle(
-                                                                fontSize: 12 *
-                                                                    _fontSizeScale),
-                                                            border:
-                                                                const OutlineInputBorder(),
-                                                          ),
-                                                          style: TextStyle(
-                                                              fontSize: 14 *
-                                                                  _fontSizeScale),
-                                                          minLines: 1,
-                                                          maxLines: 3,
-                                                          onSubmitted: (_) {
-                                                            setState(() {
-                                                              if (_revealedQa
-                                                                  .contains(
-                                                                      idx)) {
-                                                                _revealedQa
-                                                                    .remove(
-                                                                        idx);
-                                                              } else {
-                                                                _revealedQa
-                                                                    .add(idx);
-                                                              }
-                                                            });
+                                                        RawKeyboardListener(
+                                                          focusNode: FocusNode(),
+                                                          onKey: (event) {
+                                                            if (event.isKeyPressed(LogicalKeyboardKey.enter)) {
+                                                              setState(() {
+                                                                if (_revealedQa.contains(idx)) {
+                                                                  _revealedQa.remove(idx);
+                                                                } else {
+                                                                  _revealedQa.add(idx);
+                                                                }
+                                                              });
+                                                            }
                                                           },
+                                                          child: TextField(
+                                                            controller:
+                                                                _qaAnswerControllers[
+                                                                    idx],
+                                                            focusNode:
+                                                                _qaAnswerFocusNodes[
+                                                                    idx],
+                                                            decoration:
+                                                                InputDecoration(
+                                                              labelText:
+                                                                  'Your translation attempt (press Enter to reveal)',
+                                                              labelStyle: TextStyle(
+                                                                  fontSize: 12 *
+                                                                      _fontSizeScale),
+                                                              border:
+                                                                  const OutlineInputBorder(),
+                                                            ),
+                                                            style: TextStyle(
+                                                                fontSize: 14 *
+                                                                    _fontSizeScale),
+                                                            minLines: 1,
+                                                            maxLines: 3,
+                                                          ),
                                                         ),
                                                       ],
                                                     ),
