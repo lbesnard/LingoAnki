@@ -92,46 +92,51 @@ class _SentencesScreenState extends State<SentencesScreen> {
     setState(() {
       _loading = true;
       _error = null;
-      _offlineMode = false;
     });
+
+    // Show cached data immediately for instant response.
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(_cacheKey);
+    if (cached != null) {
+      try {
+        final cachedSentences =
+            List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+        if (mounted && cachedSentences.isNotEmpty) {
+          setState(() {
+            _sentences = cachedSentences;
+            _currentIndex = 0;
+            _loading = false;
+            _offlineMode = true; // assume offline until server confirms
+          });
+          _loadAudio(autoPlay: true);
+        }
+      } catch (_) {}
+    }
+
+    // Refresh from server in background.
     try {
       final sentences = await ApiService.getDueSentences(limit: 20);
-      // Cache for offline use
-      final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_cacheKey, jsonEncode(sentences));
       if (mounted) {
         setState(() {
           _sentences = sentences;
           _currentIndex = 0;
           _loading = false;
+          _offlineMode = false;
         });
-        _loadAudio(autoPlay: true);
+        _loadAudio(autoPlay: _sentences.isEmpty);
       }
     } catch (_) {
-      // Try offline cache
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final cached = prefs.getString(_cacheKey);
-        if (cached != null) {
-          final sentences =
-              List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
-          if (mounted) {
-            setState(() {
-              _sentences = sentences;
-              _currentIndex = 0;
-              _loading = false;
-              _offlineMode = true;
-            });
-            _loadAudio(autoPlay: true);
-          }
-          return;
-        }
-      } catch (_) {}
       if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'Offline — sync the app when connected to load new sentences.';
-        });
+        if (_sentences.isEmpty) {
+          setState(() {
+            _loading = false;
+            _error = 'Offline — sync the app when connected to load new sentences.';
+          });
+        } else {
+          // Already showing cached data; just keep offline banner.
+          setState(() => _loading = false);
+        }
       }
     }
   }

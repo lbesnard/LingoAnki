@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -110,64 +109,74 @@ class _NativeFirstSentencesScreenState
     setState(() {
       _loading = true;
       _error = null;
-      _offlineMode = false;
     });
+
+    // Show cached data immediately for instant response.
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(_cacheKey);
+    if (cached != null) {
+      try {
+        final cachedSentences =
+            List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+        if (mounted && cachedSentences.isNotEmpty) {
+          final qa = (cachedSentences[0]['qa'] as List?)
+                  ?.cast<Map<String, dynamic>>() ??
+              [];
+          setState(() {
+            _sentences = cachedSentences;
+            _currentIndex = 0;
+            _loading = false;
+            _offlineMode = true; // assume offline until server confirms
+            _qaQuestionControllers =
+                List.generate(qa.length, (_) => TextEditingController());
+            _qaAnswerControllers =
+                List.generate(qa.length, (_) => TextEditingController());
+            _qaQuestionFocusNodes =
+                List.generate(qa.length, (_) => FocusNode());
+            _qaAnswerFocusNodes =
+                List.generate(qa.length, (_) => FocusNode());
+          });
+          _loadAudio(autoPlay: false);
+        }
+      } catch (_) {}
+    }
+
+    // Refresh from server in background.
     try {
       final sentences = await ApiService.getDueSentences(limit: 20);
-      final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_cacheKey, jsonEncode(sentences));
       if (mounted) {
+        final qa = sentences.isNotEmpty
+            ? (sentences[0]['qa'] as List?)?.cast<Map<String, dynamic>>() ?? []
+            : [];
         setState(() {
           _sentences = sentences;
           _currentIndex = 0;
           _loading = false;
-          // Initialize controllers for the first sentence's Q&A
-          final qa = sentences.isNotEmpty
-              ? (sentences[0]['qa'] as List?)?.cast<Map<String, dynamic>>() ??
-                  []
-              : [];
+          _offlineMode = false;
           _qaQuestionControllers =
               List.generate(qa.length, (_) => TextEditingController());
           _qaAnswerControllers =
               List.generate(qa.length, (_) => TextEditingController());
+          _qaQuestionFocusNodes =
+              List.generate(qa.length, (_) => FocusNode());
+          _qaAnswerFocusNodes =
+              List.generate(qa.length, (_) => FocusNode());
         });
         _loadAudio(autoPlay: false);
       }
     } catch (_) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final cached = prefs.getString(_cacheKey);
-        if (cached != null) {
-          final sentences =
-              List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
-          if (mounted) {
-            setState(() {
-              _sentences = sentences;
-              _currentIndex = 0;
-              _loading = false;
-              _offlineMode = true;
-              // Initialize controllers for the first sentence's Q&A (offline)
-              final qa = sentences.isNotEmpty
-                  ? (sentences[0]['qa'] as List?)
-                          ?.cast<Map<String, dynamic>>() ??
-                      []
-                  : [];
-              _qaQuestionControllers =
-                  List.generate(qa.length, (_) => TextEditingController());
-              _qaAnswerControllers =
-                  List.generate(qa.length, (_) => TextEditingController());
-            });
-            _loadAudio(autoPlay: false);
-          }
-          return;
-        }
-      } catch (_) {}
       if (mounted) {
-        setState(() {
-          _loading = false;
-          _error =
-              'Offline — sync the app when connected to load new sentences.';
-        });
+        if (_sentences.isEmpty) {
+          setState(() {
+            _loading = false;
+            _error =
+                'Offline — sync the app when connected to load new sentences.';
+          });
+        } else {
+          // Already showing cached data; just keep offline banner.
+          setState(() => _loading = false);
+        }
       }
     }
   }
@@ -753,25 +762,19 @@ class _NativeFirstSentencesScreenState
                                             ),
                                           ),
                                           const SizedBox(height: 12),
-                                          KeyboardListener(
-                                            focusNode: FocusNode(),
-                                            onKeyEvent: (event) {
-                                              if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                                setState(() => _showTranslation = !_showTranslation);
-                                              }
-                                            },
-                                            child: TextField(
-                                              controller: _sentenceInputController,
-                                              focusNode: _sentenceFocusNode,
-                                              decoration: InputDecoration(
-                                                labelText: 'Your translation attempt (press Enter to reveal)',
-                                                labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
-                                                border: const OutlineInputBorder(),
-                                              ),
-                                              style: TextStyle(fontSize: 16 * _fontSizeScale),
-                                              minLines: 1,
-                                              maxLines: 1,
+                                          TextField(
+                                            controller: _sentenceInputController,
+                                            focusNode: _sentenceFocusNode,
+                                            decoration: InputDecoration(
+                                              labelText: 'Your translation attempt (press Enter to reveal)',
+                                              labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
+                                              border: const OutlineInputBorder(),
                                             ),
+                                            style: TextStyle(fontSize: 16 * _fontSizeScale),
+                                            minLines: 1,
+                                            maxLines: 1,
+                                            textInputAction: TextInputAction.done,
+                                            onSubmitted: (_) => setState(() => _showTranslation = !_showTranslation),
                                           ),
                                         ],
                                       ),
@@ -997,33 +1000,27 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                       ),
                                                       const SizedBox(height: 8),
-                                                      KeyboardListener(
-                                                        focusNode: FocusNode(),
-                                                        onKeyEvent: (event) {
-                                                          if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                                            _qaAnswerFocusNodes[idx].requestFocus();
-                                                          }
-                                                        },
-                                                        child: TextField(
-                                                          controller:
-                                                              _qaQuestionControllers[idx],
-                                                          focusNode:
-                                                              _qaQuestionFocusNodes[idx],
-                                                          decoration: InputDecoration(
-                                                            labelText:
-                                                                'Your translation attempt (press Tab)',
-                                                            labelStyle: TextStyle(
-                                                                fontSize: 12 *
-                                                                    _fontSizeScale),
-                                                            border:
-                                                                const OutlineInputBorder(),
-                                                          ),
-                                                          style: TextStyle(
-                                                              fontSize:
-                                                                  14 * _fontSizeScale),
-                                                          minLines: 1,
-                                                          maxLines: 1,
-                                                        ),
+                                                      TextField(
+                                                       controller:
+                                                           _qaQuestionControllers[idx],
+                                                       focusNode:
+                                                           _qaQuestionFocusNodes[idx],
+                                                       decoration: InputDecoration(
+                                                         labelText:
+                                                             'Your translation attempt',
+                                                         labelStyle: TextStyle(
+                                                             fontSize: 12 *
+                                                                 _fontSizeScale),
+                                                         border:
+                                                             const OutlineInputBorder(),
+                                                       ),
+                                                       style: TextStyle(
+                                                           fontSize:
+                                                               14 * _fontSizeScale),
+                                                       minLines: 1,
+                                                       maxLines: 1,
+                                                       textInputAction: TextInputAction.next,
+                                                       onSubmitted: (_) => _qaAnswerFocusNodes[idx].requestFocus(),
                                                       ),
                                                     ],
                                                   ),
@@ -1073,42 +1070,36 @@ class _NativeFirstSentencesScreenState
                                                         ),
                                                         const SizedBox(
                                                             height: 8),
-                                                        KeyboardListener(
-                                                          focusNode: FocusNode(),
-                                                          onKeyEvent: (event) {
-                                                            if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                                              setState(() {
-                                                                if (_revealedQa.contains(idx)) {
-                                                                  _revealedQa.remove(idx);
-                                                                } else {
-                                                                  _revealedQa.add(idx);
-                                                                }
-                                                              });
-                                                            }
-                                                          },
-                                                          child: TextField(
-                                                            controller:
-                                                                _qaAnswerControllers[
-                                                                    idx],
-                                                            focusNode:
-                                                                _qaAnswerFocusNodes[
-                                                                    idx],
-                                                            decoration:
-                                                                InputDecoration(
-                                                              labelText:
-                                                                  'Your translation attempt (press Enter to reveal)',
-                                                              labelStyle: TextStyle(
-                                                                  fontSize: 12 *
-                                                                      _fontSizeScale),
-                                                              border:
-                                                                  const OutlineInputBorder(),
-                                                            ),
-                                                            style: TextStyle(
-                                                                fontSize: 14 *
+                                                        TextField(
+                                                          controller:
+                                                              _qaAnswerControllers[
+                                                                  idx],
+                                                          focusNode:
+                                                              _qaAnswerFocusNodes[
+                                                                  idx],
+                                                          decoration:
+                                                              InputDecoration(
+                                                            labelText:
+                                                                'Your translation attempt',
+                                                            labelStyle: TextStyle(
+                                                                fontSize: 12 *
                                                                     _fontSizeScale),
-                                                            minLines: 1,
-                                                            maxLines: 1,
+                                                            border:
+                                                                const OutlineInputBorder(),
                                                           ),
+                                                          style: TextStyle(
+                                                              fontSize: 14 *
+                                                                  _fontSizeScale),
+                                                          minLines: 1,
+                                                          maxLines: 1,
+                                                          textInputAction: TextInputAction.done,
+                                                          onSubmitted: (_) => setState(() {
+                                                            if (_revealedQa.contains(idx)) {
+                                                              _revealedQa.remove(idx);
+                                                            } else {
+                                                              _revealedQa.add(idx);
+                                                            }
+                                                          }),
                                                         ),
                                                       ],
                                                     ),
