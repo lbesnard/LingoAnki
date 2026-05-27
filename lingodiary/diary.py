@@ -2138,17 +2138,21 @@ class TprsCreation(DiaryHandler):
         return new_or_updated_tprs_dict_for_standard
 
 
-def main(config_path=None):
+def main(config_path=None, skip_audio: bool = False):
     """Main function to run the diary and TPRS processing workflow.
 
     Args:
         config_path (str, optional): Path to the configuration file.
                                      Defaults to None, which uses the default user config path.
+        skip_audio (bool): When True, skip convert_to_audio() for all variants.
+                           Use this in the webapp flow where backfill_audio_timings()
+                           handles audio generation and timing in a single pass.
+                           Defaults to False (used by the lingoDiary admin script).
 
     Initializes DiaryHandler, completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
-    and finally converts all TPRS entries to audio.
+    and optionally converts all TPRS entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
     _log = diary_instance.logging  # named logger — goes to output.log
@@ -2190,7 +2194,12 @@ def main(config_path=None):
         _log.info(f"Q&A generation done for {variant.variant_name}.")
 
         _log.info(f"=== Phase 3/3: Audio generation — {variant.variant_name} ===")
-        if tprs_instance.config.get("create_tprs_audio", True):
+        if skip_audio:
+            _log.info(
+                f"Skipping convert_to_audio() for {variant.variant_name} "
+                f"(webapp flow — backfill_audio_timings handles audio)."
+            )
+        elif tprs_instance.config.get("create_tprs_audio", True):
             variant.convert_to_audio()
         else:
             _log.info(

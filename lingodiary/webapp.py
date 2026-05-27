@@ -280,7 +280,7 @@ def api_generate():
             app.logger.warning(f"diary.json backup failed: {exc}")
 
         try:
-            main_diary_tprs(config_path=config_path)
+            main_diary_tprs(config_path=config_path, skip_audio=True)
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
             _log_to_file(f"ERROR: Generation failed: {exc}")
