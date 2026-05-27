@@ -54,7 +54,7 @@ version = "2.3.0"
 config = ".pre-commit-config.yaml"
 
 [tool.pytest.ini_options]
-testpaths = ["test_lingodiary"]
+testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["lingodiary"]
