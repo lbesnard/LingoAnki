@@ -4,13 +4,13 @@
 
 ### Day
 A single diary day, identified by a `YYYY/MM/DD` date string.  A Day has a title,
-an ordered list of **Entries**, and one assembled **Lesson Audio** file per **Variant**.
-`DiaryDay` in code.
+an ordered list of **Sentences**, and one assembled **Lesson Audio** file per
+**Lesson Variant**.  `DiaryDay` in code.
 
-### Entry
+### Sentence
 One sentence the user wrote in their **Input Language**, together with its
-**Output Language** translation and AI-generated tips.  Entries within a Day are
-numbered from 1 (1-based `index`).  Each Entry owns a **Lessons Block**.
+**Output Language** translation and AI-generated tips.  Sentences within a Day are
+numbered from 1 (1-based `index`).  Each Sentence owns a **Variant Set**.
 `DiaryEntry` in code.
 
 ### Input Language
@@ -22,48 +22,52 @@ hold text in this language.
 The language the user is learning.  Fields whose names end in `_translation` or
 `output_language_*` hold text in this language.
 
-### Lessons Block
-The collection of all **Variants** for one Entry, plus the shared **Reviewing State**.
+### Lesson
+All **Sentence Blocks** for one **Lesson Variant** across an entire **Day**.
+A Lesson is what gets assembled into a single **Lesson Audio** file and played
+back in the app.
+
+### Lesson Variant
+One of the four grammatical retellings of a Day's content: `original`,
+`enhanced`, `present`, `future`.
+
+### Variant Set
+The group of four **Sentence Blocks** (one per **Lesson Variant**) that belong to
+a single **Sentence**, together with its shared **Reviewing State**.
 `LessonsBlock` in code.
 
-### Variant
-One grammatical retelling of an Entry's sentence in the **Output Language**.
-There are exactly four: `original`, `enhanced`, `present`, `future`.
-Each Variant has a **Variant Sentence**, a list of **Q&A Pairs**, and **Audio Segments**
-with **Audio Timings** relative to the **Lesson Audio** for that Variant.
-`VariantLesson` in code.
-
-### Variant Sentence
-The rewritten sentence that belongs to a specific **Variant**.  Stored alongside
-its **Input Language** back-translation (`sentence_input`).
+### Sentence Block
+One **Lesson Variant**'s retelling of a **Sentence**: the retold sentence text in
+the **Output Language** plus its list of **Q&A Pairs**, audio segment path, and
+**Audio Timing**.  `VariantLesson` in code.
 
 ### Q&A Pair
 A comprehension question and its answer, both in the **Output Language**, within a
-**Variant**.  Each also carries an **Input Language** translation (`question_input`,
-`answer_input`) so the learner can check meaning.  `QA` in code.
+**Sentence Block**.  Each also carries an **Input Language** translation
+(`question_input`, `answer_input`) so the learner can check meaning.  `QA` in code.
 
 ### Audio Segment
-An individual MP3 clip for one unit of audio content: a **Variant Sentence**
-(`*_s.mp3`), a question (`*_q{n}.mp3`), or an answer (`*_a{n}.mp3`).  Stored
-under `TPRS/SEGMENTS/{date}_{variant}/`.  Path is relative to the server's
+An individual MP3 clip for one unit of audio content: a **Sentence Block**'s
+sentence (`*_s.mp3`), a question (`*_q{n}.mp3`), or an answer (`*_a{n}.mp3`).
+Stored under `TPRS/SEGMENTS/{date}_{variant}/`.  Path is relative to the server's
 `output_dir`.
 
 ### Audio Timing
-A `{start_ms, end_ms}` pair that locates an **Audio Segment** within the assembled
-**Lesson Audio** for its Variant.  `AudioTiming` in code.
+A `{start_ms, end_ms}` pair that locates an **Audio Segment** within the
+assembled **Lesson Audio** for its **Lesson Variant**.  `AudioTiming` in code.
 
 ### Lesson Audio
-The single assembled MP3 for one **Variant** on one **Day**; a concatenation of all
-Audio Segments in order (sentence → Q&A pairs, with inter-segment silence).
-Stored at `TPRS/TPRS_{date}{variant_suffix}.mp3`.  Path tracked per-variant in
-`DiaryDay.lesson_audio_paths`.
+The single assembled MP3 for one **Lesson** (one **Lesson Variant** on one **Day**);
+a concatenation of all Audio Segments in order (sentence → Q&A pairs, with
+inter-segment silence).  Stored at `TPRS/TPRS_{date}{variant_suffix}.mp3`.
+Path tracked per-variant in `DiaryDay.lesson_audio_paths`.
 
 ### Reviewing State
-SM-2 spaced-repetition metadata for one **Entry**: status (`new` / `learning` /
+SM-2 spaced-repetition metadata for one **Sentence**: status (`new` / `learning` /
 `mastered`), mastery score (0–5), interval, and next-review date.  Shared across
-all Variants of the same Entry.  `ReviewingState` in code.
+all Lesson Variants of the same Sentence.  `ReviewingState` in code.
 
 ### TPRS
 Total Physical Response Storytelling — the language-teaching method that motivates
-the Variant/Q&A structure.  Also used as the top-level folder name for all
-generated audio files (`TPRS/`).
+the Lesson Variant / Q&A structure.  Also used as the top-level folder name for
+all generated audio files (`TPRS/`).
