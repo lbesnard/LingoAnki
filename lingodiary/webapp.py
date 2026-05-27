@@ -456,15 +456,25 @@ def api_backfill_all():
 @app.route("/api/generate/status", methods=["GET"])
 @_jwt_required
 def api_generate_status():
-    from flask import g as _g
+    from flask import g as _g, request
 
     log_file = os.path.join(_g.api_output_folder, "output.log")
-    lines = []
+    offset = int(request.args.get("offset", 0))
+    chunk = ""
+    new_offset = offset
+    done = False
+
     if os.path.exists(log_file):
         with open(log_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        lines = lines[-50:]
-    return jsonify({"log": "".join(lines)})
+            f.seek(offset)
+            chunk = f.read()
+            new_offset = f.tell()
+
+    done = any(
+        marker in chunk
+        for marker in ("=== Generation finished ===", "ERROR: Generation failed")
+    )
+    return jsonify({"log": chunk, "offset": new_offset, "done": done})
 
 
 @app.route("/api/lessons", methods=["GET"])
