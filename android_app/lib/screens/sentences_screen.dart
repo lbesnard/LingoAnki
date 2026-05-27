@@ -153,25 +153,17 @@ class _SentencesScreenState extends State<SentencesScreen> {
       return;
     }
     try {
-      // On Android: check/download local cache first.
-      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
-        setState(() {
-          _audioDownloading = true;
-          _audioLoaded = false;
-          _audioUnavailable = false;
-        });
-        final ok = await SyncService.downloadFile(audioPath);
-        if (!mounted) return;
-        if (!ok) {
-          setState(() {
-            _audioDownloading = false;
-            _audioUnavailable = true;
-          });
-          return;
-        }
-        setState(() => _audioDownloading = false);
+      final needsDownload = !kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync();
+      if (needsDownload) {
+        setState(() { _audioDownloading = true; _audioLoaded = false; _audioUnavailable = false; });
       }
-      final uri = await SyncService.audioUri(audioPath);
+      final uri = await SyncService.ensureLocalAndGetUri(audioPath);
+      if (!mounted) return;
+      if (uri == null) {
+        setState(() { _audioDownloading = false; _audioUnavailable = true; });
+        return;
+      }
+      if (needsDownload) setState(() => _audioDownloading = false);
       await _player.setAudioSource(AudioSource.uri(uri));
       if (mounted) {
         setState(() { _audioLoaded = true; _audioUnavailable = false; });
@@ -217,14 +209,12 @@ class _SentencesScreenState extends State<SentencesScreen> {
 
     try {
       // On Android: check/download local cache first.
-      if (!kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync()) {
-        setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
-        final ok = await SyncService.downloadFile(audioPath);
-        if (!mounted) return;
-        setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
-        if (!ok) return;
-      }
-      final uri = await SyncService.audioUri(audioPath);
+      final needsDownload = !kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync();
+      if (needsDownload) setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
+      final uri = await SyncService.ensureLocalAndGetUri(audioPath);
+      if (!mounted) return;
+      if (needsDownload) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+      if (uri == null) return;
       setState(() { _activeQaKey = key; _qaPlaying = true; });
       await _qaPlayer.setAudioSource(AudioSource.uri(uri));
       _qaPlayer.play();
@@ -253,15 +243,12 @@ class _SentencesScreenState extends State<SentencesScreen> {
             : qa[i]['answer_audio_path'] as String? ?? '';
         if (path.isEmpty) continue;
 
-        if (!kIsWeb && !File(await SyncService.localPath(path)).existsSync()) {
-          final ok = await SyncService.downloadFile(path);
-          if (!ok || !mounted) continue;
-        }
+        final uri = await SyncService.ensureLocalAndGetUri(path);
+        if (uri == null || !mounted) continue;
 
         if (!_playingAllQa || !mounted) return;
         final key = '${i}_$type';
         setState(() { _activeQaKey = key; _qaPlaying = true; });
-        final uri = await SyncService.audioUri(path);
         await _qaPlayer.setAudioSource(AudioSource.uri(uri));
         await _qaPlayer.seek(Duration.zero);
         _qaPlayer.play();
@@ -282,6 +269,7 @@ class _SentencesScreenState extends State<SentencesScreen> {
   /// Downloads all audio files for the current sentence (sentence + Q&A).
   Future<void> _syncCurrentLessonAudio() async {
     if (_sentences.isEmpty || _syncing) return;
+    setState(() => _syncing = true);
     final item = _sentences[_currentIndex];
     await _syncItemAudio(item);
     if (mounted) {
@@ -363,14 +351,15 @@ class _SentencesScreenState extends State<SentencesScreen> {
     final date = item['date'] as String? ?? '';
     final entryIndex = item['entry_index'] as int? ?? 0;
 
-    // Save locally first — progress is never lost regardless of connectivity.
+    // Save optimistically as synced=true — prevents duplicate send if
+    // the connectivity-restore flush fires while this API call is in-flight.
     int localId = 0;
     try {
       localId = await LocalDbService.saveSrsScore(
         date: date,
         entryIndex: entryIndex,
         score: score,
-        synced: false,
+        synced: true,
       );
     } catch (_) {}
 
@@ -378,12 +367,23 @@ class _SentencesScreenState extends State<SentencesScreen> {
     setState(() => _scoring = false);
     _next();
 
-    // Fire API in background; mark synced on success so it won't replay.
+    // Fire API in background; on failure reset to unsynced so it queues.
     final savedId = localId;
     ApiService.scoreEntry(date, entryIndex, score).then((_) {
-      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
-    }).catchError((_) {
-      // Will be replayed on next sync via _syncPendingScores().
+      // Already marked synced — nothing to do.
+    }).catchError((e) {
+      if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
+      if (mounted) {
+        final isOffline = e.toString().contains('SocketException') ||
+            e.toString().contains('Connection refused') ||
+            e.toString().contains('TimeoutException');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isOffline
+              ? 'Score saved (will sync when online)'
+              : 'Score saved locally — sync error: $e'),
+          duration: const Duration(seconds: 2),
+        ));
+      }
     });
   }
 

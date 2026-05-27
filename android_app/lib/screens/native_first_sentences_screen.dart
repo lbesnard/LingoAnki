@@ -193,25 +193,17 @@ class _NativeFirstSentencesScreenState
       return;
     }
     try {
-      if (!kIsWeb &&
-          !File(await SyncService.localPath(audioPath)).existsSync()) {
-        setState(() {
-          _audioDownloading = true;
-          _audioLoaded = false;
-          _audioUnavailable = false;
-        });
-        final ok = await SyncService.downloadFile(audioPath);
-        if (!mounted) return;
-        if (!ok) {
-          setState(() {
-            _audioDownloading = false;
-            _audioUnavailable = true;
-          });
-          return;
-        }
-        setState(() => _audioDownloading = false);
+      final needsDownload = !kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync();
+      if (needsDownload) {
+        setState(() { _audioDownloading = true; _audioLoaded = false; _audioUnavailable = false; });
       }
-      final uri = await SyncService.audioUri(audioPath);
+      final uri = await SyncService.ensureLocalAndGetUri(audioPath);
+      if (!mounted) return;
+      if (uri == null) {
+        setState(() { _audioDownloading = false; _audioUnavailable = true; });
+        return;
+      }
+      if (needsDownload) setState(() => _audioDownloading = false);
       await _player.setAudioSource(AudioSource.uri(uri));
       if (mounted) {
         setState(() {
@@ -272,21 +264,12 @@ class _NativeFirstSentencesScreenState
     }
 
     try {
-      if (!kIsWeb &&
-          !File(await SyncService.localPath(audioPath)).existsSync()) {
-        setState(() {
-          _qaDownloading = true;
-          _qaDownloadingKey = key;
-        });
-        final ok = await SyncService.downloadFile(audioPath);
-        if (!mounted) return;
-        setState(() {
-          _qaDownloading = false;
-          _qaDownloadingKey = null;
-        });
-        if (!ok) return;
-      }
-      final uri = await SyncService.audioUri(audioPath);
+      final needsDownload = !kIsWeb && !File(await SyncService.localPath(audioPath)).existsSync();
+      if (needsDownload) setState(() { _qaDownloading = true; _qaDownloadingKey = key; });
+      final uri = await SyncService.ensureLocalAndGetUri(audioPath);
+      if (!mounted) return;
+      if (needsDownload) setState(() { _qaDownloading = false; _qaDownloadingKey = null; });
+      if (uri == null) return;
       setState(() {
         _activeQaKey = key;
         _qaPlaying = true;
@@ -305,6 +288,7 @@ class _NativeFirstSentencesScreenState
 
   Future<void> _syncCurrentLessonAudio() async {
     if (_sentences.isEmpty || _syncing) return;
+    setState(() => _syncing = true);
     final item = _sentences[_currentIndex];
     await _syncItemAudio(item);
     if (mounted) {
@@ -410,15 +394,28 @@ class _NativeFirstSentencesScreenState
         date: date,
         entryIndex: entryIndex,
         score: score,
-        synced: false,
+        synced: true,
       );
     } catch (_) {}
     setState(() => _scoring = false);
     _next();
     final savedId = localId;
     ApiService.scoreEntry(date, entryIndex, score).then((_) {
-      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
-    }).catchError((_) {});
+      // Already marked synced — nothing to do.
+    }).catchError((e) {
+      if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
+      if (mounted) {
+        final isOffline = e.toString().contains('SocketException') ||
+            e.toString().contains('Connection refused') ||
+            e.toString().contains('TimeoutException');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isOffline
+              ? 'Score saved (will sync when online)'
+              : 'Score saved locally — sync error: $e'),
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    });
   }
 
   Widget _scoreButton(String label, int score, Color color) {

@@ -8,9 +8,9 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      - /opt/lingodiary_venv:/app/.venv
       - ~/.config/efunk_lingo/lingoDiary/:/app/.config/lingoDiary/
       - ~/Documents/lingodiary/:/data/
     environment:
       # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+      # IMPORTANT: rotate this key — do not commit real secrets to source control.
       SECRET_KEY: "4dea2020568dca5f8ad784e3110283fcf82f87c50c12f47b9a56ae95f572b0d2"

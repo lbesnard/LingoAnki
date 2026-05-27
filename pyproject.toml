@@ -12,24 +12,29 @@ packages = [{ include = "lingodiary" }]
 flask-babel = ">=4.0.0"
 python = "^3.10"
 inquirer = ">=3.1.1"
-spacy = ">=3.6.1"        # or latest stable version
 markdown = ">=3.7"
 PyYAML = ">=6.0.2"
 platformdirs = ">=4.3.7"
 openai = ">=1.72.0"
 flask = ">=3.1.0"
-# openai-whisper = { git = "https://github.com/openai/whisper", rev = "main" }
-openai-whisper = ">=20250625"
 deep_translator = { version = ">=1.10.1", extras = [
   'ai',
 ] } # version supporting ChatGptTranslator
 gtts = ">=2.2.4"
 bcrypt = "4.3.0"
-piper-tts = ">=1.2.0"
-ovos-tts-plugin-piper = "==0.0.2"
 pydub = ">=0.25.1"
 numpy = ">=1.24.0,<2.0.0"
 PyJWT = ">=2.8.0"
+
+# Heavy ML packages — installed via pip in the Docker base stage.
+# In Docker: poetry install --without ml (they're already in system Python).
+# Local dev:  poetry install            (included by default, no flag needed).
+[tool.poetry.group.ml.dependencies]
+spacy = ">=3.6.1"
+# openai-whisper = { git = "https://github.com/openai/whisper", rev = "main" }
+openai-whisper = ">=20250625"
+piper-tts = ">=1.2.0"
+ovos-tts-plugin-piper = "==0.0.2"
 
 
 [tool.poetry.scripts]
@@ -54,7 +59,7 @@ version = "2.3.0"
 config = ".pre-commit-config.yaml"
 
 [tool.pytest.ini_options]
-testpaths = ["test_lingodiary"]
+testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["lingodiary"]

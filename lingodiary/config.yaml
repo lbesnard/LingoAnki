@@ -1,14 +1,4 @@
-markdown_diary_path: "/home/lbesnard/Nextcloud/Norwegian/diary/📖 Diary - Dagbokkorrigering.md"
-markdown_tprs_path: "/home/lbesnard/Nextcloud/Norwegian/diary/📖 Diary - TPRS.md"
-
 output_dir: "/home/lbesnard/Nextcloud/Norwegian/diary/"
-
-# prompt user for new diary entries
-diary_entries_prompt_user: True
-
-# if overwrite_*_markdown if False, changes to
-overwrite_diary_markdown: True
-overwrite_tprs_markdown: True
 
 overwrite_tprs_audio: False
 
@@ -44,15 +34,3 @@ tts:
   repeat_sentence_diary: 2
   pause_between_sentences_duration: 600 # in ms. Pause between sentences.
   answer_silence_duration: 5000 # in ms. The duration of a silence to give an answer in the TPRS audio file
-
-# template for the diary. this is used to do some regular expression. This needs to match the markdown diary content
-template_diary:
-  trial: '<span style="color: #C70039 ">Forsøk</span>:'
-  answer: '<span style="color: #097969">Rettelse</span>:'
-  tips: '<span style="color: #dda504">Tips</span>:'
-
-# template for the TPRS markdown.
-template_tprs:
-  sentence: "SETNING:"
-  question: "SPØRSMÅL:"
-  answer: "SVAR:"

@@ -207,6 +207,21 @@ class LocalDbService {
         where: 'id = ?', whereArgs: [id]);
   }
 
+  static Future<void> resetScoreSynced(int id) async {
+    final database = await db;
+    await database.update('srs_scores', {'synced': 0},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Deletes synced rows older than [days] from outbox tables.
+  static Future<void> cleanupOldSyncedRows({int days = 90}) async {
+    final database = await db;
+    await database.delete('srs_scores',
+        where: "synced = 1 AND scored_at < datetime('now', '-$days days')");
+    await database.delete('diary_cache',
+        where: "synced = 1 AND saved_at < datetime('now', '-$days days')");
+  }
+
   /// Returns review statistics for the stats/streak screen.
   static Future<Map<String, dynamic>> getReviewStats() async {
     final database = await db;

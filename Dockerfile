@@ -87,46 +87,49 @@ RUN git config --global --add safe.directory /opt/flutter && \
 # ── Stage 3: app — lightweight deps + source code ────────────────────────────
 # Rebuilt on every poetry.lock or source change, but stays fast because
 # the heavy ML packages are already present from stage 1.
+#
+# We use a venv with --system-site-packages so that torch/whisper/spacy/piper
+# (installed in system Python by the base stage) are visible to the venv.
+# Poetry then only installs the missing lightweight deps (flask, openai, etc.)
+# into the venv — resulting in a small layer (~100-200 MB) and no conflicts.
+# See docs/adr/0001-no-venv-in-docker.md for the full rationale.
 
 FROM base AS app
 
-# Poetry venv inherits system-level packages (torch, whisper, spacy, piper)
-# installed in the base stage so poetry install skips them.
-ENV POETRY_NO_INTERACTION=1
-ENV POETRY_VIRTUALENVS_IN_PROJECT=1
-ENV POETRY_VIRTUALENVS_CREATE=1
-ENV POETRY_VIRTUALENVS_SYSTEM_PACKAGES=true
-ENV VIRTUAL_ENV=/app/.venv
-ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
+# Venv lives at /app/.venv; --system-site-packages makes it see base-stage ML deps.
+# CREATE=true + IN_PROJECT=true: venv at project root (/app/.venv).
+# SYSTEM_SITE_PACKAGES=true: venv inherits system Python's ML packages.
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=true \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Container-level defaults — consistent with the volume mounts in docker-compose.yml
-ENV CONFIG_ROOT=/app/.config/lingoDiary
-ENV USER_DB_FILE=/app/.config/lingoDiary/users.yaml
-ENV DATA_ROOT=/data
+ENV CONFIG_ROOT=/app/.config/lingoDiary \
+    USER_DB_FILE=/app/.config/lingoDiary/users.yaml \
+    DATA_ROOT=/data \
+    XDG_DATA_HOME=/app/.local
 
 # ✅ Copy only dependency manifests first — cached unless they change
-COPY pyproject.toml poetry.lock* /app/
+COPY --chown=1000:1000 pyproject.toml poetry.lock* /app/
 
-# ✅ Install lightweight app deps (flask, openai, pydub, etc.)
-RUN poetry config virtualenvs.in-project true && \
-    poetry install --with dev --no-root
+# ✅ Install lightweight runtime deps into the venv.
+# --without ml:  whisper/spacy/piper already in system Python (base stage).
+# --without dev: pytest/coverage/poetry don't belong in a production container.
+# Poetry sees ML packages via system-site-packages and skips re-installing them.
+RUN poetry install --without ml --without dev --no-root
 
 # 🔁 Copy source (invalidates cache only on code changes, not dep changes)
-COPY lingodiary/ /app/lingodiary
-COPY README.md /app/
+COPY --chown=1000:1000 lingodiary/ /app/lingodiary/
+COPY --chown=1000:1000 README.md /app/
 
 # ✅ Copy Flutter web build from stage 2
-COPY --from=flutter-web /flutter_app/build/web/ /app/web_build/
+COPY --chown=1000:1000 --from=flutter-web /flutter_app/build/web/ /app/web_build/
 
-# ✅ Install the lingodiary package itself; write lock hash for entrypoint check
-RUN poetry install --only-root && \
-    sha256sum /app/poetry.lock | awk '{print $1}' > /app/.poetry.lock.sha256
-
-# For piper voice models
-ENV XDG_DATA_HOME=/app/.local
-
-# Allow user 1000 to write anywhere in /app (needed when running as non-root)
-RUN chown -R 1000:1000 /app
+# ✅ Install the lingodiary package itself (registers lingoWebapp entry point)
+RUN poetry install --only-root
 
 EXPOSE 8084
 

@@ -61,14 +61,20 @@ class ApiService {
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to trigger generation');
   }
 
-  static Future<String> getGenerateStatus() async {
+  static Future<Map<String, dynamic>> getGenerateStatus({int offset = 0}) async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
-    final resp = await http
-        .get(Uri.parse('$base/api/generate/status'), headers: headers)
-        .timeout(_timeout);
-    if (resp.statusCode != 200) return '';
-    return (jsonDecode(resp.body) as Map<String, dynamic>)['log'] as String? ?? '';
+    final uri = Uri.parse('$base/api/generate/status').replace(
+      queryParameters: {'offset': '$offset'},
+    );
+    final resp = await http.get(uri, headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) return {'log': '', 'offset': offset, 'done': false};
+    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    return {
+      'log': data['log'] as String? ?? '',
+      'offset': data['offset'] as int? ?? offset,
+      'done': data['done'] as bool? ?? false,
+    };
   }
 
   static Future<List<Map<String, dynamic>>> getLessons() async {
@@ -116,7 +122,7 @@ class ApiService {
     return List<Map<String, dynamic>>.from(data['manifest'] as List);
   }
 
-  static Future<void> addDiaryEntry(String date, List<String> sentences) async {
+  static Future<void> addSentences(String date, List<String> sentences) async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
     final resp = await http

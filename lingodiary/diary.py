@@ -68,12 +68,11 @@ import json
 import logging
 import os
 import re
-import shutil
 import tempfile
 import time
-import textwrap
 from collections import defaultdict
 from datetime import datetime
+from functools import cached_property
 from pathlib import Path
 from typing import Callable
 
@@ -85,19 +84,39 @@ from piper import PiperVoice
 from platformdirs import user_config_dir
 from pydub import AudioSegment
 
+from lingodiary.diary_json import (
+    AudioTiming,
+    Sentence,
+    VariantSet,
+    QA,
+    ReviewingState,
+    SentenceBlock,
+    get_day,
+    load_diary_json,
+    save_diary_json,
+    upsert_day,
+)
+
 APP_NAME = "lingoDiary"
 CONFIG_FILE = "config.yaml"
 
-# ── Template constants (formerly user-configurable, now fixed) ─────────────
-# Diary markdown HTML markers (used by setup_output_diary_markdown / template_help)
-_TMPL_DIARY_TRIAL = '<span style="color: #C70039 ">Forsøk</span>:'
-_TMPL_DIARY_ANSWER = '<span style="color: #097969">Rettelse</span>:'
-_TMPL_DIARY_TIPS = '<span style="color: #dda504">Tips</span>:'
-
-# TPRS markdown line prefixes (used by TprsCreation to write/read TPRS markdown)
-_TMPL_TPRS_SENTENCE = "SETNING:"
-_TMPL_TPRS_QUESTION = "SPØRSMÅL:"
-_TMPL_TPRS_ANSWER = "SVAR:"
+# Maps the variant handler name (as used in TprsVariantHandler.variant_name)
+# to the JSON key on VariantSet.
+VARIANT_NAME_MAP: dict[str, str] = {
+    "Standard": "original",
+    "Enhanced": "enhanced",
+    "Future": "future",
+    "Present": "present",
+}
+# Maps the variant handler name to the audio-path key in diary.json.
+# Currently identical to VARIANT_NAME_MAP but kept separate so the two
+# can diverge independently.
+VARIANT_AUDIO_KEY_MAP: dict[str, str] = {
+    "Standard": "original",
+    "Enhanced": "enhanced",
+    "Future": "future",
+    "Present": "present",
+}
 
 
 class DiaryHandler:
@@ -109,19 +128,13 @@ class DiaryHandler:
                                          Defaults to None, which then uses the default user config path.
         """
         self.config = DiaryHandler.load_config(config_path=config_path)
-        self.markdown_diary_path = self.config["markdown_diary_path"]
         self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
-        self.diary_new_entries_day = None
-        self.all_diary_text = ""
         self.titles_dict = {}
-        self.template_help_string = self.template_help()
 
         self.setup_logging()
         self.validate_arguments()
-
-        self.setup_output_diary_markdown()
 
     @staticmethod
     def load_config(config_path=None):
@@ -151,22 +164,12 @@ class DiaryHandler:
             if "output_script" not in conf["languages"]:
                 conf["languages"]["output_script"] = "native"
 
-            # Derive defaults from the config directory name (the username) so that
-            # output_dir, markdown_diary_path, and markdown_tprs_path are optional
-            # in the per-user config.yaml.
+            # Derive output_dir and json_diary_path defaults from config location
             username = os.path.basename(os.path.dirname(os.path.abspath(config_path)))
             data_root = os.getenv("DATA_ROOT", "/data")
             default_output_dir = os.path.join(data_root, username)
 
             conf.setdefault("output_dir", default_output_dir)
-            conf.setdefault(
-                "markdown_diary_path",
-                os.path.join(conf["output_dir"], "📖 Diary - Dagbokkorrigering.md"),
-            )
-            conf.setdefault(
-                "markdown_tprs_path",
-                os.path.join(conf["output_dir"], "📖 Diary - TPRS.md"),
-            )
             conf.setdefault(
                 "json_diary_path",
                 os.path.join(conf["output_dir"], "diary.json"),
@@ -177,70 +180,6 @@ class DiaryHandler:
         logger = logging.getLogger(__name__)
         logger.error(f"Please create configuration file {config_path}")
         raise FileNotFoundError
-
-    def setup_output_diary_markdown(self):
-        """Sets up the path for the output diary Markdown file.
-
-        Handles backup of the original diary file if overwrite is enabled.
-        Manages naming conventions for the output file based on whether
-        it's being called by DiaryHandler or a subclass (like TprsCreation).
-        """
-        # doing it this way, as the TPRS class can inherit this DiaryHandler class
-        if self.__class__.__name__ == "DiaryHandler":
-            time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if self.config.get("overwrite_diary_markdown", True):
-                # backing up original file, make it hidden and add bak.timestamp
-                if os.path.exists(self.markdown_diary_path):
-                    shutil.copy(
-                        self.markdown_diary_path,
-                        self.markdown_diary_path.replace(
-                            ".md",
-                            f".md.bak_{time_now_str}",
-                        )
-                        .replace(
-                            os.path.basename(self.markdown_diary_path),
-                            "." + os.path.basename(self.markdown_diary_path),
-                        )
-                        .replace(
-                            os.path.dirname(self.markdown_diary_path), self.backup_dir
-                        ),
-                    )
-
-                    self.markdown_script_generated_diary_path = self.markdown_diary_path
-            else:
-                # if overwrite is False, we need to replace the output_dir
-                org_dir_path = os.path.dirname(self.markdown_diary_path)
-
-                self.markdown_script_generated_diary_path = self.markdown_diary_path
-                if org_dir_path == self.output_dir:
-                    # same dir, modify filename
-                    self.markdown_script_generated_diary_path = (
-                        self.markdown_script_generated_diary_path.replace(
-                            ".md", f"_{time_now_str}.md"
-                        )
-                    )
-
-                else:
-                    # different dir, filename stays the same
-                    self.markdown_script_generated_diary_path = (
-                        self.markdown_script_generated_diary_path.replace(
-                            org_dir_path, self.output_dir
-                        )
-                    )
-        else:
-            self.markdown_script_generated_diary_path = self.markdown_diary_path
-            org_dir_path = os.path.dirname(self.markdown_diary_path)
-            self.markdown_script_generated_diary_path = (
-                self.markdown_script_generated_diary_path.replace(
-                    org_dir_path, self.output_dir
-                )
-            )
-            # if the new markdown file doesnt exist yet, default back to the original one
-            if not os.path.exists(self.markdown_script_generated_diary_path):
-                self.markdown_script_generated_diary_path = self.markdown_diary_path
-
-            # simplify code so that when not called from main class, both variables are the same
-            self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
         """Sets up logging for the application.
@@ -297,22 +236,16 @@ class DiaryHandler:
         self.close_logging()
 
     def validate_arguments(self):
-        """Validates the markdown diary path and output directory.
+        """Validates paths and creates required directories.
 
-        If the markdown diary path does not exist, it creates an empty file.
-        If the output directory does not exist, it attempts to create it.
-        Also creates a backup directory.
-
-        Raises:
-            ValueError: If the output directory cannot be created.
+        Sets self.new_diary = True if diary.json does not yet exist.
         """
-        if not os.path.exists(self.markdown_diary_path):
-            self.logging.warning(
-                f"Markdown file not found: {self.markdown_diary_path} - will start with an empty file"
+        json_path = self.config.get("json_diary_path")
+        if json_path and not os.path.exists(json_path):
+            self.logging.info(
+                f"diary.json not found at {json_path} — treating as a new diary."
             )
-            os.makedirs(os.path.dirname(self.markdown_diary_path), exist_ok=True)
-            with open(self.markdown_diary_path, "w"):
-                pass
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
             self.new_diary = True
         else:
             self.new_diary = False
@@ -328,115 +261,6 @@ class DiaryHandler:
 
         if self.backup_dir:
             os.makedirs(self.backup_dir, exist_ok=True)
-
-    def template_help(self):
-        """Generates a help string showing the template for diary entries.
-
-        Returns:
-            str: A multiline string illustrating the diary entry template.
-        """
-        multiline = textwrap.dedent(
-            f"""\
-            ## YYYY/MM/DD\n
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-        """
-        )
-        return multiline
-
-    def prompt_new_diary_entry(self):
-        """Prompts the user to add new diary entries if configured to do so.
-
-        This method checks the configuration and, if called by DiaryHandler,
-        invokes `_prompt_new_diary_entry` to interact with the user.
-        The result is stored in `self.diary_new_entries_day`.
-        """
-        if self.config.get("diary_entries_prompt_user", True):
-            if self.__class__.__name__ == "DiaryHandler":
-                self.diary_new_entries_day = self._prompt_new_diary_entry()
-        else:
-            self.diary_new_entries_day = None
-            return
-
-    def _prompt_new_diary_entry(self):
-        """Interactively prompts the user to add new diary entries for the current day.
-
-        Collects sentences in the primary language and optional trial translations
-        in the study language from the user.
-
-        Returns:
-            dict or None: A dictionary containing the new diary entries for today,
-                          structured by date and sentence number. Returns None if
-                          the user chooses not to add entries or adds no sentences.
-        """
-        diary = {}
-
-        user_input = (
-            input("Do you want to add new diary entries for today? (y/N): ")
-            .strip()
-            .lower()
-        )
-        if user_input != "y":
-            return None
-
-        today_key = datetime.combine(
-            datetime.now().date(), datetime.min.time()
-        )  # Ensure datetime.datetime key
-        diary[today_key] = {}
-
-        sentence_number = 0
-        while True:
-            primary_sentence = input(
-                f"\nEnter sentence {sentence_number} in your primary language: "
-            ).strip()
-
-            if primary_sentence == "":
-                confirm = input(
-                    "You entered an empty sentence. Press enter again to confirm and stop adding sentences, or type anything to continue: "
-                ).strip()
-                if confirm == "":
-                    print("No more sentences will be added.")
-                    break
-                else:
-                    continue  # User mistyped – let them re-enter the sentence
-
-            trial_translation = input(
-                "Try to translate it into the study language (press Enter to skip): "
-            ).strip()
-            if trial_translation == "":
-                print(
-                    "Empty input detected – this will be saved as an empty trial translation."
-                )
-
-            diary[today_key]["sentences"] = dict()
-            diary[today_key]["sentences"][sentence_number] = {
-                "study_language_sentence": "",
-                "study_language_sentence_trial": trial_translation,
-                "primary_language_sentence": primary_sentence,
-                "tips": "",
-            }
-
-            sentence_number += 1
-
-        if diary[today_key] == {}:
-            return None
-        else:
-            if self.new_diary:
-                self.write_diary_json(diary)
-            else:
-                return diary
 
     def generate_unique_id(self, input_string, length=9):
         """Generates a unique ID based on a hash of the input string.
@@ -459,199 +283,67 @@ class DiaryHandler:
         unique_id_str = str(hash_int % (10**length))
         return unique_id_str.zfill(length)
 
-    def read_markdown_file(self, markdown_path):
-        """Reads the content of the specified markdown file.
+    @cached_property
+    def _openai_client(self) -> OpenAI:
+        """Lazily created, shared OpenAI client for this handler instance."""
+        return OpenAI(api_key=self.config["openai"]["key"], timeout=60)
+
+    def _openai_call(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "You are a helpful assistant.",
+        json_mode: bool = False,
+        retries: int = 3,
+    ) -> str:
+        """Call the OpenAI chat completions API and return the raw content string.
+
+        Retries up to *retries* times on transient errors (network, rate-limit,
+        server error) with exponential back-off (2 s, 5 s, 10 s).
 
         Args:
-            markdown_path (str): The path to the markdown file.
+            messages: List of ``{"role": ..., "content": ...}`` dicts (user turns only;
+                      the system message is prepended automatically from *system*).
+            system:   System prompt string.
+            json_mode: If ``True``, sets ``response_format={"type": "json_object"}``.
+            retries:  Maximum number of attempts.
 
         Returns:
-            str: The cleaned content of the markdown file.
+            Raw content string from the model.
+
+        Raises:
+            RuntimeError: If all retries are exhausted or the model returns empty content.
         """
-        # with open(self.markdown_diary_path, "r", encoding="utf-8") as file:
-        with open(markdown_path, "r", encoding="utf-8") as file:
-            return self.clean_joplin_markdown(file.read())
-
-    def read_tprs_day_block(self, day_block):
-        """Parses a block of TPRS markdown text for a single day.
-
-        Extracts the date, title, and TPRS questions and answers.
-        The TPRS Q&A are structured as a dictionary where keys are sentences
-        and values are lists of (question, answer) tuples.
-
-        Args:
-            day_block (str): The markdown text block for a single day's TPRS entries.
-
-        Returns:
-            tuple: A tuple containing:
-                - collections.defaultdict(list) or None: A dictionary of TPRS Q&A
-                  for the day, or None if the block is empty.
-                - str or None: The date string (YYYY/MM/DD) for the block, or None.
-        """
-        if not day_block.strip():
-            return None, None
-
-        # pattern where ## from .split()
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        # normal full pattern
-        if not day_match:
-            day_match = re.match(r"^## (\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        ## pattern with title
-        if not day_match:
-            day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
-            if not day_match:
-                return None, None
-
-        date = day_match.group(1)
-        title = day_match.group(2).replace(":", "").strip()
-
-        self.logging.info(f"Processing day: {date} - {title}")
-
-        result = defaultdict(list)
-        current_setning = None
-        current_question = None
-
-        for line in day_block.split("\n"):
-            line = line.strip()
-            if line.startswith(_TMPL_TPRS_SENTENCE):
-                current_setning = line[len(_TMPL_TPRS_SENTENCE) :].strip()
-            elif line.startswith(_TMPL_TPRS_QUESTION) and current_setning:
-                current_question = line[len(_TMPL_TPRS_QUESTION) :].strip()
-            elif (
-                line.startswith(_TMPL_TPRS_ANSWER)
-                and current_setning
-                and current_question
-            ):
-                answer = line[len(_TMPL_TPRS_ANSWER) :].strip()
-                result[current_setning].append((current_question, answer))
-                current_question = None  # Reset question after storing the pair
-
-        return result, date
-
-    def clean_joplin_markdown(self, content: str):
-        """Removes Joplin-specific metadata from markdown content.
-
-        This function targets metadata lines starting with "id:" and removes
-        them along with any subsequent related metadata lines.
-
-        Args:
-            content (str): The raw markdown content.
-
-        Returns:
-            str: The markdown content with Joplin metadata removed.
-        """
-        # Define a regular expression pattern that matches the section starting with "id:" followed by "parent_id:" and others in order
-        pattern = (
-            # r"(id:\s+[a-z0-9]+.*?parent_id:\s+[a-z0-9]+.*?created_time:\s+[0-9TZ:-]+.*)"
-            r"(id:\s+[a-z0-9]+.*)"
+        full_messages = [{"role": "system", "content": system}] + messages
+        kwargs: dict = dict(
+            model=self.config["openai"]["model"],
+            messages=full_messages,
         )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
 
-        # Find the first occurrence of the unwanted section and slice the content up to that point
-        clean_content = re.split(pattern, content, maxsplit=1)[0]
-
-        return clean_content.strip()  # Optionally strip any leading/trailing whitespace
-
-    def extract_dates_from_md(self, markdown_path):
-        """Extracts all dates from headers in a markdown file.
-
-        Dates are expected to be in 'YYYY/MM/DD' format following '## '.
-
-        Args:
-            markdown_path (str): The path to the markdown file.
-
-        Returns:
-            list[datetime.datetime]: A list of dates found in the markdown file.
-        """
-        text = self.read_markdown_file(markdown_path)
-        # Regex pattern to match lines starting with ## followed by a date (YYYY/MM/DD)
-        pattern = r"^##\s(\d{4}/\d{2}/\d{2})"
-
-        # Extract matching date strings
-        date_strings = re.findall(pattern, text, re.MULTILINE)
-
-        # Convert to datetime format
-        dates = [datetime.strptime(date, "%Y/%m/%d") for date in date_strings]
-        return dates
-
-    def get_title_for_date(self, text, target_date):
-        """Extracts the title associated with a specific date from markdown text.
-
-        The title is expected to follow the date in a header, separated by a colon.
-        e.g., "## YYYY/MM/DD: Title of the day"
-
-        Args:
-            text (str): The markdown content to search within.
-            target_date (datetime.datetime): The date for which to find the title.
-
-        Returns:
-            str or None: The extracted title, or None if no title is found for the date.
-        """
-        # Convert datetime to string format used in the text (YYYY/MM/DD)
-        target_date_str = target_date.strftime("%Y/%m/%d")
-
-        # Regex pattern to match headers (## YYYY/MM/DD ...)
-        pattern = r"^## (\d{4}/\d{2}/\d{2})(.*)"
-
-        lines = text.split("\n")
-
-        title_exists = None
-        for line in lines:
-            match = re.match(pattern, line)
-            if match:
-                # If this is the target date, start capturing text
-                if match.group(1) == target_date_str:
-                    # check for title
-                    # if there is a column after the date,
-                    # this means there is a title created by openai. then catch it! otherwise create it
-                    if ":" in match.group(2):
-                        title_exists = match.group(2).replace(":", "").strip()
-                        break
-                    else:
-                        title_exists = None
-                        continue
-        return title_exists  # Skip the header itself
-
-    def get_text_for_date(self, text, target_date):
-        """Extracts the block of text associated with a specific date from markdown.
-
-        This includes all lines under a date header (e.g., "## YYYY/MM/DD")
-        until the next date header or the end of the text.
-
-        Args:
-            text (str): The markdown content to search within.
-            target_date (datetime.datetime): The date for which to extract text.
-
-        Returns:
-            str: The block of text associated with the target date.
-        """
-        # Convert datetime to string format used in the text (YYYY/MM/DD)
-        target_date_str = target_date.strftime("%Y/%m/%d")
-
-        # Regex pattern to match headers (## YYYY/MM/DD ...)
-        pattern = r"^## (\d{4}/\d{2}/\d{2}).*"
-
-        lines = text.split("\n")
-        capture = False
-        extracted_lines = []
-
-        for line in lines:
-            match = re.match(pattern, line)
-            if match:
-                # If this is the target date, start capturing text
-                if match.group(1) == target_date_str:
-                    capture = True
-                    continue  # Skip the header itself
-                # If a new date is found and we were capturing, stop capturing
-                elif capture:
-                    break
-
-            # Capture lines belonging to the target date
-            if capture:
-                extracted_lines.append(line)
-
-        return "\n".join(extracted_lines).strip()
+        delays = [2, 5, 10]
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                response = self._openai_client.chat.completions.create(**kwargs)
+                content = response.choices[0].message.content
+                if not content:
+                    raise RuntimeError(
+                        f"OpenAI returned empty content "
+                        f"(finish_reason={response.choices[0].finish_reason!r})"
+                    )
+                return content
+            except Exception as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    wait = delays[min(attempt, len(delays) - 1)]
+                    self.logging.warning(
+                        f"[OpenAI] Attempt {attempt + 1}/{retries} failed: {exc}. "
+                        f"Retrying in {wait}s…"
+                    )
+                    time.sleep(wait)
+        raise RuntimeError(f"OpenAI call failed after {retries} attempts") from last_exc
 
     def openai_create_day_title(self, sentences_block_dict):
         """Generates a catchy title for a day's diary entries using OpenAI.
@@ -684,18 +376,8 @@ class DiaryHandler:
             {sentences}
         """
 
-        self.logging.info(f"[OpenAI] Creating day title (this may take a moment)...")
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
+        self.logging.info("[OpenAI] Creating day title (this may take a moment)...")
+        output = self._openai_call([{"role": "user", "content": prompt}])
         self.logging.info(f"[OpenAI] Day title done: {output.strip()[:80]}")
         return output
 
@@ -747,20 +429,9 @@ class DiaryHandler:
         self.logging.info(
             f"[OpenAI] Translating: {sentence_dict['primary_language_sentence'][:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        output = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        output = json.loads(output)
         self.logging.info(
             f"[OpenAI] Translation done: {output['sentence'].get('study_language_sentence', '')[:80].strip()}"
         )
@@ -770,56 +441,33 @@ class DiaryHandler:
         return output["sentence"]
 
     def get_all_days_title(self, diary_dict):
-        """Gets or generates titles for all days in the diary_dict.
+        """Gets or generates titles for all days in diary_dict.
 
-        If the diary is new or a title is missing for an existing entry,
-        it uses OpenAI to generate a title based on the day's sentences.
-        Otherwise, it attempts to extract existing titles from the diary markdown.
-
-        Args:
-            diary_dict (dict): A dictionary of diary entries, keyed by date.
-
-        Returns:
-            dict: A dictionary where keys are dates and values are the titles for those dates.
-                  This dictionary is also stored in `self.titles_dict`.
+        Uses titles already in diary.json if present; falls back to OpenAI only when
+        all sentences for that day are translated.
         """
         titles_dict = {}
 
-        if self.new_diary:
-            for date_diary in diary_dict:
+        for date_diary in diary_dict:
+            existing_title = self.titles_dict.get(date_diary)
+            if existing_title:
+                titles_dict[date_diary] = existing_title
+                continue
+
+            sentences = diary_dict[date_diary].get("sentences", {}).values()
+            if all(s.get("study_language_sentence") for s in sentences):
                 title_day = self.openai_create_day_title(
                     diary_dict[date_diary]["sentences"]
                 )
                 self.logging.info(
                     f"created title with openai for {date_diary} - {title_day}"
                 )
-                titles_dict[date_diary] = title_day
-
-        else:
-            for date_diary in diary_dict:
-                # Prefer title already loaded from JSON (set by json_diary_to_dict)
-                existing_title = self.titles_dict.get(date_diary)
-                if existing_title:
-                    titles_dict[date_diary] = existing_title
-                    continue
-                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
-                if title_day is None:
-                    if not any(
-                        not sentence_info.get("study_language_sentence")
-                        for diary in diary_dict.values()
-                        for sentence_info in diary.get("sentences", {}).values()
-                    ):
-                        title_day = self.openai_create_day_title(
-                            diary_dict[date_diary]["sentences"]
-                        )
-                        self.logging.info(
-                            f"created title with openai for {date_diary} - {title_day}"
-                        )
-                    else:
-                        self.logging.info(
-                            "Title not created as sentences are not created yet"
-                        )
-                titles_dict[date_diary] = title_day
+            else:
+                self.logging.info(
+                    f"Title not created for {date_diary} as sentences are not yet fully translated"
+                )
+                title_day = None
+            titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
         return titles_dict
@@ -847,15 +495,6 @@ class DiaryHandler:
             return
 
         try:
-            from lingodiary.diary_json import (
-                DiaryEntry,
-                LessonsBlock,
-                ReviewingState,
-                load_diary_json,
-                save_diary_json,
-                upsert_day,
-            )
-
             diary_json = load_diary_json(json_path)
 
             for date_obj, day_data in diary_dict.items():
@@ -865,7 +504,7 @@ class DiaryHandler:
 
                 entries = []
                 for idx, sentence_dict in sorted(sentences.items()):
-                    entry = DiaryEntry(
+                    entry = Sentence(
                         index=int(idx),
                         input_language_sentence=sentence_dict.get(
                             "primary_language_sentence", ""
@@ -877,7 +516,7 @@ class DiaryHandler:
                             "study_language_sentence", ""
                         ).strip(),
                         tips=sentence_dict.get("tips", "").strip(),
-                        lessons=LessonsBlock(reviewing=ReviewingState()),
+                        lessons=VariantSet(reviewing=ReviewingState()),
                     )
                     entries.append(entry)
 
@@ -888,70 +527,8 @@ class DiaryHandler:
         except Exception as exc:
             self.logging.warning(f"Could not write JSON diary: {exc}")
 
-    def markdown_diary_to_dict(self):
-        """Parses the main diary markdown file into a structured dictionary.
-
-        Extracts dates, titles, and individual sentence entries (primary language,
-        trial translation, study language translation, and tips) from the markdown.
-
-        Returns:
-            dict: A dictionary where keys are dates (datetime.date objects) and
-                  values are dictionaries containing the "title" for the day and
-                  a "sentences" dictionary. The "sentences" dictionary is keyed
-                  by sentence number and contains details for each sentence.
-        """
-        dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
-        all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
-        self.all_diary_text = all_diary_text
-
-        diary_dict = {}
-        for date_diary in dates_diary:
-            day_block_text = self.get_text_for_date(all_diary_text, date_diary)
-            answer_template = _TMPL_DIARY_ANSWER
-            tips_template = _TMPL_DIARY_TIPS
-            trial_template = _TMPL_DIARY_TRIAL
-
-            pattern = (
-                rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
-                rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
-                rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
-                rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
-            )
-
-            entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
-
-            if not any(entry[2] for entry in entries):
-                self.logging.warning(f"{date_diary} has no valid translations.")
-
-            i = 0
-            diary_day_dict = {}
-            for (
-                primary_language_sentence,
-                study_language_sentence_trial,
-                study_language_sentence,
-                tips,
-            ) in entries:
-                diary_day_dict[i] = {
-                    "study_language_sentence": study_language_sentence.strip(),
-                    "study_language_sentence_trial": study_language_sentence_trial.strip(),
-                    "primary_language_sentence": primary_language_sentence.replace(
-                        "**", ""
-                    ).strip(),
-                    "tips": tips.strip(),
-                }
-
-                diary_dict[date_diary] = dict()
-                diary_dict[date_diary]["sentences"] = diary_day_dict
-                i += 1
-
-        titles_dict = self.get_all_days_title(diary_dict)
-        for date_diary in dates_diary:
-            diary_dict[date_diary]["title"] = titles_dict[date_diary]
-
-        return diary_dict
-
     def json_diary_to_dict(self):
-        """Loads diary entries from diary.json into the same dict format as markdown_diary_to_dict().
+        """Loads diary entries from diary.json into a structured dictionary.
 
         Returns:
             dict: Keys are datetime objects, values contain "title" and "sentences" dict.
@@ -963,8 +540,6 @@ class DiaryHandler:
                 "json_diary_path not configured; cannot load diary from JSON."
             )
             return {}
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1002,15 +577,12 @@ class DiaryHandler:
     def diary_complete_translations(self):
         """Completes missing translations in the diary using OpenAI.
 
-        Reads the current diary into a dictionary, merges any new entries prompted
-        from the user, and then iterates through all entries. If a study language
-        sentence is missing and automatic translation is enabled in the config,
-        it calls OpenAI to generate the translation and tips. Finally, writes
-        the updated diary back to the JSON file.
+        Reads the current diary into a dictionary and iterates through all entries.
+        If a study language sentence is missing and automatic translation is enabled
+        in the config, it calls OpenAI to generate the translation and tips.
+        Finally, writes the updated diary back to the JSON file.
         """
         diary_dict = self.json_diary_to_dict()
-        if self.diary_new_entries_day:
-            diary_dict = self.diary_new_entries_day | diary_dict
 
         for date_diary, date_dict in diary_dict.items():
             for sentence_no, sentence_dict in date_dict["sentences"].items():
@@ -1055,13 +627,6 @@ class TprsVariantHandler:
         self.file_suffix = file_suffix
         self.openai_method_name = openai_method_name
         self.needs_base_tprs_data = needs_base_tprs_data
-
-        # self.markdown_path will be the original path from config, potentially with suffix
-        base_tprs_path = self.config["markdown_tprs_path"]
-        if self.file_suffix:
-            self.markdown_path = base_tprs_path.replace(".md", f"{self.file_suffix}.md")
-        else:
-            self.markdown_path = base_tprs_path
 
     def get_openai_generator(self):
         """Returns the appropriate OpenAI content generation method from TprsCreation."""
@@ -1162,21 +727,7 @@ class TprsVariantHandler:
         if not json_path:
             return
 
-        from lingodiary.diary_json import (
-            QA,
-            AudioTiming,
-            VariantLesson,
-            load_diary_json,
-            save_diary_json,
-        )
-
-        _VARIANT_NAME_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        json_key = _VARIANT_NAME_MAP.get(self.variant_name)
+        json_key = VARIANT_NAME_MAP.get(self.variant_name)
         if json_key is None:
             return
 
@@ -1252,9 +803,32 @@ class TprsVariantHandler:
                                 ),
                             )
                         )
+                    existing_sl = getattr(matched_entry.lessons, json_key, None)
                     matched_entry.lessons.set_variant(
                         json_key,
-                        VariantLesson(sentence=sentence_text, qa=qa_list),
+                        SentenceBlock(
+                            sentence=sentence_text,
+                            qa=qa_list,
+                            # Preserve sentence-level fields written by other steps
+                            sentence_input=(
+                                existing_sl.sentence_input
+                                if existing_sl and existing_sl.sentence_input
+                                else ""
+                            ),
+                            audio_timing=(
+                                existing_sl.audio_timing
+                                if existing_sl
+                                else AudioTiming()
+                            ),
+                            sentence_audio_path=(
+                                existing_sl.sentence_audio_path if existing_sl else ""
+                            ),
+                            sentence_audio_generated_at=(
+                                existing_sl.sentence_audio_generated_at
+                                if existing_sl
+                                else None
+                            ),
+                        ),
                     )
 
             save_diary_json(diary_json, json_path)
@@ -1268,8 +842,6 @@ class TprsVariantHandler:
 
     def _record_lesson_audio_path(self, date_str: str, audio_filepath: str):
         """Record the generated lesson audio path in diary.json."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
@@ -1287,13 +859,7 @@ class TprsVariantHandler:
             )
             # Use the same key convention as audio_timing.py so both systems
             # write to / read from the same entry in lesson_audio_paths.
-            _AUDIO_PATH_KEY_MAP = {
-                "Standard": "original",
-                "Enhanced": "enhanced",
-                "Future": "future",
-                "Present": "present",
-            }
-            variant_key = _AUDIO_PATH_KEY_MAP.get(
+            variant_key = VARIANT_AUDIO_KEY_MAP.get(
                 self.variant_name, self.variant_name.lower()
             )
             day.lesson_audio_paths[variant_key] = rel_path
@@ -1521,21 +1087,13 @@ class TprsVariantHandler:
             return
 
         # Load diary.json once to check lesson_audio_paths per date
-        from lingodiary.diary_json import load_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         diary_db = load_diary_json(json_path) if json_path else None
 
         force_overwrite = self.config.get("overwrite_tprs_audio", False)
         # Use the same key convention as audio_timing.py (_VARIANT_KEYS uses "original"
         # for the Standard variant, not "standard").
-        _AUDIO_PATH_KEY_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        variant_key = _AUDIO_PATH_KEY_MAP.get(
+        variant_key = VARIANT_AUDIO_KEY_MAP.get(
             self.variant_name, self.variant_name.lower()
         )
 
@@ -1580,17 +1138,9 @@ class TprsVariantHandler:
             )
             return {}
 
-        _VARIANT_NAME_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        json_key = _VARIANT_NAME_MAP.get(self.variant_name)
+        json_key = VARIANT_NAME_MAP.get(self.variant_name)
         if json_key is None:
             return {}
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1752,15 +1302,7 @@ class TprsVariantHandler:
 
     def _clear_variant_audio_paths(self, date_strs: set):
         """Clear this variant's audio path for the given dates so audio is regenerated."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
-        _AUDIO_PATH_KEY_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        variant_key = _AUDIO_PATH_KEY_MAP.get(
+        variant_key = VARIANT_AUDIO_KEY_MAP.get(
             self.variant_name, self.variant_name.lower()
         )
         json_path = self.tprs_creator.config.get("json_diary_path")
@@ -1829,265 +1371,6 @@ class PresentTprsVariantHandler(TprsVariantHandler):
         )
 
 
-def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None:
-    """Standalone Q&A translation backfill — does NOT require TprsCreation.
-
-    Translates ``question`` / ``answer`` fields (study language) into
-    ``question_input`` / ``answer_input`` (primary language) for every Q&A pair
-    in *json_path* that is still missing a translation.
-
-    Safe to call multiple times — already-translated pairs are skipped.
-    Saves diary.json after each day that was changed.
-    """
-    import json as _json
-    from openai import OpenAI
-    from lingodiary.diary_json import load_diary_json, save_diary_json
-
-    if logger is None:
-        logger = logging.getLogger(__name__)
-
-    primary = config["languages"]["primary_language"]
-    study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
-    model = config["openai"]["model"]
-
-    def _translate_batch(qa_items):
-        """Translate a list of Q&A pairs and return them as a list in the same order.
-
-        Uses numbered-dict output format ({"1": {...}, "2": {...}}) to match the
-        existing OpenAI prompt conventions in this codebase — avoids the fragile
-        array-unwrapping that caused non-deterministic failures with json_object mode.
-        """
-        numbered_input = {str(i + 1): item for i, item in enumerate(qa_items)}
-        prompt = (
-            f"You are a translator. Translate each Q&A pair from {study} into {primary}.\n\n"
-            f"Input is a JSON object where each key is a number and each value has "
-            f'"question" and "answer" fields in {study}.\n\n'
-            f"Return a JSON object with the same numbered keys, each value having:\n"
-            f'- "question_input": the question translated into {primary}\n'
-            f'- "answer_input": the answer translated into {primary}\n\n'
-            f"Rules:\n"
-            f"- Preserve meaning exactly; do not add or remove content.\n"
-            f"- Keep the same natural, spoken tone as the original.\n"
-            f"- Use the same numbered keys as the input.\n\n"
-            f"### Example\n"
-            f'Input: {{"1": {{"question": "Hvem var der?", "answer": "Vi var der."}}, '
-            f'"2": {{"question": "Hva skjedde?", "answer": "Vi spiste middag."}}}}\n'
-            f'Output: {{"1": {{"question_input": "Who was there?", "answer_input": "We were there."}}, '
-            f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
-            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
-        )
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            finish_reason = response.choices[0].finish_reason
-            logger.warning(
-                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
-                f"Skipping batch."
-            )
-            return []
-        raw = _json.loads(content)
-        try:
-            return [raw[str(i + 1)] for i in range(len(qa_items))]
-        except (KeyError, TypeError) as exc:
-            logger.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
-            )
-            return []
-
-    logger.info(f"Starting Q&A translation backfill for {json_path}")
-    db = load_diary_json(json_path)
-    changed = False
-    total_translated = 0
-
-    for day in db.diaries:
-        day_changed = False
-        day_translated = 0
-        for entry in day.entries:
-            for variant_name in ("original", "enhanced", "present", "future"):
-                vl = getattr(entry.lessons, variant_name, None)
-                if vl is None or not vl.qa:
-                    continue
-                already_done = sum(
-                    1 for qa in vl.qa if qa.question_input and qa.answer_input
-                )
-                missing_indices = [
-                    j
-                    for j, qa in enumerate(vl.qa)
-                    if not qa.question_input or not qa.answer_input
-                ]
-                if not missing_indices:
-                    continue
-                logger.info(
-                    f"  [{day.date}] entry {entry.index} {variant_name}: "
-                    f"{len(missing_indices)} missing, {already_done} already translated"
-                )
-                qa_items = [
-                    {"question": vl.qa[j].question, "answer": vl.qa[j].answer}
-                    for j in missing_indices
-                ]
-                try:
-                    translations = _translate_batch(qa_items)
-                    written = 0
-                    for k, j in enumerate(missing_indices):
-                        if k < len(translations):
-                            t = translations[k]
-                            vl.qa[j].question_input = t.get("question_input", "")
-                            vl.qa[j].answer_input = t.get("answer_input", "")
-                            if t.get("question_input") and t.get("answer_input"):
-                                written += 1
-                    logger.info(
-                        f"    → wrote {written}/{len(missing_indices)} translations"
-                    )
-                    day_translated += written
-                    day_changed = True
-                except Exception as exc:
-                    logger.warning(
-                        f"  Q&A translation failed for {day.date} entry {entry.index} "
-                        f"{variant_name}: {exc}"
-                    )
-
-        if day_changed:
-            save_diary_json(db, json_path)
-            changed = True
-            total_translated += day_translated
-            logger.info(f"  Saved {day_translated} new translations for {day.date}")
-
-    if not changed:
-        logger.info("Q&A translation backfill: nothing to update.")
-    else:
-        logger.info(
-            f"Q&A translation backfill complete — {total_translated} pairs translated."
-        )
-
-
-def _backfill_variant_sentence_inputs(
-    config: dict, json_path: str, logger=None
-) -> None:
-    """Standalone backfill — translates each variant sentence into the primary language.
-
-    Fills ``sentence_input`` on every ``VariantLesson`` where it is empty.
-    Skips the ``original`` variant because for that variant ``sentence_input``
-    is the same as the entry-level ``input_language_sentence`` (already stored).
-
-    Safe to call multiple times — already-filled fields are skipped.
-    Saves diary.json after each day that was changed.
-    """
-    import json as _json
-    from openai import OpenAI
-    from lingodiary.diary_json import load_diary_json, save_diary_json
-
-    if logger is None:
-        logger = logging.getLogger(__name__)
-
-    primary = config["languages"]["primary_language"]
-    study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
-    model = config["openai"]["model"]
-
-    def _translate_sentences(sentences: list[str]) -> list[str]:
-        """Translate a list of study-language sentences into the primary language."""
-        numbered_input = {str(i + 1): s for i, s in enumerate(sentences)}
-        prompt = (
-            f"You are a translator. Translate each sentence from {study} into {primary}.\n\n"
-            f"Input is a JSON object where each key is a number and each value is a sentence in {study}.\n\n"
-            f"Return a JSON object with the same numbered keys, each value being the translated sentence in {primary}.\n\n"
-            f"Rules:\n"
-            f"- Preserve meaning exactly; do not add or remove content.\n"
-            f"- Keep the same natural, spoken tone as the original.\n"
-            f"- Use the same numbered keys as the input.\n\n"
-            f"### Example\n"
-            f'Input: {{"1": "Jeg dro til stranden i morges.", "2": "Vi spiste middag klokka åtte."}}\n'
-            f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
-            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
-        )
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            finish_reason = response.choices[0].finish_reason
-            logger.warning(
-                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
-                f"Skipping batch."
-            )
-            return [""] * len(sentences)
-        raw = _json.loads(content)
-        try:
-            return [raw.get(str(i + 1), "") for i in range(len(sentences))]
-        except (KeyError, TypeError) as exc:
-            logger.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
-            )
-            return [""] * len(sentences)
-
-    logger.info(f"Starting variant sentence_input backfill for {json_path}")
-    db = load_diary_json(json_path)
-    changed = False
-    total_translated = 0
-    # original variant is skipped: its sentence == output_language_translation,
-    # so sentence_input == input_language_sentence (already on the entry level).
-    target_variants = ("enhanced", "present", "future")
-
-    for day in db.diaries:
-        day_changed = False
-        day_translated = 0
-        for entry in day.entries:
-            for variant_name in target_variants:
-                vl = getattr(entry.lessons, variant_name, None)
-                if vl is None or not vl.sentence:
-                    continue
-                if vl.sentence_input:
-                    continue  # already done
-                logger.info(
-                    f"  [{day.date}] entry {entry.index} {variant_name}: translating sentence"
-                )
-                try:
-                    results = _translate_sentences([vl.sentence])
-                    translation = results[0] if results else ""
-                    if translation:
-                        vl.sentence_input = translation
-                        day_translated += 1
-                        day_changed = True
-                        logger.info(f"    → '{translation[:60]}…'")
-                    else:
-                        logger.warning(
-                            f"  Empty translation for {day.date} entry {entry.index} {variant_name}"
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        f"  sentence_input translation failed for {day.date} entry "
-                        f"{entry.index} {variant_name}: {exc}"
-                    )
-
-        if day_changed:
-            save_diary_json(db, json_path)
-            changed = True
-            total_translated += day_translated
-            logger.info(
-                f"  Saved {day_translated} new sentence_input translations for {day.date}"
-            )
-
-    if not changed:
-        logger.info("sentence_input backfill: nothing to update.")
-    else:
-        logger.info(
-            f"sentence_input backfill complete — {total_translated} sentences translated."
-        )
-
-
 class TprsCreation(DiaryHandler):
     def __init__(self, config_path=None):
         """Initializes the TprsCreation class, inheriting from DiaryHandler.
@@ -2100,8 +1383,6 @@ class TprsCreation(DiaryHandler):
                                          Defaults to None.
         """
         super().__init__(config_path)
-        # self.markdown_tprs_path from DiaryHandler's super call is the base path from config
-        # It will be used by StandardTprsVariantHandler implicitly if file_suffix is ""
 
         self.variants = [
             StandardTprsVariantHandler(self),
@@ -2156,8 +1437,6 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingodiary.diary_json import load_diary_json
-
         try:
             diary_json = load_diary_json(json_path)
             for day in diary_json.diaries:
@@ -2172,8 +1451,6 @@ class TprsCreation(DiaryHandler):
 
     def _clear_lesson_audio_path_for_date(self, date_str: str):
         """Clear the lesson_audio_path for all variants on a date so audio is regenerated."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
@@ -2197,8 +1474,6 @@ class TprsCreation(DiaryHandler):
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -2280,20 +1555,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Enhanced TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -2362,19 +1626,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Future TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -2443,19 +1697,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Present TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Present TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -2558,25 +1802,17 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Standard TPRS Q&A for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Standard TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
     def openai_translate_qa_batch(self, qa_items: list[dict]) -> list[dict]:
         """Translate a batch of Q&A pairs from study language to primary language.
+
+        Uses a numbered-dict request/response format to avoid fragile array-unwrapping
+        with json_object mode.
 
         Args:
             qa_items: List of dicts with keys ``question`` and ``answer`` (study language).
@@ -2584,53 +1820,217 @@ class TprsCreation(DiaryHandler):
         Returns:
             List of dicts with keys ``question_input`` and ``answer_input``
             (primary language), in the same order as ``qa_items``.
+            Returns an empty list on failure.
         """
         primary = self.config["languages"]["primary_language"]
         study = self.config["languages"]["study_language"]
+        numbered_input = {str(i + 1): item for i, item in enumerate(qa_items)}
 
-        prompt = f"""You are a translator. Translate each Q&A pair from {study} into {primary}.
-
-Input JSON has items with "question" and "answer" fields in {study}.
-Return a JSON array with the same number of items, each having:
-- "question_input": the question translated into {primary}
-- "answer_input": the answer translated into {primary}
-
-Rules:
-- Preserve meaning exactly; do not add or remove content.
-- Keep the same natural, spoken tone as the original.
-- Return ONLY a valid JSON array, no extra text.
-
-Input:
-{json.dumps(qa_items, ensure_ascii=False)}
-"""
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        prompt = (
+            f"You are a translator. Translate each Q&A pair from {study} into {primary}.\n\n"
+            f"Input is a JSON object where each key is a number and each value has "
+            f'"question" and "answer" fields in {study}.\n\n'
+            f"Return a JSON object with the same numbered keys, each value having:\n"
+            f'- "question_input": the question translated into {primary}\n'
+            f'- "answer_input": the answer translated into {primary}\n\n'
+            f"Rules:\n"
+            f"- Preserve meaning exactly; do not add or remove content.\n"
+            f"- Keep the same natural, spoken tone as the original.\n"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": {{"question": "Hvem var der?", "answer": "Vi var der."}}, '
+            f'"2": {{"question": "Hva skjedde?", "answer": "Vi spiste middag."}}}}\n'
+            f'Output: {{"1": {{"question_input": "Who was there?", "answer_input": "We were there."}}, '
+            f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
+            f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
         )
-        raw = json.loads(response.choices[0].message.content)
-        # The model may return {"items": [...]} or directly a list wrapped in an object
-        if isinstance(raw, list):
-            return raw
-        # Unwrap single-key object (e.g. {"translations": [...]})
-        for v in raw.values():
-            if isinstance(v, list):
-                return v
-        return []
+        try:
+            raw = json.loads(
+                self._openai_call(
+                    [{"role": "user", "content": prompt}],
+                    system="You are a helpful translator.",
+                    json_mode=True,
+                )
+            )
+            return [raw[str(i + 1)] for i in range(len(qa_items))]
+        except (KeyError, TypeError) as exc:
+            self.logging.warning(f"Unexpected translation response shape: {exc}.")
+            return []
+
+    def openai_translate_texts_batch(self, texts: list[str]) -> list[str]:
+        """Translate a batch of plain-text sentences from study language to primary language.
+
+        Args:
+            texts: List of sentences in the study language.
+
+        Returns:
+            List of translated sentences in the primary language, same order.
+            Returns a list of empty strings on failure.
+        """
+        primary = self.config["languages"]["primary_language"]
+        study = self.config["languages"]["study_language"]
+        numbered_input = {str(i + 1): s for i, s in enumerate(texts)}
+
+        prompt = (
+            f"You are a translator. Translate each sentence from {study} into {primary}.\n\n"
+            f"Input is a JSON object where each key is a number and each value is a sentence in {study}.\n\n"
+            f"Return a JSON object with the same numbered keys, each value being the translated sentence in {primary}.\n\n"
+            f"Rules:\n"
+            f"- Preserve meaning exactly; do not add or remove content.\n"
+            f"- Keep the same natural, spoken tone as the original.\n"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": "Jeg dro til stranden i morges.", "2": "Vi spiste middag klokka åtte."}}\n'
+            f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
+            f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
+        )
+        try:
+            raw = json.loads(
+                self._openai_call(
+                    [{"role": "user", "content": prompt}],
+                    system="You are a helpful translator.",
+                    json_mode=True,
+                )
+            )
+            return [raw.get(str(i + 1), "") for i in range(len(texts))]
+        except (KeyError, TypeError) as exc:
+            self.logging.warning(f"Unexpected translation response shape: {exc}.")
+            return [""] * len(texts)
 
     def backfill_qa_translations(self, json_path: str) -> None:
-        """Backfill ``question_input``/``answer_input`` fields for all Q&A pairs
-        in *json_path* that are missing primary-language translations.
+        """Backfill ``question_input``/``answer_input`` for all Q&A pairs missing
+        a primary-language translation.
 
-        Delegates to the module-level :func:`_backfill_qa_translations` so this
-        can also be called without instantiating the heavy TprsCreation class.
         Safe to call multiple times — already-translated pairs are skipped.
+        Saves diary.json after each day that has new translations.
         """
-        _backfill_qa_translations(self.config, json_path, self.logging)
+        self.logging.info(f"Starting Q&A translation backfill for {json_path}")
+        db = load_diary_json(json_path)
+        changed = False
+        total_translated = 0
+
+        for day in db.diaries:
+            day_changed = False
+            day_translated = 0
+            for entry in day.entries:
+                for variant_name in ("original", "enhanced", "present", "future"):
+                    vl = getattr(entry.lessons, variant_name, None)
+                    if vl is None or not vl.qa:
+                        continue
+                    already_done = sum(
+                        1 for qa in vl.qa if qa.question_input and qa.answer_input
+                    )
+                    missing_indices = [
+                        j
+                        for j, qa in enumerate(vl.qa)
+                        if not qa.question_input or not qa.answer_input
+                    ]
+                    if not missing_indices:
+                        continue
+                    self.logging.info(
+                        f"  [{day.date}] entry {entry.index} {variant_name}: "
+                        f"{len(missing_indices)} missing, {already_done} already translated"
+                    )
+                    qa_items = [
+                        {"question": vl.qa[j].question, "answer": vl.qa[j].answer}
+                        for j in missing_indices
+                    ]
+                    try:
+                        translations = self.openai_translate_qa_batch(qa_items)
+                        written = 0
+                        for k, j in enumerate(missing_indices):
+                            if k < len(translations):
+                                t = translations[k]
+                                vl.qa[j].question_input = t.get("question_input", "")
+                                vl.qa[j].answer_input = t.get("answer_input", "")
+                                if t.get("question_input") and t.get("answer_input"):
+                                    written += 1
+                        self.logging.info(
+                            f"    → wrote {written}/{len(missing_indices)} translations"
+                        )
+                        day_translated += written
+                        day_changed = True
+                    except Exception as exc:
+                        self.logging.warning(
+                            f"  Q&A translation failed for {day.date} entry "
+                            f"{entry.index} {variant_name}: {exc}"
+                        )
+
+            if day_changed:
+                save_diary_json(db, json_path)
+                changed = True
+                total_translated += day_translated
+                self.logging.info(
+                    f"  Saved {day_translated} new translations for {day.date}"
+                )
+
+        if not changed:
+            self.logging.info("Q&A translation backfill: nothing to update.")
+        else:
+            self.logging.info(
+                f"Q&A translation backfill complete — {total_translated} pairs translated."
+            )
+
+    def backfill_sentence_inputs(self, json_path: str) -> None:
+        """Backfill ``sentence_input`` for variant lessons missing a primary-language
+        translation of the variant sentence.
+
+        Skips the ``original`` variant (its sentence is already the study-language
+        output; the primary-language equivalent is ``input_language_sentence`` on
+        the entry level).  Skips any variant whose ``sentence_input`` is already set.
+
+        Safe to call multiple times.  Saves diary.json after each changed day.
+        """
+        self.logging.info(f"Starting sentence_input backfill for {json_path}")
+        db = load_diary_json(json_path)
+        changed = False
+        total_translated = 0
+
+        for day in db.diaries:
+            day_changed = False
+            day_translated = 0
+            for entry in day.entries:
+                for variant_name in ("enhanced", "present", "future"):
+                    vl = getattr(entry.lessons, variant_name, None)
+                    if vl is None or not vl.sentence or vl.sentence_input:
+                        continue
+                    self.logging.info(
+                        f"  [{day.date}] entry {entry.index} {variant_name}: "
+                        f"translating sentence_input"
+                    )
+                    try:
+                        results = self.openai_translate_texts_batch([vl.sentence])
+                        translation = results[0] if results else ""
+                        if translation:
+                            vl.sentence_input = translation
+                            day_translated += 1
+                            day_changed = True
+                            self.logging.info(f"    → '{translation[:60]}…'")
+                        else:
+                            self.logging.warning(
+                                f"  Empty translation for {day.date} entry "
+                                f"{entry.index} {variant_name}"
+                            )
+                    except Exception as exc:
+                        self.logging.warning(
+                            f"  sentence_input translation failed for {day.date} "
+                            f"entry {entry.index} {variant_name}: {exc}"
+                        )
+
+            if day_changed:
+                save_diary_json(db, json_path)
+                changed = True
+                total_translated += day_translated
+                self.logging.info(
+                    f"  Saved {day_translated} new sentence_input translations for {day.date}"
+                )
+
+        if not changed:
+            self.logging.info("sentence_input backfill: nothing to update.")
+        else:
+            self.logging.info(
+                f"sentence_input backfill complete — {total_translated} sentences translated."
+            )
 
     def check_missing_sentences_from_existing_tprs(self):
         """
@@ -2738,25 +2138,20 @@ Input:
         return new_or_updated_tprs_dict_for_standard
 
 
-def main(config_path=None, run_interactive_prompts=False):
+def main(config_path=None):
     """Main function to run the diary and TPRS processing workflow.
 
     Args:
         config_path (str, optional): Path to the configuration file.
                                      Defaults to None, which uses the default user config path.
-        run_interactive_prompts (bool, optional): Whether to prompt the user for new diary entries.
-                                                  Defaults to False.
 
-    Initializes DiaryHandler, prompts for new entries (if run_interactive_prompts is True),
-    completes translations.
+    Initializes DiaryHandler, completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
-    and finally converts all TPRS markdown entries to audio.
+    and finally converts all TPRS entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
     _log = diary_instance.logging  # named logger — goes to output.log
-    if run_interactive_prompts:
-        diary_instance.prompt_new_diary_entry()
     _log.info("=== Phase 1/3: Diary translations ===")
     diary_instance.diary_complete_translations()
     _log.info("=== Diary translations complete ===")
@@ -2805,7 +2200,3 @@ def main(config_path=None, run_interactive_prompts=False):
 
     tprs_instance.stop()
     _log.info("=== All generation complete ===")
-
-
-if __name__ == "__main__":
-    main(run_interactive_prompts=True)

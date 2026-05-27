@@ -57,16 +57,33 @@ class SyncService {
     return false;
   }
 
-  /// Syncs all output files from the server.
-  /// On web this is a no-op (audio is always streamed from the server).
-  static Future<int> syncFromServer({
+  /// Ensures [relPath] is available locally (downloads if missing on Android),
+  /// then returns a [Uri] ready for [AudioSource.uri].
+  ///
+  /// Returns null if the file could not be downloaded.
+  /// On web, always returns the authenticated server URI without any local check.
+  static Future<Uri?> ensureLocalAndGetUri(String relPath) async {
+    if (relPath.isEmpty) return null;
+    if (!kIsWeb) {
+      final path = await localPath(relPath);
+      if (!File(path).existsSync()) {
+        final ok = await downloadFile(relPath);
+        if (!ok) return null;
+      }
+    }
+    return audioUri(relPath);
+  }
+
+  /// Downloads files in [manifest] that are missing or older than the server
+  /// copy.  Updates [onProgress]/[onProgressCount] as it goes.
+  /// Returns the number of newly downloaded files.
+  static Future<int> _syncManifest(
+    List<Map<String, dynamic>> manifest, {
     void Function(String message)? onProgress,
     void Function(int current, int total)? onProgressCount,
     bool Function()? isCancelled,
   }) async {
-    if (kIsWeb) return 0;
     final dir = await _localOutputDir();
-    final manifest = await ApiService.getSyncManifest();
     final total = manifest.length;
     int checked = 0;
     int downloaded = 0;
@@ -98,6 +115,21 @@ class SyncService {
     return downloaded;
   }
 
+  /// Syncs all output files from the server.
+  /// On web this is a no-op (audio is always streamed from the server).
+  static Future<int> syncFromServer({
+    void Function(String message)? onProgress,
+    void Function(int current, int total)? onProgressCount,
+    bool Function()? isCancelled,
+  }) async {
+    if (kIsWeb) return 0;
+    final manifest = await ApiService.getSyncManifest();
+    return _syncManifest(manifest,
+        onProgress: onProgress,
+        onProgressCount: onProgressCount,
+        isCancelled: isCancelled);
+  }
+
   /// Syncs files for a single lesson (filtered by base name).
   /// On web this is a no-op (audio streamed directly from server).
   static Future<int> syncLesson(
@@ -107,37 +139,11 @@ class SyncService {
     bool Function()? isCancelled,
   }) async {
     if (kIsWeb) return 0;
-    final dir = await _localOutputDir();
     final manifest = await ApiService.getLessonManifest(base);
-    final total = manifest.length;
-    int checked = 0;
-    int downloaded = 0;
-
-    for (final entry in manifest) {
-      if (isCancelled != null && isCancelled()) break;
-      checked++;
-      final relPath = entry['path'] as String;
-      final serverMtime = (entry['mtime'] as num).toDouble();
-      final localFile = File('${dir.path}/$relPath');
-
-      bool needsDownload = true;
-      if (await localFile.exists()) {
-        final localMtime = (await localFile.lastModified()).millisecondsSinceEpoch / 1000.0;
-        if (localMtime >= serverMtime) needsDownload = false;
-      }
-
-      if (needsDownload) {
-        onProgress?.call('Downloading $relPath …');
-        final resp = await ApiService.downloadFile(relPath);
-        if (resp.statusCode == 200) {
-          await localFile.parent.create(recursive: true);
-          await localFile.writeAsBytes(resp.bodyBytes);
-          downloaded++;
-        }
-      }
-      onProgressCount?.call(checked, total);
-    }
-    return downloaded;
+    return _syncManifest(manifest,
+        onProgress: onProgress,
+        onProgressCount: onProgressCount,
+        isCancelled: isCancelled);
   }
 
   /// Lists locally cached lesson mp3 files. Returns empty list on web.

@@ -22,6 +22,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
   bool _saving = false;
   bool _generating = false;
   String? _generateLog;
+  int _logOffset = 0;
   String? _error;
   String? _successMessage;
 
@@ -97,7 +98,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     final dateStr =
         '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
     try {
-      await ApiService.addDiaryEntry(dateStr, List.from(_sentences));
+      await ApiService.addSentences(dateStr, List.from(_sentences));
       // Also cache locally
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');
@@ -123,16 +124,21 @@ class _DiaryScreenState extends State<DiaryScreen> {
   Future<void> _generateLessons() async {
     setState(() {
       _generating = true;
-      _generateLog = 'Starting generation…';
+      _generateLog = 'Starting generation…\n';
+      _logOffset = 0;
       _error = null;
     });
     try {
       await ApiService.triggerGenerate();
-      for (int i = 0; i < 60; i++) {
+      for (int i = 0; i < 120; i++) {
         await Future.delayed(const Duration(seconds: 5));
-        final log = await ApiService.getGenerateStatus();
-        setState(() => _generateLog = log);
-        if (log.contains('Done') || log.contains('Finished') || log.contains('Error') || log.contains('finished')) break;
+        final result = await ApiService.getGenerateStatus(offset: _logOffset);
+        final chunk = result['log'] as String;
+        _logOffset = result['offset'] as int;
+        if (chunk.isNotEmpty) {
+          setState(() => _generateLog = (_generateLog ?? '') + chunk);
+        }
+        if (result['done'] as bool) break;
       }
     } catch (e) {
       setState(() => _error = 'Could not connect to server.');

@@ -224,7 +224,14 @@ def _mp3_stale(day, variant_key: str) -> bool:
         # No MP3 timestamp — can't evaluate; let segments_newly_generated handle it
         return False
 
-    mp3_ts = datetime.fromisoformat(mp3_ts_str)
+    try:
+        mp3_ts = datetime.fromisoformat(mp3_ts_str)
+    except (ValueError, TypeError):
+        logger.warning(
+            f"  Malformed lesson_mp3_timestamps[{variant_key!r}]={mp3_ts_str!r} "
+            f"for {day.date} — treating MP3 as stale."
+        )
+        return True
 
     for entry in day.entries:
         v = entry.lessons.get_variant(variant_key)
@@ -233,14 +240,28 @@ def _mp3_stale(day, variant_key: str) -> bool:
         if v.sentence_audio_path:
             if v.sentence_audio_generated_at is None:
                 return True
-            if datetime.fromisoformat(v.sentence_audio_generated_at) > mp3_ts:
+            try:
+                if datetime.fromisoformat(v.sentence_audio_generated_at) > mp3_ts:
+                    return True
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"  Malformed sentence_audio_generated_at on entry "
+                    f"{entry.index} ({day.date}) — treating as stale."
+                )
                 return True
 
         # Check Q&A segments
         for qa in v.qa:
             if qa.generated_at is None:
                 return True
-            if datetime.fromisoformat(qa.generated_at) > mp3_ts:
+            try:
+                if datetime.fromisoformat(qa.generated_at) > mp3_ts:
+                    return True
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"  Malformed qa.generated_at on entry {entry.index} "
+                    f"({day.date}) — treating as stale."
+                )
                 return True
 
     return False
@@ -287,8 +308,8 @@ def _compute_day_timings(
         entry_start = cumulative
         s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
         s_dur = _generate_segment(variant.sentence, s_path, tts_plugin, lang, voice)
-        entry_end = int(entry_start + s_dur * R)
-        timings.append((int(entry_start), entry_end))
+        entry_end = round(entry_start + s_dur * R)
+        timings.append((round(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
         variant.sentence_audio_generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -300,18 +321,18 @@ def _compute_day_timings(
             cumulative += pause_ms  # pause before question
 
             q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-            q_start = int(cumulative)
+            q_start = round(cumulative)
             q_dur = _generate_segment(qa.question, q_path, tts_plugin, lang, voice)
-            cumulative = int(cumulative + q_dur * R)
+            cumulative = round(cumulative + q_dur * R)
             qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
             qa.question_audio_path = os.path.relpath(q_path, output_dir)
 
             cumulative += answer_silence_ms  # silence for user to answer
 
             a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-            a_start = int(cumulative)
+            a_start = round(cumulative)
             a_dur = _generate_segment(qa.answer, a_path, tts_plugin, lang, voice)
-            cumulative = int(cumulative + a_dur * R)
+            cumulative = round(cumulative + a_dur * R)
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
             qa.answer_audio_path = os.path.relpath(a_path, output_dir)
 
@@ -373,8 +394,11 @@ def _recompute_timings_from_segments(
         entry_start = cumulative
 
         s_dur = len(AudioSegment.from_mp3(s_path))
-        entry_end = int(entry_start + s_dur * R)
-        timings.append((int(entry_start), entry_end))
+        entry_end = round(entry_start + s_dur * R)
+        timings.append((round(entry_start), entry_end))
+        variant.audio_timing = AudioTiming(
+            start_ms=round(entry_start), end_ms=entry_end
+        )
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
 
         cumulative = entry_end + pause_ms
@@ -383,22 +407,32 @@ def _recompute_timings_from_segments(
             cumulative += pause_ms
 
             q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-            q_start = int(cumulative)
+            q_start = round(cumulative)
             if os.path.exists(q_path):
                 q_dur = len(AudioSegment.from_mp3(q_path))
-                cumulative = int(cumulative + q_dur * R)
+                cumulative = round(cumulative + q_dur * R)
                 qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
                 qa.question_audio_path = os.path.relpath(q_path, output_dir)
+            else:
+                # Missing segment — do NOT advance cumulative for Q duration so that
+                # subsequent Q&A timings are not silently shifted.
+                logger.warning(
+                    f"  Q segment missing for entry {idx} qa {j}: {q_path} — skipping"
+                )
 
             cumulative += answer_silence_ms
 
             a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-            a_start = int(cumulative)
+            a_start = round(cumulative)
             if os.path.exists(a_path):
                 a_dur = len(AudioSegment.from_mp3(a_path))
-                cumulative = int(cumulative + a_dur * R)
+                cumulative = round(cumulative + a_dur * R)
                 qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
                 qa.answer_audio_path = os.path.relpath(a_path, output_dir)
+            else:
+                logger.warning(
+                    f"  A segment missing for entry {idx} qa {j}: {a_path} — skipping"
+                )
 
             cumulative += pause_ms
 
@@ -595,6 +629,19 @@ def backfill_audio_timings(
                 # - the MP3 file is missing (segments exist but the MP3 was lost), OR
                 # - Q&A segments are newer than the full MP3 (stale MP3 detection)
                 mp3_rel = day.lesson_audio_paths.get(variant_key, "")
+                if not mp3_rel and segments_newly_generated:
+                    # No prior full MP3 (e.g. standalone backfill run with no prior
+                    # convert_to_audio()).  Compute a sensible default path so the
+                    # segments we just generated are actually assembled.
+                    date_dash = day.date.replace("/", "-")
+                    suffix = _KEY_TO_SUFFIX.get(variant_key, "")
+                    fname = f"TPRS_{date_dash}{suffix}.mp3"
+                    mp3_rel = os.path.join("TPRS", fname)
+                    day.lesson_audio_paths[variant_key] = mp3_rel
+                    day_modified = True
+                    logger.info(
+                        f"  {variant_key}: no existing MP3 path — will write to {mp3_rel}"
+                    )
                 mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
                 if mp3_path and (
                     segments_newly_generated
