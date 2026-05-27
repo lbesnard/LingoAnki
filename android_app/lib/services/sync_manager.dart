@@ -26,9 +26,9 @@ class SyncManager extends ChangeNotifier {
   Timer? _connectivityTimer;
 
   /// Starts a periodic server-reachability check (every 15 s).
-  /// Call once from main() on Android — no-op on web.
+  /// On Android: pings the configured server_url from SharedPreferences.
+  /// On web: pings the same origin the page was served from (server is co-located).
   void startConnectivityWatch() {
-    if (kIsWeb) return;
     _connectivityTimer?.cancel();
     _checkConnectivity(); // immediate first check
     _connectivityTimer = Timer.periodic(
@@ -39,12 +39,22 @@ class SyncManager extends ChangeNotifier {
 
   Future<void> _checkConnectivity() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final serverUrl = prefs.getString('server_url') ?? '';
-      if (serverUrl.isEmpty) { _setOnline(false); return; }
-      final base = serverUrl.endsWith('/')
-          ? serverUrl.substring(0, serverUrl.length - 1)
-          : serverUrl;
+      final String base;
+      if (kIsWeb) {
+        // On web the Flutter app is served by the same Flask server, so we
+        // ping our own origin — no SharedPreferences server_url needed.
+        base = Uri.base.origin;
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final serverUrl = prefs.getString('server_url') ?? '';
+        if (serverUrl.isEmpty) {
+          _setOnline(false);
+          return;
+        }
+        base = serverUrl.endsWith('/')
+            ? serverUrl.substring(0, serverUrl.length - 1)
+            : serverUrl;
+      }
       await http
           .get(Uri.parse('$base/api/login'))
           .timeout(const Duration(seconds: 5));
