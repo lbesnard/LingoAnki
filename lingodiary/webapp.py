@@ -833,6 +833,7 @@ def api_add_diary_entry():
             DiaryEntry,
             LessonsBlock,
             ReviewingState,
+            get_day,
             load_diary_json,
             save_diary_json,
             upsert_day,
@@ -844,6 +845,7 @@ def api_add_diary_entry():
 
         date_slash = selected_date.replace("-", "/")
         diary_json = load_diary_json(json_path)
+        day_existed = get_day(diary_json, date_slash) is not None
         entries = [
             DiaryEntry(
                 index=i + 1,
@@ -859,7 +861,18 @@ def api_add_diary_entry():
         return jsonify({"error": str(exc)}), 500
 
     return jsonify(
-        {"success": True, "date": selected_date, "sentences_added": len(sentences)}
+        {
+            "success": True,
+            "date": selected_date,
+            "sentences_added": len(sentences),
+            "warnings": (
+                [
+                    f"Day {selected_date} already existed — new sentences were merged into the existing day. Audio will need to be regenerated."
+                ]
+                if day_existed
+                else []
+            ),
+        }
     )
 
 

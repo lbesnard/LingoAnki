@@ -803,9 +803,32 @@ class TprsVariantHandler:
                                 ),
                             )
                         )
+                    existing_sl = getattr(matched_entry.lessons, json_key, None)
                     matched_entry.lessons.set_variant(
                         json_key,
-                        VariantLesson(sentence=sentence_text, qa=qa_list),
+                        VariantLesson(
+                            sentence=sentence_text,
+                            qa=qa_list,
+                            # Preserve sentence-level fields written by other steps
+                            sentence_input=(
+                                existing_sl.sentence_input
+                                if existing_sl and existing_sl.sentence_input
+                                else ""
+                            ),
+                            audio_timing=(
+                                existing_sl.audio_timing
+                                if existing_sl
+                                else AudioTiming()
+                            ),
+                            sentence_audio_path=(
+                                existing_sl.sentence_audio_path if existing_sl else ""
+                            ),
+                            sentence_audio_generated_at=(
+                                existing_sl.sentence_audio_generated_at
+                                if existing_sl
+                                else None
+                            ),
+                        ),
                     )
 
             save_diary_json(diary_json, json_path)
