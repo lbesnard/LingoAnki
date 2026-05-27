@@ -394,15 +394,28 @@ class _NativeFirstSentencesScreenState
         date: date,
         entryIndex: entryIndex,
         score: score,
-        synced: false,
+        synced: true,
       );
     } catch (_) {}
     setState(() => _scoring = false);
     _next();
     final savedId = localId;
     ApiService.scoreEntry(date, entryIndex, score).then((_) {
-      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
-    }).catchError((_) {});
+      // Already marked synced — nothing to do.
+    }).catchError((e) {
+      if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
+      if (mounted) {
+        final isOffline = e.toString().contains('SocketException') ||
+            e.toString().contains('Connection refused') ||
+            e.toString().contains('TimeoutException');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isOffline
+              ? 'Score saved (will sync when online)'
+              : 'Score saved locally — sync error: $e'),
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    });
   }
 
   Widget _scoreButton(String label, int score, Color color) {

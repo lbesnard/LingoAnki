@@ -943,21 +943,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() => _scoredSentenceIndex = entryIndex);
 
-    // Save locally first — progress is never lost regardless of connectivity.
+    // Save optimistically as synced=true — prevents duplicate send if
+    // the connectivity-restore flush fires while this API call is in-flight.
     int localId = 0;
     try {
       localId = await LocalDbService.saveSrsScore(
         date: _lessonDate!,
         entryIndex: idx,
         score: score,
-        synced: false,
+        synced: true,
       );
     } catch (_) {}
 
-    // Fire API in background; mark synced and show interval if server replies.
+    // Fire API in background; on failure reset to unsynced so it queues.
     final savedId = localId;
     ApiService.scoreEntry(_lessonDate!, idx, score).then((result) {
-      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
+      // Already marked synced — just show interval snackbar.
       if (mounted) {
         final reviewing = result['reviewing'] as Map<String, dynamic>?;
         final intervalDays = reviewing?['interval_days'] as int?;
@@ -974,7 +975,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       }
     }).catchError((e) {
-      // Score already saved locally; will sync via _syncPendingScores().
+      // Reset to unsynced so it queues for next connectivity-restore flush.
+      if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
       if (mounted) {
         final isOffline = e is SocketException || e is TimeoutException;
         ScaffoldMessenger.of(context).showSnackBar(

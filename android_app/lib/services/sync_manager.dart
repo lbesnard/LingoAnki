@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'local_db_service.dart';
 import 'sync_service.dart';
@@ -11,21 +14,83 @@ class SyncManager extends ChangeNotifier {
 
   bool isSyncing = false;
   bool _cancelled = false;
+  bool _flushing = false;
+  bool _cleanedUp = false;
   double? progress; // null = indeterminate, 0.0–1.0 = determinate
   String message = '';
   int filesDownloaded = 0;
 
+  /// Whether the server is currently reachable.
+  bool isOnline = false;
+  bool _wasOnline = false;
+  Timer? _connectivityTimer;
+
+  /// Starts a periodic server-reachability check (every 15 s).
+  /// Call once from main() on Android — no-op on web.
+  void startConnectivityWatch() {
+    if (kIsWeb) return;
+    _connectivityTimer?.cancel();
+    _checkConnectivity(); // immediate first check
+    _connectivityTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _checkConnectivity(),
+    );
+  }
+
+  Future<void> _checkConnectivity() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final serverUrl = prefs.getString('server_url') ?? '';
+      if (serverUrl.isEmpty) { _setOnline(false); return; }
+      final base = serverUrl.endsWith('/')
+          ? serverUrl.substring(0, serverUrl.length - 1)
+          : serverUrl;
+      await http
+          .get(Uri.parse('$base/api/login'))
+          .timeout(const Duration(seconds: 5));
+      _setOnline(true);
+    } catch (_) {
+      _setOnline(false);
+    }
+  }
+
+  void _setOnline(bool value) {
+    _wasOnline = isOnline;
+    isOnline = value;
+    notifyListeners();
+    if (!_wasOnline && value) {
+      // Just came back online — flush pending queue then clean up old rows.
+      flushPending();
+    }
+    if (value && !_cleanedUp) {
+      _cleanedUp = true;
+      LocalDbService.cleanupOldSyncedRows();
+    }
+  }
+
   void cancel() {
     _cancelled = true;
+  }
+
+  /// Flushes pending scores, diary entries, and lesson reviews to the server.
+  /// Safe to call concurrently — a second call is ignored while one is running.
+  Future<void> flushPending() async {
+    if (_flushing) return;
+    _flushing = true;
+    try {
+      await _syncPendingLessonReviews();
+      await _syncPendingDiaryEntries();
+      await _syncPendingScores();
+    } finally {
+      _flushing = false;
+    }
   }
 
   Future<void> syncLesson(String base) async {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
-      await _syncPendingLessonReviews();
-      await _syncPendingDiaryEntries();
-      await _syncPendingScores();
+      await flushPending();
       final count = await SyncService.syncLesson(
         base,
         onProgress: (msg) {
@@ -57,9 +122,7 @@ class SyncManager extends ChangeNotifier {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
-      await _syncPendingLessonReviews();
-      await _syncPendingDiaryEntries();
-      await _syncPendingScores();
+      await flushPending();
       if (kIsWeb) {
         // Web: audio streams directly from server, no local caching needed.
         message = 'Web mode — audio streams from server ✓';

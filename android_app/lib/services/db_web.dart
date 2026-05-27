@@ -103,6 +103,10 @@ class LocalDbService {
     _pendingScores.removeWhere((s) => s['id'] == id);
   }
 
+  static Future<void> resetScoreSynced(int id) async {}
+
+  static Future<void> cleanupOldSyncedRows({int days = 90}) async {}
+
   static Future<Map<String, dynamic>> getReviewStats() async => {
         'total': 0,
         'today': 0,

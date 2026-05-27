@@ -351,14 +351,15 @@ class _SentencesScreenState extends State<SentencesScreen> {
     final date = item['date'] as String? ?? '';
     final entryIndex = item['entry_index'] as int? ?? 0;
 
-    // Save locally first — progress is never lost regardless of connectivity.
+    // Save optimistically as synced=true — prevents duplicate send if
+    // the connectivity-restore flush fires while this API call is in-flight.
     int localId = 0;
     try {
       localId = await LocalDbService.saveSrsScore(
         date: date,
         entryIndex: entryIndex,
         score: score,
-        synced: false,
+        synced: true,
       );
     } catch (_) {}
 
@@ -366,12 +367,23 @@ class _SentencesScreenState extends State<SentencesScreen> {
     setState(() => _scoring = false);
     _next();
 
-    // Fire API in background; mark synced on success so it won't replay.
+    // Fire API in background; on failure reset to unsynced so it queues.
     final savedId = localId;
     ApiService.scoreEntry(date, entryIndex, score).then((_) {
-      if (savedId > 0) LocalDbService.markScoreSynced(savedId);
-    }).catchError((_) {
-      // Will be replayed on next sync via _syncPendingScores().
+      // Already marked synced — nothing to do.
+    }).catchError((e) {
+      if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
+      if (mounted) {
+        final isOffline = e.toString().contains('SocketException') ||
+            e.toString().contains('Connection refused') ||
+            e.toString().contains('TimeoutException');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isOffline
+              ? 'Score saved (will sync when online)'
+              : 'Score saved locally — sync error: $e'),
+          duration: const Duration(seconds: 2),
+        ));
+      }
     });
   }
 

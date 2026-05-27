@@ -24,6 +24,7 @@ void main() async {
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
     await WakelockPlus.enable();
   }
+  SyncManager.instance.startConnectivityWatch();
   runApp(const LingoDiaryApp());
 }
 
