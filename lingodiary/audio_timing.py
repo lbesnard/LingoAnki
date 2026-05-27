@@ -396,6 +396,9 @@ def _recompute_timings_from_segments(
         s_dur = len(AudioSegment.from_mp3(s_path))
         entry_end = round(entry_start + s_dur * R)
         timings.append((round(entry_start), entry_end))
+        variant.audio_timing = AudioTiming(
+            start_ms=round(entry_start), end_ms=entry_end
+        )
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
 
         cumulative = entry_end + pause_ms
