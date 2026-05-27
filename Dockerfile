@@ -106,8 +106,11 @@ ENV CONFIG_ROOT=/app/.config/lingoDiary \
 # ✅ Copy only dependency manifests first — cached unless they change
 COPY --chown=1000:1000 pyproject.toml poetry.lock* /app/
 
-# ✅ Install all app deps directly into system Python (no venv)
-RUN poetry install --with dev --no-root
+# ✅ Install runtime app deps directly into system Python (no venv).
+# --without ml:  whisper/spacy/piper are already in system Python from base.
+# No --with dev: dev tools (pytest, poetry, coverage) are not needed at runtime
+#                and poetry==2.3.3 cannot install itself via pip into system Python.
+RUN poetry install --without ml --no-root
 
 # 🔁 Copy source (invalidates cache only on code changes, not dep changes)
 COPY --chown=1000:1000 lingodiary/ /app/lingodiary/
