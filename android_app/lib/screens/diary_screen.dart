@@ -97,7 +97,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     final dateStr =
         '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
     try {
-      await ApiService.addDiaryEntry(dateStr, List.from(_sentences));
+      await ApiService.addSentences(dateStr, List.from(_sentences));
       // Also cache locally
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');

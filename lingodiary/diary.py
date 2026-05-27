@@ -86,11 +86,11 @@ from pydub import AudioSegment
 
 from lingodiary.diary_json import (
     AudioTiming,
-    DiaryEntry,
-    LessonsBlock,
+    Sentence,
+    VariantSet,
     QA,
     ReviewingState,
-    VariantLesson,
+    SentenceBlock,
     get_day,
     load_diary_json,
     save_diary_json,
@@ -101,7 +101,7 @@ APP_NAME = "lingoDiary"
 CONFIG_FILE = "config.yaml"
 
 # Maps the variant handler name (as used in TprsVariantHandler.variant_name)
-# to the JSON key on LessonsBlock.
+# to the JSON key on VariantSet.
 VARIANT_NAME_MAP: dict[str, str] = {
     "Standard": "original",
     "Enhanced": "enhanced",
@@ -504,7 +504,7 @@ class DiaryHandler:
 
                 entries = []
                 for idx, sentence_dict in sorted(sentences.items()):
-                    entry = DiaryEntry(
+                    entry = Sentence(
                         index=int(idx),
                         input_language_sentence=sentence_dict.get(
                             "primary_language_sentence", ""
@@ -516,7 +516,7 @@ class DiaryHandler:
                             "study_language_sentence", ""
                         ).strip(),
                         tips=sentence_dict.get("tips", "").strip(),
-                        lessons=LessonsBlock(reviewing=ReviewingState()),
+                        lessons=VariantSet(reviewing=ReviewingState()),
                     )
                     entries.append(entry)
 
@@ -806,7 +806,7 @@ class TprsVariantHandler:
                     existing_sl = getattr(matched_entry.lessons, json_key, None)
                     matched_entry.lessons.set_variant(
                         json_key,
-                        VariantLesson(
+                        SentenceBlock(
                             sentence=sentence_text,
                             qa=qa_list,
                             # Preserve sentence-level fields written by other steps

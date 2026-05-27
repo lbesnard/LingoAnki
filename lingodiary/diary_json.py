@@ -129,7 +129,7 @@ class QA:
 
 
 @dataclass
-class VariantLesson:
+class SentenceBlock:
     sentence: str = ""
     sentence_input: str = ""  # primary-language translation of this variant sentence
     audio_timing: AudioTiming = field(default_factory=AudioTiming)
@@ -152,7 +152,7 @@ class VariantLesson:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "VariantLesson":
+    def from_dict(cls, d: dict) -> "SentenceBlock":
         return cls(
             sentence=d.get("sentence", ""),
             sentence_input=d.get("sentence_input", ""),
@@ -195,12 +195,12 @@ class ReviewingState:
 
 
 @dataclass
-class LessonsBlock:
+class VariantSet:
     reviewing: ReviewingState = field(default_factory=ReviewingState)
-    original: VariantLesson = field(default_factory=VariantLesson)
-    enhanced: VariantLesson = field(default_factory=VariantLesson)
-    present: VariantLesson = field(default_factory=VariantLesson)
-    future: VariantLesson = field(default_factory=VariantLesson)
+    original: SentenceBlock = field(default_factory=SentenceBlock)
+    enhanced: SentenceBlock = field(default_factory=SentenceBlock)
+    present: SentenceBlock = field(default_factory=SentenceBlock)
+    future: SentenceBlock = field(default_factory=SentenceBlock)
 
     def to_dict(self) -> dict:
         return {
@@ -212,31 +212,31 @@ class LessonsBlock:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "LessonsBlock":
+    def from_dict(cls, d: dict) -> "VariantSet":
         return cls(
             reviewing=ReviewingState.from_dict(d.get("reviewing", {})),
-            original=VariantLesson.from_dict(d.get("original", {})),
-            enhanced=VariantLesson.from_dict(d.get("enhanced", {})),
-            present=VariantLesson.from_dict(d.get("present", {})),
-            future=VariantLesson.from_dict(d.get("future", {})),
+            original=SentenceBlock.from_dict(d.get("original", {})),
+            enhanced=SentenceBlock.from_dict(d.get("enhanced", {})),
+            present=SentenceBlock.from_dict(d.get("present", {})),
+            future=SentenceBlock.from_dict(d.get("future", {})),
         )
 
-    def get_variant(self, name: str) -> VariantLesson:
-        return getattr(self, name, VariantLesson())
+    def get_variant(self, name: str) -> SentenceBlock:
+        return getattr(self, name, SentenceBlock())
 
-    def set_variant(self, name: str, variant: VariantLesson) -> None:
+    def set_variant(self, name: str, variant: SentenceBlock) -> None:
         if name in VARIANTS:
             setattr(self, name, variant)
 
 
 @dataclass
-class DiaryEntry:
+class Sentence:
     index: int = 0
     input_language_sentence: str = ""
     user_trial_translation: str = ""
     output_language_translation: str = ""
     tips: str = ""
-    lessons: LessonsBlock = field(default_factory=LessonsBlock)
+    lessons: VariantSet = field(default_factory=VariantSet)
 
     def to_dict(self) -> dict:
         return {
@@ -249,14 +249,14 @@ class DiaryEntry:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "DiaryEntry":
+    def from_dict(cls, d: dict) -> "Sentence":
         return cls(
             index=d.get("index", 0),
             input_language_sentence=d.get("input_language_sentence", ""),
             user_trial_translation=d.get("user_trial_translation", ""),
             output_language_translation=d.get("output_language_translation", ""),
             tips=d.get("tips", ""),
-            lessons=LessonsBlock.from_dict(d.get("lessons", {})),
+            lessons=VariantSet.from_dict(d.get("lessons", {})),
         )
 
 
@@ -265,7 +265,7 @@ class DiaryDay:
     date: str = ""  # "YYYY/MM/DD"
     title: str = ""
     last_reviewed: Optional[str] = None  # ISO-8601 UTC when lesson was last played
-    entries: list[DiaryEntry] = field(default_factory=list)
+    entries: list[Sentence] = field(default_factory=list)
     lesson_audio_paths: dict = field(
         default_factory=dict
     )  # variant → relative path to full lesson MP3
@@ -289,7 +289,7 @@ class DiaryDay:
             date=d.get("date", ""),
             title=d.get("title", ""),
             last_reviewed=d.get("last_reviewed"),
-            entries=[DiaryEntry.from_dict(e) for e in d.get("entries", [])],
+            entries=[Sentence.from_dict(e) for e in d.get("entries", [])],
             lesson_audio_paths=d.get("lesson_audio_paths", {}),
             lesson_mp3_timestamps=d.get("lesson_mp3_timestamps", {}),
         )
@@ -356,7 +356,7 @@ def get_day(diary: DiaryJson, date_str: str) -> Optional[DiaryDay]:
     return None
 
 
-def get_entry(diary: DiaryJson, date_str: str, index: int) -> Optional[DiaryEntry]:
+def get_entry(diary: DiaryJson, date_str: str, index: int) -> Optional[Sentence]:
     """Return a specific entry by date and index, or None."""
     day = get_day(diary, date_str)
     if day is None:
@@ -368,7 +368,7 @@ def get_entry(diary: DiaryJson, date_str: str, index: int) -> Optional[DiaryEntr
 
 
 def upsert_day(
-    diary: DiaryJson, date_str: str, title: str, entries: list[DiaryEntry]
+    diary: DiaryJson, date_str: str, title: str, entries: list[Sentence]
 ) -> DiaryJson:
     """Insert or update the DiaryDay for the given date.
 
@@ -417,7 +417,7 @@ def upsert_variant(
     date_str: str,
     entry_index: int,
     variant_name: str,
-    variant: VariantLesson,
+    variant: SentenceBlock,
 ) -> DiaryJson:
     """Update a specific variant's content for an existing entry."""
     entry = get_entry(diary, date_str, entry_index)
@@ -510,14 +510,14 @@ def compute_stats(diary: DiaryJson) -> dict:
     return counts
 
 
-def get_due_entries(diary: DiaryJson) -> list[tuple[DiaryDay, DiaryEntry]]:
+def get_due_entries(diary: DiaryJson) -> list[tuple[DiaryDay, Sentence]]:
     """
     Return (day, entry) pairs where next_review <= now or status == "new",
     sorted with overdue first, then new entries in date order.
     """
     now_utc = datetime.now(timezone.utc)
-    overdue: list[tuple[DiaryDay, DiaryEntry]] = []
-    new_entries: list[tuple[DiaryDay, DiaryEntry]] = []
+    overdue: list[tuple[DiaryDay, Sentence]] = []
+    new_entries: list[tuple[DiaryDay, Sentence]] = []
 
     for day in sorted(diary.diaries, key=lambda d: d.date):
         for entry in day.entries:

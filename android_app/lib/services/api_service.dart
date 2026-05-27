@@ -116,7 +116,7 @@ class ApiService {
     return List<Map<String, dynamic>>.from(data['manifest'] as List);
   }
 
-  static Future<void> addDiaryEntry(String date, List<String> sentences) async {
+  static Future<void> addSentences(String date, List<String> sentences) async {
     final base = await _baseUrl();
     final headers = await _authHeaders();
     final resp = await http

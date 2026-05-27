@@ -154,7 +154,7 @@ class SyncManager extends ChangeNotifier {
       final date = row['date'] as String;
       final sentences = row['sentences'] as List<String>;
       try {
-        await ApiService.addDiaryEntry(date, sentences);
+        await ApiService.addSentences(date, sentences);
         await LocalDbService.markDiarySynced(id);
       } catch (e) {
         if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {

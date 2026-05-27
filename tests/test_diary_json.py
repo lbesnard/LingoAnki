@@ -13,11 +13,11 @@ import pytest
 
 from lingodiary.diary_json import (
     DiaryDay,
-    DiaryEntry,
+    Sentence,
     DiaryJson,
-    LessonsBlock,
+    VariantSet,
     ReviewingState,
-    VariantLesson,
+    SentenceBlock,
     apply_sm2,
     get_day,
     get_entry,
@@ -30,12 +30,12 @@ from lingodiary.diary_json import (
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
 
-def _make_entry(index: int = 0, study_sentence: str = "Test sentence") -> DiaryEntry:
-    return DiaryEntry(
+def _make_entry(index: int = 0, study_sentence: str = "Test sentence") -> Sentence:
+    return Sentence(
         index=index,
         input_language_sentence="Test input",
         output_language_translation=study_sentence,
-        lessons=LessonsBlock(reviewing=ReviewingState()),
+        lessons=VariantSet(reviewing=ReviewingState()),
     )
 
 
@@ -175,7 +175,7 @@ class TestUpsertDay:
     def test_existing_day_variant_qa_preserved(self):
         diary = _make_diary("2025/06/01")
         old_entry = diary.diaries[0].entries[0]
-        old_entry.lessons.original = VariantLesson(sentence="Original variant")
+        old_entry.lessons.original = SentenceBlock(sentence="Original variant")
 
         new_entry = _make_entry(0, "Updated sentence")
         upsert_day(diary, "2025/06/01", "", [new_entry])

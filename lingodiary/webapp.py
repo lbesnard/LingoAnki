@@ -830,8 +830,8 @@ def api_add_diary_entry():
 
     try:
         from lingodiary.diary_json import (
-            DiaryEntry,
-            LessonsBlock,
+            Sentence,
+            VariantSet,
             ReviewingState,
             get_day,
             load_diary_json,
@@ -847,10 +847,10 @@ def api_add_diary_entry():
         diary_json = load_diary_json(json_path)
         day_existed = get_day(diary_json, date_slash) is not None
         entries = [
-            DiaryEntry(
+            Sentence(
                 index=i + 1,
                 input_language_sentence=s,
-                lessons=LessonsBlock(reviewing=ReviewingState()),
+                lessons=VariantSet(reviewing=ReviewingState()),
             )
             for i, s in enumerate(sentences)
         ]

@@ -34,7 +34,7 @@ class AppLocalizations {
   String get audioNotSynced => _t('audioNotSynced');
   String get noContent => _t('noContent');
   String get noDateInLesson => _t('noDateInLesson');
-  String noDiaryEntry(String date) => _t('noDiaryEntry').replaceAll('{date}', date);
+  String noDiarySentence(String date) => _t('noDiarySentence').replaceAll('{date}', date);
   String get loopOn => _t('loopOn');
   String get loopOff => _t('loopOff');
   String fontSizeTooltip(String size) => _t('fontSizeTooltip').replaceAll('{size}', size);
@@ -98,7 +98,7 @@ class AppLocalizations {
       'audioNotSynced': 'Audio not synced yet \u2014 tap \u27f3 in the toolbar.',
       'noContent': 'No content \u2014 tap Sync to download.',
       'noDateInLesson': 'No date found in lesson name.',
-      'noDiaryEntry': 'No diary entry found for {date}.\nMake sure the server has this entry.',
+      'noDiarySentence': 'No diary entry found for {date}.\nMake sure the server has this entry.',
       'loopOn': 'Loop: on',
       'loopOff': 'Loop: off',
       'fontSizeTooltip': 'Font size ({size})',
@@ -159,7 +159,7 @@ class AppLocalizations {
       'audioNotSynced': 'Audio non synchronis\u00e9 \u2014 appuyez sur \u27f3 dans la barre.',
       'noContent': 'Aucun contenu \u2014 appuyez sur Sync pour t\u00e9l\u00e9charger.',
       'noDateInLesson': 'Aucune date trouv\u00e9e dans le nom de la le\u00e7on.',
-      'noDiaryEntry': 'Aucune entr\u00e9e de journal pour {date}.\nV\u00e9rifiez que le serveur contient cette entr\u00e9e.',
+      'noDiarySentence': 'Aucune entr\u00e9e de journal pour {date}.\nV\u00e9rifiez que le serveur contient cette entr\u00e9e.',
       'loopOn': 'Boucle\u00a0: activ\u00e9e',
       'loopOff': 'Boucle\u00a0: d\u00e9sactiv\u00e9e',
       'fontSizeTooltip': 'Taille police ({size})',
@@ -220,7 +220,7 @@ class AppLocalizations {
       'audioNotSynced': 'Audio no sincronizado \u2014 pulsa \u27f3 en la barra.',
       'noContent': 'Sin contenido \u2014 pulsa Sincronizar para descargar.',
       'noDateInLesson': 'No se encontr\u00f3 fecha en el nombre de la lecci\u00f3n.',
-      'noDiaryEntry': 'No se encontr\u00f3 entrada de diario para {date}.\nAseg\u00farate de que el servidor tenga esta entrada.',
+      'noDiarySentence': 'No se encontr\u00f3 entrada de diario para {date}.\nAseg\u00farate de que el servidor tenga esta entrada.',
       'loopOn': 'Bucle: activado',
       'loopOff': 'Bucle: desactivado',
       'fontSizeTooltip': 'Tama\u00f1o de fuente ({size})',
