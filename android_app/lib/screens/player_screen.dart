@@ -271,6 +271,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
             as Map<String, dynamic>? ?? {};
         return <String, dynamic>{
+          'index': em['index'],  // preserve 1-based index for correct scoring
           'sentence': lesson['sentence'] ?? '',
           'sentence_input': lesson['sentence_input'] ?? '',
           'input_language_sentence': em['input_language_sentence'] ?? '',
