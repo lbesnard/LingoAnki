@@ -88,14 +88,23 @@ RUN git config --global --add safe.directory /opt/flutter && \
 # Rebuilt on every poetry.lock or source change, but stays fast because
 # the heavy ML packages are already present from stage 1.
 #
-# No virtualenv — Docker containers are already isolated, so a venv inside
-# a container adds no benefit and doubles the storage cost for large ML packages.
-# See docs/adr/0001-no-venv-in-docker.md for rationale.
+# We use a venv with --system-site-packages so that torch/whisper/spacy/piper
+# (installed in system Python by the base stage) are visible to the venv.
+# Poetry then only installs the missing lightweight deps (flask, openai, etc.)
+# into the venv — resulting in a small layer (~100-200 MB) and no conflicts.
+# See docs/adr/0001-no-venv-in-docker.md for the full rationale.
 
 FROM base AS app
 
+# Venv lives at /app/.venv; --system-site-packages makes it see base-stage ML deps.
+# CREATE=true + IN_PROJECT=true: venv at project root (/app/.venv).
+# SYSTEM_SITE_PACKAGES=true: venv inherits system Python's ML packages.
 ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=false
+    POETRY_VIRTUALENVS_CREATE=true \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Container-level defaults — consistent with the volume mounts in docker-compose.yml
 ENV CONFIG_ROOT=/app/.config/lingoDiary \
@@ -106,11 +115,11 @@ ENV CONFIG_ROOT=/app/.config/lingoDiary \
 # ✅ Copy only dependency manifests first — cached unless they change
 COPY --chown=1000:1000 pyproject.toml poetry.lock* /app/
 
-# ✅ Install runtime app deps directly into system Python (no venv).
-# --without ml:  whisper/spacy/piper are already in system Python from base.
-# No --with dev: dev tools (pytest, poetry, coverage) are not needed at runtime
-#                and poetry==2.3.3 cannot install itself via pip into system Python.
-RUN poetry install --without ml --no-root
+# ✅ Install lightweight runtime deps into the venv.
+# --without ml:  whisper/spacy/piper already in system Python (base stage).
+# --without dev: pytest/coverage/poetry don't belong in a production container.
+# Poetry sees ML packages via system-site-packages and skips re-installing them.
+RUN poetry install --without ml --without dev --no-root
 
 # 🔁 Copy source (invalidates cache only on code changes, not dep changes)
 COPY --chown=1000:1000 lingodiary/ /app/lingodiary/
