@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
+import queue
 from threading import Thread
 
 import jwt
@@ -32,10 +33,34 @@ from lingodiary.diary import (
 
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
-JWT_SECRET = os.getenv("JWT_SECRET", app.secret_key)
+_secret_key = os.getenv("SECRET_KEY", "super-secret-key")
+if _secret_key == "super-secret-key":
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not set. "
+        'Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+    )
+app.secret_key = _secret_key
+JWT_SECRET = _secret_key
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+
+# Bounded job queue — at most 1 pending job (current + 1 queued).
+_job_queue: queue.Queue = queue.Queue(maxsize=2)
+
+
+def _start_job_worker():
+    """Single background worker that drains the job queue sequentially."""
+    while True:
+        fn = _job_queue.get()
+        try:
+            fn()
+        except Exception as exc:
+            app.logger.error(f"Background job failed: {exc}", exc_info=True)
+        finally:
+            _job_queue.task_done()
+
+
+Thread(target=_start_job_worker, daemon=True).start()
 
 
 @app.after_request
@@ -146,8 +171,6 @@ def _jwt_required(f):
         config = DiaryHandler.load_config(user_config_path)
         _g.api_username = username
         _g.api_config_path = user_config_path
-        _g.api_diary_file = config["markdown_diary_path"]
-        _g.api_tprs_file = config["markdown_tprs_path"]
         _g.api_output_folder = config["output_dir"]
         _g.api_tprs_folder = os.path.join(_g.api_output_folder, "TPRS")
         _g.api_json_diary_path = config.get("json_diary_path") or os.path.join(
@@ -286,8 +309,15 @@ def api_generate():
         except Exception:
             pass
 
-    t = Thread(target=_run, daemon=True)
-    t.start()
+    try:
+        _job_queue.put_nowait(_run)
+    except queue.Full:
+        return (
+            jsonify(
+                {"ok": False, "error": "A job is already queued. Try again later."}
+            ),
+            409,
+        )
     return jsonify({"ok": True, "message": "Generation started"})
 
 
@@ -314,8 +344,15 @@ def api_backfill_qa_translations():
         except Exception as exc:
             app.logger.error(f"Q&A translation backfill error: {exc}")
 
-    t = Thread(target=_run, daemon=True)
-    t.start()
+    try:
+        _job_queue.put_nowait(_run)
+    except queue.Full:
+        return (
+            jsonify(
+                {"ok": False, "error": "A job is already queued. Try again later."}
+            ),
+            409,
+        )
     return jsonify({"ok": True, "message": "Q&A translation backfill started"})
 
 
@@ -349,20 +386,26 @@ def api_backfill_audio_timing():
         except Exception as exc:
             app.logger.error(f"Audio timing backfill error: {exc}")
 
-    t = Thread(target=_run, daemon=True)
-    t.start()
+    try:
+        _job_queue.put_nowait(_run)
+    except queue.Full:
+        return (
+            jsonify(
+                {"ok": False, "error": "A job is already queued. Try again later."}
+            ),
+            409,
+        )
     return jsonify({"ok": True, "message": "Audio timing backfill started"})
 
 
 @app.route("/api/backfill/all", methods=["POST"])
 @_jwt_required
 def api_backfill_all():
-    """Background job: fill in everything missing — diary.json sync, Q&A translations, audio segments.
+    """Background job: fill in everything missing — Q&A translations, audio segments.
 
     Runs in sequence:
-      1. migrate_to_json  (sync diary.json with current markdown)
-      2. _backfill_qa_translations  (translate missing Q&A pairs)
-      3. backfill_audio_timings  (generate missing segment MP3s + timing data)
+      1. _backfill_qa_translations  (translate missing Q&A pairs)
+      2. backfill_audio_timings  (generate missing segment MP3s + timing data)
     """
     from flask import g as _g
     import yaml
@@ -373,21 +416,7 @@ def api_backfill_all():
     def _run():
         json_path = os.path.join(output_folder, "diary.json")
 
-        # app.logger.info("Backfill all: step 1/3 — syncing diary.json from markdown")
-        # try:
-        #     from lingodiary.migrate_to_json import (
-        #         migrate_markdown_to_json as migrate_to_json,
-        #     )
-        #
-        #     migrate_to_json(
-        #         config_path=config_path,
-        #         output_json_path=json_path,
-        #         overwrite=True,
-        #     )
-        # except Exception as exc:
-        #     app.logger.warning(f"Backfill all: diary.json sync failed: {exc}")
-        #
-        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        app.logger.info("Backfill all: step 1/2 — Q&A translations")
         try:
             with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
@@ -395,7 +424,7 @@ def api_backfill_all():
         except Exception as exc:
             app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
 
-        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        app.logger.info("Backfill all: step 2/2 — audio timing / segments")
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
@@ -405,8 +434,15 @@ def api_backfill_all():
 
         app.logger.info("Backfill all: complete")
 
-    t = Thread(target=_run, daemon=True)
-    t.start()
+    try:
+        _job_queue.put_nowait(_run)
+    except queue.Full:
+        return (
+            jsonify(
+                {"ok": False, "error": "A job is already queued. Try again later."}
+            ),
+            409,
+        )
     return jsonify(
         {
             "ok": True,
@@ -423,8 +459,9 @@ def api_generate_status():
     log_file = os.path.join(_g.api_output_folder, "output.log")
     lines = []
     if os.path.exists(log_file):
-        with open(log_file, "r") as f:
-            lines = f.readlines()[-50:]
+        with open(log_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        lines = lines[-50:]
     return jsonify({"log": "".join(lines)})
 
 
@@ -726,27 +763,6 @@ def api_home():
     )
 
 
-# @app.route("/api/migrate", methods=["POST"])
-# @_jwt_required
-# def api_migrate():
-#     """Trigger server-side migration from Markdown to JSON in a background thread."""
-# from flask import g as _g
-
-# config_path = _g.api_config_path
-# json_path = _g.api_json_diary_path
-#
-# def _run():
-#     try:
-#         from lingodiary.migrate_to_json import migrate_markdown_to_json
-#
-#         migrate_markdown_to_json(config_path, json_path, overwrite=True)
-#     except Exception as exc:
-#         app.logger.error("Migration failed: %s", exc)
-#
-# Thread(target=_run, daemon=True).start()
-# return jsonify({"ok": True, "message": "Migration started"})
-
-
 @app.route("/api/sentences/due", methods=["GET"])
 @_jwt_required
 def api_sentences_due():
@@ -849,18 +865,12 @@ def api_add_diary_entry():
 @_jwt_required
 def api_get_config():
     """Return user config values relevant to the mobile app (TPRS keywords)."""
-    from lingodiary.diary import (
-        _TMPL_TPRS_ANSWER,
-        _TMPL_TPRS_QUESTION,
-        _TMPL_TPRS_SENTENCE,
-    )
-
     return jsonify(
         {
             "tprs": {
-                "sentence": _TMPL_TPRS_SENTENCE,
-                "question": _TMPL_TPRS_QUESTION,
-                "answer": _TMPL_TPRS_ANSWER,
+                "sentence": "SETNING:",
+                "question": "SPØRSMÅL:",
+                "answer": "SVAR:",
             }
         }
     )

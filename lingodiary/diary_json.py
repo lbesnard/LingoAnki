@@ -412,39 +412,6 @@ def upsert_day(
     return diary
 
 
-#
-# def upsert_day(
-#     diary: DiaryJson, date_str: str, title: str, entries: list[DiaryEntry]
-# ) -> DiaryJson:
-#     """Insert or replace the DiaryDay for the given date.
-#
-#     When updating an existing day, preserves both the SRS reviewing state
-#     and any variant Q&A data already stored for each entry.
-#     """
-#     new_day = DiaryDay(date=date_str, title=title, entries=entries)
-#     for i, day in enumerate(diary.diaries):
-#         if day.date == date_str:
-#             for new_entry in new_day.entries:
-#                 old_entry = get_entry(diary, date_str, new_entry.index)
-#                 if old_entry is not None:
-#                     # Preserve SRS state
-#                     new_entry.lessons.reviewing = old_entry.lessons.reviewing
-#                     # Preserve variant Q&A already written
-#                     for variant_name in ("original", "enhanced", "present", "future"):
-#                         old_variant = old_entry.lessons.get_variant(variant_name)
-#                         if old_variant is not None:
-#                             new_entry.lessons.set_variant(variant_name, old_variant)
-#             # Preserve the lesson audio paths recorded by previous runs
-#             new_day.lesson_audio_paths = day.lesson_audio_paths.copy()
-#             diary.diaries[i] = new_day
-#             return diary
-#     diary.diaries.append(new_day)
-#     # Keep diaries sorted by date descending (newest first)
-#     diary.diaries.sort(key=lambda d: d.date, reverse=True)
-#     return diary
-#
-
-
 def upsert_variant(
     diary: DiaryJson,
     date_str: str,
@@ -491,11 +458,13 @@ def apply_sm2(reviewing: ReviewingState, score: int) -> ReviewingState:
             round(reviewing.interval_days * 2.5) if reviewing.interval_days > 1 else 3
         )
         reviewing.status = "learning"
-    elif score >= 4:  # Easy (5)
+    elif score == 5:  # Easy
         reviewing.interval_days = (
             round(reviewing.interval_days * 4.0) if reviewing.interval_days > 1 else 7
         )
         reviewing.status = "mastered" if reviewing.review_count >= 2 else "learning"
+    else:
+        raise ValueError(f"Invalid SM-2 score {score!r}. Valid scores: 0, 2, 3, 5.")
 
     reviewing.next_review = (
         now_utc + timedelta(days=reviewing.interval_days)

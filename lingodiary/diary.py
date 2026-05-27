@@ -68,10 +68,8 @@ import json
 import logging
 import os
 import re
-import shutil
 import tempfile
 import time
-import textwrap
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -88,17 +86,6 @@ from pydub import AudioSegment
 APP_NAME = "lingoDiary"
 CONFIG_FILE = "config.yaml"
 
-# ── Template constants (formerly user-configurable, now fixed) ─────────────
-# Diary markdown HTML markers (used by setup_output_diary_markdown / template_help)
-_TMPL_DIARY_TRIAL = '<span style="color: #C70039 ">Forsøk</span>:'
-_TMPL_DIARY_ANSWER = '<span style="color: #097969">Rettelse</span>:'
-_TMPL_DIARY_TIPS = '<span style="color: #dda504">Tips</span>:'
-
-# TPRS markdown line prefixes (used by TprsCreation to write/read TPRS markdown)
-_TMPL_TPRS_SENTENCE = "SETNING:"
-_TMPL_TPRS_QUESTION = "SPØRSMÅL:"
-_TMPL_TPRS_ANSWER = "SVAR:"
-
 
 class DiaryHandler:
     def __init__(self, config_path=None):
@@ -109,19 +96,13 @@ class DiaryHandler:
                                          Defaults to None, which then uses the default user config path.
         """
         self.config = DiaryHandler.load_config(config_path=config_path)
-        self.markdown_diary_path = self.config["markdown_diary_path"]
         self.output_dir = self.config["output_dir"]
         self.backup_dir = os.path.join(self.output_dir, ".backup")
         self.tts_model = self.config["tts"]["model"]
-        self.diary_new_entries_day = None
-        self.all_diary_text = ""
         self.titles_dict = {}
-        self.template_help_string = self.template_help()
 
         self.setup_logging()
         self.validate_arguments()
-
-        self.setup_output_diary_markdown()
 
     @staticmethod
     def load_config(config_path=None):
@@ -151,22 +132,12 @@ class DiaryHandler:
             if "output_script" not in conf["languages"]:
                 conf["languages"]["output_script"] = "native"
 
-            # Derive defaults from the config directory name (the username) so that
-            # output_dir, markdown_diary_path, and markdown_tprs_path are optional
-            # in the per-user config.yaml.
+            # Derive output_dir and json_diary_path defaults from config location
             username = os.path.basename(os.path.dirname(os.path.abspath(config_path)))
             data_root = os.getenv("DATA_ROOT", "/data")
             default_output_dir = os.path.join(data_root, username)
 
             conf.setdefault("output_dir", default_output_dir)
-            conf.setdefault(
-                "markdown_diary_path",
-                os.path.join(conf["output_dir"], "📖 Diary - Dagbokkorrigering.md"),
-            )
-            conf.setdefault(
-                "markdown_tprs_path",
-                os.path.join(conf["output_dir"], "📖 Diary - TPRS.md"),
-            )
             conf.setdefault(
                 "json_diary_path",
                 os.path.join(conf["output_dir"], "diary.json"),
@@ -177,70 +148,6 @@ class DiaryHandler:
         logger = logging.getLogger(__name__)
         logger.error(f"Please create configuration file {config_path}")
         raise FileNotFoundError
-
-    def setup_output_diary_markdown(self):
-        """Sets up the path for the output diary Markdown file.
-
-        Handles backup of the original diary file if overwrite is enabled.
-        Manages naming conventions for the output file based on whether
-        it's being called by DiaryHandler or a subclass (like TprsCreation).
-        """
-        # doing it this way, as the TPRS class can inherit this DiaryHandler class
-        if self.__class__.__name__ == "DiaryHandler":
-            time_now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if self.config.get("overwrite_diary_markdown", True):
-                # backing up original file, make it hidden and add bak.timestamp
-                if os.path.exists(self.markdown_diary_path):
-                    shutil.copy(
-                        self.markdown_diary_path,
-                        self.markdown_diary_path.replace(
-                            ".md",
-                            f".md.bak_{time_now_str}",
-                        )
-                        .replace(
-                            os.path.basename(self.markdown_diary_path),
-                            "." + os.path.basename(self.markdown_diary_path),
-                        )
-                        .replace(
-                            os.path.dirname(self.markdown_diary_path), self.backup_dir
-                        ),
-                    )
-
-                    self.markdown_script_generated_diary_path = self.markdown_diary_path
-            else:
-                # if overwrite is False, we need to replace the output_dir
-                org_dir_path = os.path.dirname(self.markdown_diary_path)
-
-                self.markdown_script_generated_diary_path = self.markdown_diary_path
-                if org_dir_path == self.output_dir:
-                    # same dir, modify filename
-                    self.markdown_script_generated_diary_path = (
-                        self.markdown_script_generated_diary_path.replace(
-                            ".md", f"_{time_now_str}.md"
-                        )
-                    )
-
-                else:
-                    # different dir, filename stays the same
-                    self.markdown_script_generated_diary_path = (
-                        self.markdown_script_generated_diary_path.replace(
-                            org_dir_path, self.output_dir
-                        )
-                    )
-        else:
-            self.markdown_script_generated_diary_path = self.markdown_diary_path
-            org_dir_path = os.path.dirname(self.markdown_diary_path)
-            self.markdown_script_generated_diary_path = (
-                self.markdown_script_generated_diary_path.replace(
-                    org_dir_path, self.output_dir
-                )
-            )
-            # if the new markdown file doesnt exist yet, default back to the original one
-            if not os.path.exists(self.markdown_script_generated_diary_path):
-                self.markdown_script_generated_diary_path = self.markdown_diary_path
-
-            # simplify code so that when not called from main class, both variables are the same
-            self.markdown_diary_path = self.markdown_script_generated_diary_path
 
     def setup_logging(self):
         """Sets up logging for the application.
@@ -297,22 +204,16 @@ class DiaryHandler:
         self.close_logging()
 
     def validate_arguments(self):
-        """Validates the markdown diary path and output directory.
+        """Validates paths and creates required directories.
 
-        If the markdown diary path does not exist, it creates an empty file.
-        If the output directory does not exist, it attempts to create it.
-        Also creates a backup directory.
-
-        Raises:
-            ValueError: If the output directory cannot be created.
+        Sets self.new_diary = True if diary.json does not yet exist.
         """
-        if not os.path.exists(self.markdown_diary_path):
-            self.logging.warning(
-                f"Markdown file not found: {self.markdown_diary_path} - will start with an empty file"
+        json_path = self.config.get("json_diary_path")
+        if json_path and not os.path.exists(json_path):
+            self.logging.info(
+                f"diary.json not found at {json_path} — treating as a new diary."
             )
-            os.makedirs(os.path.dirname(self.markdown_diary_path), exist_ok=True)
-            with open(self.markdown_diary_path, "w"):
-                pass
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
             self.new_diary = True
         else:
             self.new_diary = False
@@ -328,115 +229,6 @@ class DiaryHandler:
 
         if self.backup_dir:
             os.makedirs(self.backup_dir, exist_ok=True)
-
-    def template_help(self):
-        """Generates a help string showing the template for diary entries.
-
-        Returns:
-            str: A multiline string illustrating the diary entry template.
-        """
-        multiline = textwrap.dedent(
-            f"""\
-            ## YYYY/MM/DD\n
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-
-            - **[!!! TO REPLACE FROM [ TO ] !!! sentence to translate from {self.config["languages"]["primary_language"]}]**
-              {_TMPL_DIARY_TRIAL}\x20
-              {_TMPL_DIARY_ANSWER}\x20
-              {_TMPL_DIARY_TIPS}\x20
-        """
-        )
-        return multiline
-
-    def prompt_new_diary_entry(self):
-        """Prompts the user to add new diary entries if configured to do so.
-
-        This method checks the configuration and, if called by DiaryHandler,
-        invokes `_prompt_new_diary_entry` to interact with the user.
-        The result is stored in `self.diary_new_entries_day`.
-        """
-        if self.config.get("diary_entries_prompt_user", True):
-            if self.__class__.__name__ == "DiaryHandler":
-                self.diary_new_entries_day = self._prompt_new_diary_entry()
-        else:
-            self.diary_new_entries_day = None
-            return
-
-    def _prompt_new_diary_entry(self):
-        """Interactively prompts the user to add new diary entries for the current day.
-
-        Collects sentences in the primary language and optional trial translations
-        in the study language from the user.
-
-        Returns:
-            dict or None: A dictionary containing the new diary entries for today,
-                          structured by date and sentence number. Returns None if
-                          the user chooses not to add entries or adds no sentences.
-        """
-        diary = {}
-
-        user_input = (
-            input("Do you want to add new diary entries for today? (y/N): ")
-            .strip()
-            .lower()
-        )
-        if user_input != "y":
-            return None
-
-        today_key = datetime.combine(
-            datetime.now().date(), datetime.min.time()
-        )  # Ensure datetime.datetime key
-        diary[today_key] = {}
-
-        sentence_number = 0
-        while True:
-            primary_sentence = input(
-                f"\nEnter sentence {sentence_number} in your primary language: "
-            ).strip()
-
-            if primary_sentence == "":
-                confirm = input(
-                    "You entered an empty sentence. Press enter again to confirm and stop adding sentences, or type anything to continue: "
-                ).strip()
-                if confirm == "":
-                    print("No more sentences will be added.")
-                    break
-                else:
-                    continue  # User mistyped – let them re-enter the sentence
-
-            trial_translation = input(
-                "Try to translate it into the study language (press Enter to skip): "
-            ).strip()
-            if trial_translation == "":
-                print(
-                    "Empty input detected – this will be saved as an empty trial translation."
-                )
-
-            diary[today_key]["sentences"] = dict()
-            diary[today_key]["sentences"][sentence_number] = {
-                "study_language_sentence": "",
-                "study_language_sentence_trial": trial_translation,
-                "primary_language_sentence": primary_sentence,
-                "tips": "",
-            }
-
-            sentence_number += 1
-
-        if diary[today_key] == {}:
-            return None
-        else:
-            if self.new_diary:
-                self.write_diary_json(diary)
-            else:
-                return diary
 
     def generate_unique_id(self, input_string, length=9):
         """Generates a unique ID based on a hash of the input string.
@@ -458,200 +250,6 @@ class DiaryHandler:
         # Take a portion of the integer and ensure it's the desired length
         unique_id_str = str(hash_int % (10**length))
         return unique_id_str.zfill(length)
-
-    def read_markdown_file(self, markdown_path):
-        """Reads the content of the specified markdown file.
-
-        Args:
-            markdown_path (str): The path to the markdown file.
-
-        Returns:
-            str: The cleaned content of the markdown file.
-        """
-        # with open(self.markdown_diary_path, "r", encoding="utf-8") as file:
-        with open(markdown_path, "r", encoding="utf-8") as file:
-            return self.clean_joplin_markdown(file.read())
-
-    def read_tprs_day_block(self, day_block):
-        """Parses a block of TPRS markdown text for a single day.
-
-        Extracts the date, title, and TPRS questions and answers.
-        The TPRS Q&A are structured as a dictionary where keys are sentences
-        and values are lists of (question, answer) tuples.
-
-        Args:
-            day_block (str): The markdown text block for a single day's TPRS entries.
-
-        Returns:
-            tuple: A tuple containing:
-                - collections.defaultdict(list) or None: A dictionary of TPRS Q&A
-                  for the day, or None if the block is empty.
-                - str or None: The date string (YYYY/MM/DD) for the block, or None.
-        """
-        if not day_block.strip():
-            return None, None
-
-        # pattern where ## from .split()
-        day_match = re.match(r"^(\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        # normal full pattern
-        if not day_match:
-            day_match = re.match(r"^## (\d{4}/\d{2}/\d{2})(.*)", day_block)
-
-        ## pattern with title
-        if not day_match:
-            day_match = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(.*)", day_block)
-            if not day_match:
-                return None, None
-
-        date = day_match.group(1)
-        title = day_match.group(2).replace(":", "").strip()
-
-        self.logging.info(f"Processing day: {date} - {title}")
-
-        result = defaultdict(list)
-        current_setning = None
-        current_question = None
-
-        for line in day_block.split("\n"):
-            line = line.strip()
-            if line.startswith(_TMPL_TPRS_SENTENCE):
-                current_setning = line[len(_TMPL_TPRS_SENTENCE) :].strip()
-            elif line.startswith(_TMPL_TPRS_QUESTION) and current_setning:
-                current_question = line[len(_TMPL_TPRS_QUESTION) :].strip()
-            elif (
-                line.startswith(_TMPL_TPRS_ANSWER)
-                and current_setning
-                and current_question
-            ):
-                answer = line[len(_TMPL_TPRS_ANSWER) :].strip()
-                result[current_setning].append((current_question, answer))
-                current_question = None  # Reset question after storing the pair
-
-        return result, date
-
-    def clean_joplin_markdown(self, content: str):
-        """Removes Joplin-specific metadata from markdown content.
-
-        This function targets metadata lines starting with "id:" and removes
-        them along with any subsequent related metadata lines.
-
-        Args:
-            content (str): The raw markdown content.
-
-        Returns:
-            str: The markdown content with Joplin metadata removed.
-        """
-        # Define a regular expression pattern that matches the section starting with "id:" followed by "parent_id:" and others in order
-        pattern = (
-            # r"(id:\s+[a-z0-9]+.*?parent_id:\s+[a-z0-9]+.*?created_time:\s+[0-9TZ:-]+.*)"
-            r"(id:\s+[a-z0-9]+.*)"
-        )
-
-        # Find the first occurrence of the unwanted section and slice the content up to that point
-        clean_content = re.split(pattern, content, maxsplit=1)[0]
-
-        return clean_content.strip()  # Optionally strip any leading/trailing whitespace
-
-    def extract_dates_from_md(self, markdown_path):
-        """Extracts all dates from headers in a markdown file.
-
-        Dates are expected to be in 'YYYY/MM/DD' format following '## '.
-
-        Args:
-            markdown_path (str): The path to the markdown file.
-
-        Returns:
-            list[datetime.datetime]: A list of dates found in the markdown file.
-        """
-        text = self.read_markdown_file(markdown_path)
-        # Regex pattern to match lines starting with ## followed by a date (YYYY/MM/DD)
-        pattern = r"^##\s(\d{4}/\d{2}/\d{2})"
-
-        # Extract matching date strings
-        date_strings = re.findall(pattern, text, re.MULTILINE)
-
-        # Convert to datetime format
-        dates = [datetime.strptime(date, "%Y/%m/%d") for date in date_strings]
-        return dates
-
-    def get_title_for_date(self, text, target_date):
-        """Extracts the title associated with a specific date from markdown text.
-
-        The title is expected to follow the date in a header, separated by a colon.
-        e.g., "## YYYY/MM/DD: Title of the day"
-
-        Args:
-            text (str): The markdown content to search within.
-            target_date (datetime.datetime): The date for which to find the title.
-
-        Returns:
-            str or None: The extracted title, or None if no title is found for the date.
-        """
-        # Convert datetime to string format used in the text (YYYY/MM/DD)
-        target_date_str = target_date.strftime("%Y/%m/%d")
-
-        # Regex pattern to match headers (## YYYY/MM/DD ...)
-        pattern = r"^## (\d{4}/\d{2}/\d{2})(.*)"
-
-        lines = text.split("\n")
-
-        title_exists = None
-        for line in lines:
-            match = re.match(pattern, line)
-            if match:
-                # If this is the target date, start capturing text
-                if match.group(1) == target_date_str:
-                    # check for title
-                    # if there is a column after the date,
-                    # this means there is a title created by openai. then catch it! otherwise create it
-                    if ":" in match.group(2):
-                        title_exists = match.group(2).replace(":", "").strip()
-                        break
-                    else:
-                        title_exists = None
-                        continue
-        return title_exists  # Skip the header itself
-
-    def get_text_for_date(self, text, target_date):
-        """Extracts the block of text associated with a specific date from markdown.
-
-        This includes all lines under a date header (e.g., "## YYYY/MM/DD")
-        until the next date header or the end of the text.
-
-        Args:
-            text (str): The markdown content to search within.
-            target_date (datetime.datetime): The date for which to extract text.
-
-        Returns:
-            str: The block of text associated with the target date.
-        """
-        # Convert datetime to string format used in the text (YYYY/MM/DD)
-        target_date_str = target_date.strftime("%Y/%m/%d")
-
-        # Regex pattern to match headers (## YYYY/MM/DD ...)
-        pattern = r"^## (\d{4}/\d{2}/\d{2}).*"
-
-        lines = text.split("\n")
-        capture = False
-        extracted_lines = []
-
-        for line in lines:
-            match = re.match(pattern, line)
-            if match:
-                # If this is the target date, start capturing text
-                if match.group(1) == target_date_str:
-                    capture = True
-                    continue  # Skip the header itself
-                # If a new date is found and we were capturing, stop capturing
-                elif capture:
-                    break
-
-            # Capture lines belonging to the target date
-            if capture:
-                extracted_lines.append(line)
-
-        return "\n".join(extracted_lines).strip()
 
     def openai_create_day_title(self, sentences_block_dict):
         """Generates a catchy title for a day's diary entries using OpenAI.
@@ -770,56 +368,33 @@ class DiaryHandler:
         return output["sentence"]
 
     def get_all_days_title(self, diary_dict):
-        """Gets or generates titles for all days in the diary_dict.
+        """Gets or generates titles for all days in diary_dict.
 
-        If the diary is new or a title is missing for an existing entry,
-        it uses OpenAI to generate a title based on the day's sentences.
-        Otherwise, it attempts to extract existing titles from the diary markdown.
-
-        Args:
-            diary_dict (dict): A dictionary of diary entries, keyed by date.
-
-        Returns:
-            dict: A dictionary where keys are dates and values are the titles for those dates.
-                  This dictionary is also stored in `self.titles_dict`.
+        Uses titles already in diary.json if present; falls back to OpenAI only when
+        all sentences for that day are translated.
         """
         titles_dict = {}
 
-        if self.new_diary:
-            for date_diary in diary_dict:
+        for date_diary in diary_dict:
+            existing_title = self.titles_dict.get(date_diary)
+            if existing_title:
+                titles_dict[date_diary] = existing_title
+                continue
+
+            sentences = diary_dict[date_diary].get("sentences", {}).values()
+            if all(s.get("study_language_sentence") for s in sentences):
                 title_day = self.openai_create_day_title(
                     diary_dict[date_diary]["sentences"]
                 )
                 self.logging.info(
                     f"created title with openai for {date_diary} - {title_day}"
                 )
-                titles_dict[date_diary] = title_day
-
-        else:
-            for date_diary in diary_dict:
-                # Prefer title already loaded from JSON (set by json_diary_to_dict)
-                existing_title = self.titles_dict.get(date_diary)
-                if existing_title:
-                    titles_dict[date_diary] = existing_title
-                    continue
-                title_day = self.get_title_for_date(self.all_diary_text, date_diary)
-                if title_day is None:
-                    if not any(
-                        not sentence_info.get("study_language_sentence")
-                        for diary in diary_dict.values()
-                        for sentence_info in diary.get("sentences", {}).values()
-                    ):
-                        title_day = self.openai_create_day_title(
-                            diary_dict[date_diary]["sentences"]
-                        )
-                        self.logging.info(
-                            f"created title with openai for {date_diary} - {title_day}"
-                        )
-                    else:
-                        self.logging.info(
-                            "Title not created as sentences are not created yet"
-                        )
-                titles_dict[date_diary] = title_day
+            else:
+                self.logging.info(
+                    f"Title not created for {date_diary} as sentences are not yet fully translated"
+                )
+                title_day = None
+            titles_dict[date_diary] = title_day
 
         self.titles_dict = titles_dict
         return titles_dict
@@ -888,70 +463,8 @@ class DiaryHandler:
         except Exception as exc:
             self.logging.warning(f"Could not write JSON diary: {exc}")
 
-    def markdown_diary_to_dict(self):
-        """Parses the main diary markdown file into a structured dictionary.
-
-        Extracts dates, titles, and individual sentence entries (primary language,
-        trial translation, study language translation, and tips) from the markdown.
-
-        Returns:
-            dict: A dictionary where keys are dates (datetime.date objects) and
-                  values are dictionaries containing the "title" for the day and
-                  a "sentences" dictionary. The "sentences" dictionary is keyed
-                  by sentence number and contains details for each sentence.
-        """
-        dates_diary = self.extract_dates_from_md(self.markdown_diary_path)
-        all_diary_text = self.read_markdown_file(self.config["markdown_diary_path"])
-        self.all_diary_text = all_diary_text
-
-        diary_dict = {}
-        for date_diary in dates_diary:
-            day_block_text = self.get_text_for_date(all_diary_text, date_diary)
-            answer_template = _TMPL_DIARY_ANSWER
-            tips_template = _TMPL_DIARY_TIPS
-            trial_template = _TMPL_DIARY_TRIAL
-
-            pattern = (
-                rf"-\s*\*\*(.*?)\*\*.*?"  # The diary entry summary inside bold **
-                rf"{trial_template}\s*(.*?)\s*"  # Trial text after template
-                rf"{answer_template}\s*(.*?)\s*"  # Answer text after template
-                rf"{tips_template}\s*(.*?)\s*(?=-|\Z)"  # Tips text after template until next '-' or end
-            )
-
-            entries = re.findall(pattern, day_block_text, re.DOTALL | re.MULTILINE)
-
-            if not any(entry[2] for entry in entries):
-                self.logging.warning(f"{date_diary} has no valid translations.")
-
-            i = 0
-            diary_day_dict = {}
-            for (
-                primary_language_sentence,
-                study_language_sentence_trial,
-                study_language_sentence,
-                tips,
-            ) in entries:
-                diary_day_dict[i] = {
-                    "study_language_sentence": study_language_sentence.strip(),
-                    "study_language_sentence_trial": study_language_sentence_trial.strip(),
-                    "primary_language_sentence": primary_language_sentence.replace(
-                        "**", ""
-                    ).strip(),
-                    "tips": tips.strip(),
-                }
-
-                diary_dict[date_diary] = dict()
-                diary_dict[date_diary]["sentences"] = diary_day_dict
-                i += 1
-
-        titles_dict = self.get_all_days_title(diary_dict)
-        for date_diary in dates_diary:
-            diary_dict[date_diary]["title"] = titles_dict[date_diary]
-
-        return diary_dict
-
     def json_diary_to_dict(self):
-        """Loads diary entries from diary.json into the same dict format as markdown_diary_to_dict().
+        """Loads diary entries from diary.json into a structured dictionary.
 
         Returns:
             dict: Keys are datetime objects, values contain "title" and "sentences" dict.
@@ -1002,15 +515,12 @@ class DiaryHandler:
     def diary_complete_translations(self):
         """Completes missing translations in the diary using OpenAI.
 
-        Reads the current diary into a dictionary, merges any new entries prompted
-        from the user, and then iterates through all entries. If a study language
-        sentence is missing and automatic translation is enabled in the config,
-        it calls OpenAI to generate the translation and tips. Finally, writes
-        the updated diary back to the JSON file.
+        Reads the current diary into a dictionary and iterates through all entries.
+        If a study language sentence is missing and automatic translation is enabled
+        in the config, it calls OpenAI to generate the translation and tips.
+        Finally, writes the updated diary back to the JSON file.
         """
         diary_dict = self.json_diary_to_dict()
-        if self.diary_new_entries_day:
-            diary_dict = self.diary_new_entries_day | diary_dict
 
         for date_diary, date_dict in diary_dict.items():
             for sentence_no, sentence_dict in date_dict["sentences"].items():
@@ -1055,13 +565,6 @@ class TprsVariantHandler:
         self.file_suffix = file_suffix
         self.openai_method_name = openai_method_name
         self.needs_base_tprs_data = needs_base_tprs_data
-
-        # self.markdown_path will be the original path from config, potentially with suffix
-        base_tprs_path = self.config["markdown_tprs_path"]
-        if self.file_suffix:
-            self.markdown_path = base_tprs_path.replace(".md", f"{self.file_suffix}.md")
-        else:
-            self.markdown_path = base_tprs_path
 
     def get_openai_generator(self):
         """Returns the appropriate OpenAI content generation method from TprsCreation."""
@@ -2100,8 +1603,6 @@ class TprsCreation(DiaryHandler):
                                          Defaults to None.
         """
         super().__init__(config_path)
-        # self.markdown_tprs_path from DiaryHandler's super call is the base path from config
-        # It will be used by StandardTprsVariantHandler implicitly if file_suffix is ""
 
         self.variants = [
             StandardTprsVariantHandler(self),
@@ -2755,8 +2256,6 @@ def main(config_path=None, run_interactive_prompts=False):
     """
     diary_instance = DiaryHandler(config_path=config_path)
     _log = diary_instance.logging  # named logger — goes to output.log
-    if run_interactive_prompts:
-        diary_instance.prompt_new_diary_entry()
     _log.info("=== Phase 1/3: Diary translations ===")
     diary_instance.diary_complete_translations()
     _log.info("=== Diary translations complete ===")

@@ -287,8 +287,8 @@ def _compute_day_timings(
         entry_start = cumulative
         s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
         s_dur = _generate_segment(variant.sentence, s_path, tts_plugin, lang, voice)
-        entry_end = int(entry_start + s_dur * R)
-        timings.append((int(entry_start), entry_end))
+        entry_end = round(entry_start + s_dur * R)
+        timings.append((round(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
         variant.sentence_audio_generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -300,18 +300,18 @@ def _compute_day_timings(
             cumulative += pause_ms  # pause before question
 
             q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-            q_start = int(cumulative)
+            q_start = round(cumulative)
             q_dur = _generate_segment(qa.question, q_path, tts_plugin, lang, voice)
-            cumulative = int(cumulative + q_dur * R)
+            cumulative = round(cumulative + q_dur * R)
             qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
             qa.question_audio_path = os.path.relpath(q_path, output_dir)
 
             cumulative += answer_silence_ms  # silence for user to answer
 
             a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-            a_start = int(cumulative)
+            a_start = round(cumulative)
             a_dur = _generate_segment(qa.answer, a_path, tts_plugin, lang, voice)
-            cumulative = int(cumulative + a_dur * R)
+            cumulative = round(cumulative + a_dur * R)
             qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
             qa.answer_audio_path = os.path.relpath(a_path, output_dir)
 
@@ -373,8 +373,8 @@ def _recompute_timings_from_segments(
         entry_start = cumulative
 
         s_dur = len(AudioSegment.from_mp3(s_path))
-        entry_end = int(entry_start + s_dur * R)
-        timings.append((int(entry_start), entry_end))
+        entry_end = round(entry_start + s_dur * R)
+        timings.append((round(entry_start), entry_end))
         variant.sentence_audio_path = os.path.relpath(s_path, output_dir)
 
         cumulative = entry_end + pause_ms
@@ -383,20 +383,20 @@ def _recompute_timings_from_segments(
             cumulative += pause_ms
 
             q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-            q_start = int(cumulative)
+            q_start = round(cumulative)
             if os.path.exists(q_path):
                 q_dur = len(AudioSegment.from_mp3(q_path))
-                cumulative = int(cumulative + q_dur * R)
+                cumulative = round(cumulative + q_dur * R)
                 qa.question_timing = AudioTiming(start_ms=q_start, end_ms=cumulative)
                 qa.question_audio_path = os.path.relpath(q_path, output_dir)
 
             cumulative += answer_silence_ms
 
             a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-            a_start = int(cumulative)
+            a_start = round(cumulative)
             if os.path.exists(a_path):
                 a_dur = len(AudioSegment.from_mp3(a_path))
-                cumulative = int(cumulative + a_dur * R)
+                cumulative = round(cumulative + a_dur * R)
                 qa.answer_timing = AudioTiming(start_ms=a_start, end_ms=cumulative)
                 qa.answer_audio_path = os.path.relpath(a_path, output_dir)
 
