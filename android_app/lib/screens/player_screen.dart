@@ -71,6 +71,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<Map<String, dynamic>> _segments = [];
   // Entry-level spans covering the full block (sentence → last answer)
   Map<int, Map<String, int>> _entrySpans = {};
+  // First Q/A segment start_ms per entry — used to clear sticky state on backward seek
+  Map<int, int> _firstQaStarts = {};
   int _activeEntryIndex = -1;
   int _activeQaIndex = -1; // -1 = sentence is active
   bool _activeIsQuestion = false;
@@ -315,6 +317,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _buildSegmentList() {
     final segs = <Map<String, dynamic>>[];
     final spans = <int, Map<String, int>>{}; // entryIdx → {start, end}
+    final firstQaStarts = <int, int>{}; // entryIdx → start_ms of first Q/A segment
 
     for (var i = 0; i < _sentenceEntries.length; i++) {
       final entry = _sentenceEntries[i];
@@ -330,8 +333,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
         if (qt != null && _toInt(qt['end_ms']) > 0) {
           segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
+          final start = _toInt(qt['start_ms']);
           final end = _toInt(qt['end_ms']);
           if (end > blockEnd) blockEnd = end;
+          if (!firstQaStarts.containsKey(i) || start < firstQaStarts[i]!) {
+            firstQaStarts[i] = start;
+          }
         }
         final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
         if (at != null && _toInt(at['end_ms']) > 0) {
@@ -344,6 +351,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     _segments = segs;
     _entrySpans = spans;
+    _firstQaStarts = firstQaStarts;
   }
 
   void _startPositionListener() {
@@ -403,9 +411,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _stickyIsQuestion = isQ;
         _stickyEntryIndex = entryIdx;
       } else if (entryIdx >= 0 && entryIdx == _stickyEntryIndex && _stickyQaIndex >= 0) {
-        // In a pause within the same entry after at least one Q/A played — hold last state
-        qaIdx = _stickyQaIndex;
-        isQ = _stickyIsQuestion;
+        // In a pause within the same entry — hold last Q/A bold, BUT only if we
+        // are past the first Q/A start.  If the user seeked backward to the
+        // sentence, ms will be before the first Q/A start and we must clear
+        // sticky so the sentence (not a stale Q/A) goes bold.
+        final firstQaStart = _firstQaStarts[entryIdx];
+        if (firstQaStart != null && ms >= firstQaStart) {
+          qaIdx = _stickyQaIndex;
+          isQ = _stickyIsQuestion;
+        } else {
+          _stickyQaIndex = -1;
+          _stickyIsQuestion = false;
+        }
       } else if (entryIdx != _stickyEntryIndex) {
         // Moved to a new entry — reset sticky
         _stickyQaIndex = -1;
