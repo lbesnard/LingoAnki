@@ -284,29 +284,30 @@ def api_generate():
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
             _log_to_file(f"ERROR: Generation failed: {exc}")
-        # Backfill any missing Q&A translations
-        try:
-            json_path = os.path.join(output_folder, "diary.json")
-            TprsCreation(config_path).backfill_qa_translations(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Q&A translation backfill failed: {exc}")
-            _log_to_file(f"WARNING: Q&A translation backfill failed: {exc}")
-        # Backfill missing variant sentence_input translations
-        try:
-            json_path = os.path.join(output_folder, "diary.json")
-            TprsCreation(config_path).backfill_sentence_inputs(json_path)
-        except Exception as exc:
-            app.logger.warning(f"sentence_input backfill failed: {exc}")
-            _log_to_file(f"WARNING: sentence_input backfill failed: {exc}")
-        # Backfill missing per-sentence audio segments and timing data in diary.json
+        json_path = os.path.join(output_folder, "diary.json")
+        # 1. Audio segments + timing — run first: critical for playback.
+        #    Must happen before the slow translation backfills so a
+        #    container restart cannot starve the new entry of timing data.
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
-            json_path = os.path.join(output_folder, "diary.json")
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
             app.logger.warning(f"Audio timing backfill failed: {exc}")
             _log_to_file(f"WARNING: Audio timing backfill failed: {exc}")
+        # 2. Q&A translations — needed for flashcard review.
+        try:
+            TprsCreation(config_path).backfill_qa_translations(json_path)
+        except Exception as exc:
+            app.logger.warning(f"Q&A translation backfill failed: {exc}")
+            _log_to_file(f"WARNING: Q&A translation backfill failed: {exc}")
+        # 3. sentence_input translations — low-priority metadata; runs last
+        #    because it iterates ALL historical entries and can be slow.
+        try:
+            TprsCreation(config_path).backfill_sentence_inputs(json_path)
+        except Exception as exc:
+            app.logger.warning(f"sentence_input backfill failed: {exc}")
+            _log_to_file(f"WARNING: sentence_input backfill failed: {exc}")
         # Write a completion marker so the client can stop polling.
         try:
             with open(log_file, "a", encoding="utf-8") as lf:
@@ -399,12 +400,12 @@ def api_backfill_audio_timing():
 @app.route("/api/backfill/all", methods=["POST"])
 @_jwt_required
 def api_backfill_all():
-    """Background job: fill in everything missing — Q&A translations, sentence inputs, audio segments.
+    """Background job: fill in everything missing — audio segments, Q&A translations, sentence inputs.
 
     Runs in sequence:
-      1. backfill_qa_translations    (translate missing Q&A pairs)
-      2. backfill_sentence_inputs    (translate missing variant sentence_input fields)
-      3. backfill_audio_timings      (generate missing segment MP3s + timing data)
+      1. backfill_audio_timings      (generate missing segment MP3s + timing data — critical for playback)
+      2. backfill_qa_translations    (translate missing Q&A pairs)
+      3. backfill_sentence_inputs    (translate missing variant sentence_input fields — slow, runs last)
     """
     from flask import g as _g
 
@@ -414,25 +415,25 @@ def api_backfill_all():
     def _run():
         json_path = os.path.join(output_folder, "diary.json")
 
-        app.logger.info("Backfill all: step 1/3 — Q&A translations")
-        try:
-            TprsCreation(config_path).backfill_qa_translations(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
-
-        app.logger.info("Backfill all: step 2/3 — variant sentence_input translations")
-        try:
-            TprsCreation(config_path).backfill_sentence_inputs(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: sentence_input backfill failed: {exc}")
-
-        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
+        app.logger.info("Backfill all: step 1/3 — audio timing / segments")
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
             app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+
+        app.logger.info("Backfill all: step 2/3 — Q&A translations")
+        try:
+            TprsCreation(config_path).backfill_qa_translations(json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — variant sentence_input translations")
+        try:
+            TprsCreation(config_path).backfill_sentence_inputs(json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: sentence_input backfill failed: {exc}")
 
         app.logger.info("Backfill all: complete")
 
