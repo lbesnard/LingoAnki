@@ -1332,265 +1332,6 @@ class PresentTprsVariantHandler(TprsVariantHandler):
         )
 
 
-def _backfill_qa_translations(config: dict, json_path: str, logger=None) -> None:
-    """Standalone Q&A translation backfill — does NOT require TprsCreation.
-
-    Translates ``question`` / ``answer`` fields (study language) into
-    ``question_input`` / ``answer_input`` (primary language) for every Q&A pair
-    in *json_path* that is still missing a translation.
-
-    Safe to call multiple times — already-translated pairs are skipped.
-    Saves diary.json after each day that was changed.
-    """
-    import json as _json
-    from openai import OpenAI
-    from lingodiary.diary_json import load_diary_json, save_diary_json
-
-    if logger is None:
-        logger = logging.getLogger(__name__)
-
-    primary = config["languages"]["primary_language"]
-    study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
-    model = config["openai"]["model"]
-
-    def _translate_batch(qa_items):
-        """Translate a list of Q&A pairs and return them as a list in the same order.
-
-        Uses numbered-dict output format ({"1": {...}, "2": {...}}) to match the
-        existing OpenAI prompt conventions in this codebase — avoids the fragile
-        array-unwrapping that caused non-deterministic failures with json_object mode.
-        """
-        numbered_input = {str(i + 1): item for i, item in enumerate(qa_items)}
-        prompt = (
-            f"You are a translator. Translate each Q&A pair from {study} into {primary}.\n\n"
-            f"Input is a JSON object where each key is a number and each value has "
-            f'"question" and "answer" fields in {study}.\n\n'
-            f"Return a JSON object with the same numbered keys, each value having:\n"
-            f'- "question_input": the question translated into {primary}\n'
-            f'- "answer_input": the answer translated into {primary}\n\n'
-            f"Rules:\n"
-            f"- Preserve meaning exactly; do not add or remove content.\n"
-            f"- Keep the same natural, spoken tone as the original.\n"
-            f"- Use the same numbered keys as the input.\n\n"
-            f"### Example\n"
-            f'Input: {{"1": {{"question": "Hvem var der?", "answer": "Vi var der."}}, '
-            f'"2": {{"question": "Hva skjedde?", "answer": "Vi spiste middag."}}}}\n'
-            f'Output: {{"1": {{"question_input": "Who was there?", "answer_input": "We were there."}}, '
-            f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
-            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
-        )
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            finish_reason = response.choices[0].finish_reason
-            logger.warning(
-                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
-                f"Skipping batch."
-            )
-            return []
-        raw = _json.loads(content)
-        try:
-            return [raw[str(i + 1)] for i in range(len(qa_items))]
-        except (KeyError, TypeError) as exc:
-            logger.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
-            )
-            return []
-
-    logger.info(f"Starting Q&A translation backfill for {json_path}")
-    db = load_diary_json(json_path)
-    changed = False
-    total_translated = 0
-
-    for day in db.diaries:
-        day_changed = False
-        day_translated = 0
-        for entry in day.entries:
-            for variant_name in ("original", "enhanced", "present", "future"):
-                vl = getattr(entry.lessons, variant_name, None)
-                if vl is None or not vl.qa:
-                    continue
-                already_done = sum(
-                    1 for qa in vl.qa if qa.question_input and qa.answer_input
-                )
-                missing_indices = [
-                    j
-                    for j, qa in enumerate(vl.qa)
-                    if not qa.question_input or not qa.answer_input
-                ]
-                if not missing_indices:
-                    continue
-                logger.info(
-                    f"  [{day.date}] entry {entry.index} {variant_name}: "
-                    f"{len(missing_indices)} missing, {already_done} already translated"
-                )
-                qa_items = [
-                    {"question": vl.qa[j].question, "answer": vl.qa[j].answer}
-                    for j in missing_indices
-                ]
-                try:
-                    translations = _translate_batch(qa_items)
-                    written = 0
-                    for k, j in enumerate(missing_indices):
-                        if k < len(translations):
-                            t = translations[k]
-                            vl.qa[j].question_input = t.get("question_input", "")
-                            vl.qa[j].answer_input = t.get("answer_input", "")
-                            if t.get("question_input") and t.get("answer_input"):
-                                written += 1
-                    logger.info(
-                        f"    → wrote {written}/{len(missing_indices)} translations"
-                    )
-                    day_translated += written
-                    day_changed = True
-                except Exception as exc:
-                    logger.warning(
-                        f"  Q&A translation failed for {day.date} entry {entry.index} "
-                        f"{variant_name}: {exc}"
-                    )
-
-        if day_changed:
-            save_diary_json(db, json_path)
-            changed = True
-            total_translated += day_translated
-            logger.info(f"  Saved {day_translated} new translations for {day.date}")
-
-    if not changed:
-        logger.info("Q&A translation backfill: nothing to update.")
-    else:
-        logger.info(
-            f"Q&A translation backfill complete — {total_translated} pairs translated."
-        )
-
-
-def _backfill_variant_sentence_inputs(
-    config: dict, json_path: str, logger=None
-) -> None:
-    """Standalone backfill — translates each variant sentence into the primary language.
-
-    Fills ``sentence_input`` on every ``VariantLesson`` where it is empty.
-    Skips the ``original`` variant because for that variant ``sentence_input``
-    is the same as the entry-level ``input_language_sentence`` (already stored).
-
-    Safe to call multiple times — already-filled fields are skipped.
-    Saves diary.json after each day that was changed.
-    """
-    import json as _json
-    from openai import OpenAI
-    from lingodiary.diary_json import load_diary_json, save_diary_json
-
-    if logger is None:
-        logger = logging.getLogger(__name__)
-
-    primary = config["languages"]["primary_language"]
-    study = config["languages"]["study_language"]
-    client = OpenAI(api_key=config["openai"]["key"], timeout=60)
-    model = config["openai"]["model"]
-
-    def _translate_sentences(sentences: list[str]) -> list[str]:
-        """Translate a list of study-language sentences into the primary language."""
-        numbered_input = {str(i + 1): s for i, s in enumerate(sentences)}
-        prompt = (
-            f"You are a translator. Translate each sentence from {study} into {primary}.\n\n"
-            f"Input is a JSON object where each key is a number and each value is a sentence in {study}.\n\n"
-            f"Return a JSON object with the same numbered keys, each value being the translated sentence in {primary}.\n\n"
-            f"Rules:\n"
-            f"- Preserve meaning exactly; do not add or remove content.\n"
-            f"- Keep the same natural, spoken tone as the original.\n"
-            f"- Use the same numbered keys as the input.\n\n"
-            f"### Example\n"
-            f'Input: {{"1": "Jeg dro til stranden i morges.", "2": "Vi spiste middag klokka åtte."}}\n'
-            f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
-            f"### Now translate:\n{_json.dumps(numbered_input, ensure_ascii=False)}"
-        )
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            finish_reason = response.choices[0].finish_reason
-            logger.warning(
-                f"OpenAI returned empty/None content (finish_reason={finish_reason!r}). "
-                f"Skipping batch."
-            )
-            return [""] * len(sentences)
-        raw = _json.loads(content)
-        try:
-            return [raw.get(str(i + 1), "") for i in range(len(sentences))]
-        except (KeyError, TypeError) as exc:
-            logger.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {_json.dumps(raw)}"
-            )
-            return [""] * len(sentences)
-
-    logger.info(f"Starting variant sentence_input backfill for {json_path}")
-    db = load_diary_json(json_path)
-    changed = False
-    total_translated = 0
-    # original variant is skipped: its sentence == output_language_translation,
-    # so sentence_input == input_language_sentence (already on the entry level).
-    target_variants = ("enhanced", "present", "future")
-
-    for day in db.diaries:
-        day_changed = False
-        day_translated = 0
-        for entry in day.entries:
-            for variant_name in target_variants:
-                vl = getattr(entry.lessons, variant_name, None)
-                if vl is None or not vl.sentence:
-                    continue
-                if vl.sentence_input:
-                    continue  # already done
-                logger.info(
-                    f"  [{day.date}] entry {entry.index} {variant_name}: translating sentence"
-                )
-                try:
-                    results = _translate_sentences([vl.sentence])
-                    translation = results[0] if results else ""
-                    if translation:
-                        vl.sentence_input = translation
-                        day_translated += 1
-                        day_changed = True
-                        logger.info(f"    → '{translation[:60]}…'")
-                    else:
-                        logger.warning(
-                            f"  Empty translation for {day.date} entry {entry.index} {variant_name}"
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        f"  sentence_input translation failed for {day.date} entry "
-                        f"{entry.index} {variant_name}: {exc}"
-                    )
-
-        if day_changed:
-            save_diary_json(db, json_path)
-            changed = True
-            total_translated += day_translated
-            logger.info(
-                f"  Saved {day_translated} new sentence_input translations for {day.date}"
-            )
-
-    if not changed:
-        logger.info("sentence_input backfill: nothing to update.")
-    else:
-        logger.info(
-            f"sentence_input backfill complete — {total_translated} sentences translated."
-        )
-
-
 class TprsCreation(DiaryHandler):
     def __init__(self, config_path=None):
         """Initializes the TprsCreation class, inheriting from DiaryHandler.
@@ -2079,31 +1820,39 @@ class TprsCreation(DiaryHandler):
     def openai_translate_qa_batch(self, qa_items: list[dict]) -> list[dict]:
         """Translate a batch of Q&A pairs from study language to primary language.
 
+        Uses a numbered-dict request/response format to avoid fragile array-unwrapping
+        with json_object mode.
+
         Args:
             qa_items: List of dicts with keys ``question`` and ``answer`` (study language).
 
         Returns:
             List of dicts with keys ``question_input`` and ``answer_input``
             (primary language), in the same order as ``qa_items``.
+            Returns an empty list on failure.
         """
         primary = self.config["languages"]["primary_language"]
         study = self.config["languages"]["study_language"]
+        numbered_input = {str(i + 1): item for i, item in enumerate(qa_items)}
 
-        prompt = f"""You are a translator. Translate each Q&A pair from {study} into {primary}.
-
-Input JSON has items with "question" and "answer" fields in {study}.
-Return a JSON array with the same number of items, each having:
-- "question_input": the question translated into {primary}
-- "answer_input": the answer translated into {primary}
-
-Rules:
-- Preserve meaning exactly; do not add or remove content.
-- Keep the same natural, spoken tone as the original.
-- Return ONLY a valid JSON array, no extra text.
-
-Input:
-{json.dumps(qa_items, ensure_ascii=False)}
-"""
+        prompt = (
+            f"You are a translator. Translate each Q&A pair from {study} into {primary}.\n\n"
+            f"Input is a JSON object where each key is a number and each value has "
+            f'"question" and "answer" fields in {study}.\n\n'
+            f"Return a JSON object with the same numbered keys, each value having:\n"
+            f'- "question_input": the question translated into {primary}\n'
+            f'- "answer_input": the answer translated into {primary}\n\n'
+            f"Rules:\n"
+            f"- Preserve meaning exactly; do not add or remove content.\n"
+            f"- Keep the same natural, spoken tone as the original.\n"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": {{"question": "Hvem var der?", "answer": "Vi var der."}}, '
+            f'"2": {{"question": "Hva skjedde?", "answer": "Vi spiste middag."}}}}\n'
+            f'Output: {{"1": {{"question_input": "Who was there?", "answer_input": "We were there."}}, '
+            f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
+            f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
+        )
         client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
         response = client.chat.completions.create(
             model=self.config["openai"]["model"],
@@ -2113,25 +1862,212 @@ Input:
             ],
             response_format={"type": "json_object"},
         )
-        raw = json.loads(response.choices[0].message.content)
-        # The model may return {"items": [...]} or directly a list wrapped in an object
-        if isinstance(raw, list):
-            return raw
-        # Unwrap single-key object (e.g. {"translations": [...]})
-        for v in raw.values():
-            if isinstance(v, list):
-                return v
-        return []
+        content = response.choices[0].message.content
+        if not content:
+            self.logging.warning(
+                f"OpenAI returned empty content (finish_reason="
+                f"{response.choices[0].finish_reason!r}). Skipping batch."
+            )
+            return []
+        raw = json.loads(content)
+        try:
+            return [raw[str(i + 1)] for i in range(len(qa_items))]
+        except (KeyError, TypeError) as exc:
+            self.logging.warning(
+                f"Unexpected translation response shape: {exc}. Raw: {json.dumps(raw)}"
+            )
+            return []
+
+    def openai_translate_texts_batch(self, texts: list[str]) -> list[str]:
+        """Translate a batch of plain-text sentences from study language to primary language.
+
+        Args:
+            texts: List of sentences in the study language.
+
+        Returns:
+            List of translated sentences in the primary language, same order.
+            Returns a list of empty strings on failure.
+        """
+        primary = self.config["languages"]["primary_language"]
+        study = self.config["languages"]["study_language"]
+        numbered_input = {str(i + 1): s for i, s in enumerate(texts)}
+
+        prompt = (
+            f"You are a translator. Translate each sentence from {study} into {primary}.\n\n"
+            f"Input is a JSON object where each key is a number and each value is a sentence in {study}.\n\n"
+            f"Return a JSON object with the same numbered keys, each value being the translated sentence in {primary}.\n\n"
+            f"Rules:\n"
+            f"- Preserve meaning exactly; do not add or remove content.\n"
+            f"- Keep the same natural, spoken tone as the original.\n"
+            f"- Use the same numbered keys as the input.\n\n"
+            f"### Example\n"
+            f'Input: {{"1": "Jeg dro til stranden i morges.", "2": "Vi spiste middag klokka åtte."}}\n'
+            f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
+            f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
+        )
+        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
+        response = client.chat.completions.create(
+            model=self.config["openai"]["model"],
+            messages=[
+                {"role": "system", "content": "You are a helpful translator."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            self.logging.warning(
+                f"OpenAI returned empty content (finish_reason="
+                f"{response.choices[0].finish_reason!r}). Skipping batch."
+            )
+            return [""] * len(texts)
+        raw = json.loads(content)
+        try:
+            return [raw.get(str(i + 1), "") for i in range(len(texts))]
+        except (KeyError, TypeError) as exc:
+            self.logging.warning(
+                f"Unexpected translation response shape: {exc}. Raw: {json.dumps(raw)}"
+            )
+            return [""] * len(texts)
 
     def backfill_qa_translations(self, json_path: str) -> None:
-        """Backfill ``question_input``/``answer_input`` fields for all Q&A pairs
-        in *json_path* that are missing primary-language translations.
+        """Backfill ``question_input``/``answer_input`` for all Q&A pairs missing
+        a primary-language translation.
 
-        Delegates to the module-level :func:`_backfill_qa_translations` so this
-        can also be called without instantiating the heavy TprsCreation class.
         Safe to call multiple times — already-translated pairs are skipped.
+        Saves diary.json after each day that has new translations.
         """
-        _backfill_qa_translations(self.config, json_path, self.logging)
+        from lingodiary.diary_json import load_diary_json, save_diary_json
+
+        self.logging.info(f"Starting Q&A translation backfill for {json_path}")
+        db = load_diary_json(json_path)
+        changed = False
+        total_translated = 0
+
+        for day in db.diaries:
+            day_changed = False
+            day_translated = 0
+            for entry in day.entries:
+                for variant_name in ("original", "enhanced", "present", "future"):
+                    vl = getattr(entry.lessons, variant_name, None)
+                    if vl is None or not vl.qa:
+                        continue
+                    already_done = sum(
+                        1 for qa in vl.qa if qa.question_input and qa.answer_input
+                    )
+                    missing_indices = [
+                        j
+                        for j, qa in enumerate(vl.qa)
+                        if not qa.question_input or not qa.answer_input
+                    ]
+                    if not missing_indices:
+                        continue
+                    self.logging.info(
+                        f"  [{day.date}] entry {entry.index} {variant_name}: "
+                        f"{len(missing_indices)} missing, {already_done} already translated"
+                    )
+                    qa_items = [
+                        {"question": vl.qa[j].question, "answer": vl.qa[j].answer}
+                        for j in missing_indices
+                    ]
+                    try:
+                        translations = self.openai_translate_qa_batch(qa_items)
+                        written = 0
+                        for k, j in enumerate(missing_indices):
+                            if k < len(translations):
+                                t = translations[k]
+                                vl.qa[j].question_input = t.get("question_input", "")
+                                vl.qa[j].answer_input = t.get("answer_input", "")
+                                if t.get("question_input") and t.get("answer_input"):
+                                    written += 1
+                        self.logging.info(
+                            f"    → wrote {written}/{len(missing_indices)} translations"
+                        )
+                        day_translated += written
+                        day_changed = True
+                    except Exception as exc:
+                        self.logging.warning(
+                            f"  Q&A translation failed for {day.date} entry "
+                            f"{entry.index} {variant_name}: {exc}"
+                        )
+
+            if day_changed:
+                save_diary_json(db, json_path)
+                changed = True
+                total_translated += day_translated
+                self.logging.info(
+                    f"  Saved {day_translated} new translations for {day.date}"
+                )
+
+        if not changed:
+            self.logging.info("Q&A translation backfill: nothing to update.")
+        else:
+            self.logging.info(
+                f"Q&A translation backfill complete — {total_translated} pairs translated."
+            )
+
+    def backfill_sentence_inputs(self, json_path: str) -> None:
+        """Backfill ``sentence_input`` for variant lessons missing a primary-language
+        translation of the variant sentence.
+
+        Skips the ``original`` variant (its sentence is already the study-language
+        output; the primary-language equivalent is ``input_language_sentence`` on
+        the entry level).  Skips any variant whose ``sentence_input`` is already set.
+
+        Safe to call multiple times.  Saves diary.json after each changed day.
+        """
+        from lingodiary.diary_json import load_diary_json, save_diary_json
+
+        self.logging.info(f"Starting sentence_input backfill for {json_path}")
+        db = load_diary_json(json_path)
+        changed = False
+        total_translated = 0
+
+        for day in db.diaries:
+            day_changed = False
+            day_translated = 0
+            for entry in day.entries:
+                for variant_name in ("enhanced", "present", "future"):
+                    vl = getattr(entry.lessons, variant_name, None)
+                    if vl is None or not vl.sentence or vl.sentence_input:
+                        continue
+                    self.logging.info(
+                        f"  [{day.date}] entry {entry.index} {variant_name}: "
+                        f"translating sentence_input"
+                    )
+                    try:
+                        results = self.openai_translate_texts_batch([vl.sentence])
+                        translation = results[0] if results else ""
+                        if translation:
+                            vl.sentence_input = translation
+                            day_translated += 1
+                            day_changed = True
+                            self.logging.info(f"    → '{translation[:60]}…'")
+                        else:
+                            self.logging.warning(
+                                f"  Empty translation for {day.date} entry "
+                                f"{entry.index} {variant_name}"
+                            )
+                    except Exception as exc:
+                        self.logging.warning(
+                            f"  sentence_input translation failed for {day.date} "
+                            f"entry {entry.index} {variant_name}: {exc}"
+                        )
+
+            if day_changed:
+                save_diary_json(db, json_path)
+                changed = True
+                total_translated += day_translated
+                self.logging.info(
+                    f"  Saved {day_translated} new sentence_input translations for {day.date}"
+                )
+
+        if not changed:
+            self.logging.info("sentence_input backfill: nothing to update.")
+        else:
+            self.logging.info(
+                f"sentence_input backfill complete — {total_translated} sentences translated."
+            )
 
     def check_missing_sentences_from_existing_tprs(self):
         """

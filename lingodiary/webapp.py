@@ -27,7 +27,7 @@ from platformdirs import user_config_dir
 from lingodiary.diary import (
     APP_NAME,
     DiaryHandler,
-    _backfill_qa_translations,
+    TprsCreation,
     main as main_diary_tprs,
 )
 
@@ -284,15 +284,20 @@ def api_generate():
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
             _log_to_file(f"ERROR: Generation failed: {exc}")
-        # Backfill any missing Q&A translations (safe standalone function — no markdown side effects)
+        # Backfill any missing Q&A translations
         try:
-            with open(config_path, encoding="utf-8") as f:
-                config = yaml.safe_load(f)
             json_path = os.path.join(output_folder, "diary.json")
-            _backfill_qa_translations(config, json_path, app.logger)
+            TprsCreation(config_path).backfill_qa_translations(json_path)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
             _log_to_file(f"WARNING: Q&A translation backfill failed: {exc}")
+        # Backfill missing variant sentence_input translations
+        try:
+            json_path = os.path.join(output_folder, "diary.json")
+            TprsCreation(config_path).backfill_sentence_inputs(json_path)
+        except Exception as exc:
+            app.logger.warning(f"sentence_input backfill failed: {exc}")
+            _log_to_file(f"WARNING: sentence_input backfill failed: {exc}")
         # Backfill missing per-sentence audio segments and timing data in diary.json
         try:
             from lingodiary.audio_timing import backfill_audio_timings
@@ -324,23 +329,16 @@ def api_generate():
 @app.route("/api/backfill/qa_translations", methods=["POST"])
 @_jwt_required
 def api_backfill_qa_translations():
-    """Background job: translate all missing Q&A pairs to the primary language.
-
-    Uses the safe standalone _backfill_qa_translations() — does NOT instantiate
-    TprsCreation, so no markdown files are created or overwritten as side effects.
-    """
+    """Background job: translate all missing Q&A pairs to the primary language."""
     from flask import g as _g
-    import yaml
 
     config_path = _g.api_config_path
     output_folder = _g.api_output_folder
 
     def _run():
         try:
-            with open(config_path, encoding="utf-8") as f:
-                config = yaml.safe_load(f)
             json_path = os.path.join(output_folder, "diary.json")
-            _backfill_qa_translations(config, json_path, app.logger)
+            TprsCreation(config_path).backfill_qa_translations(json_path)
         except Exception as exc:
             app.logger.error(f"Q&A translation backfill error: {exc}")
 
@@ -401,14 +399,14 @@ def api_backfill_audio_timing():
 @app.route("/api/backfill/all", methods=["POST"])
 @_jwt_required
 def api_backfill_all():
-    """Background job: fill in everything missing — Q&A translations, audio segments.
+    """Background job: fill in everything missing — Q&A translations, sentence inputs, audio segments.
 
     Runs in sequence:
-      1. _backfill_qa_translations  (translate missing Q&A pairs)
-      2. backfill_audio_timings  (generate missing segment MP3s + timing data)
+      1. backfill_qa_translations    (translate missing Q&A pairs)
+      2. backfill_sentence_inputs    (translate missing variant sentence_input fields)
+      3. backfill_audio_timings      (generate missing segment MP3s + timing data)
     """
     from flask import g as _g
-    import yaml
 
     config_path = _g.api_config_path
     output_folder = _g.api_output_folder
@@ -416,15 +414,19 @@ def api_backfill_all():
     def _run():
         json_path = os.path.join(output_folder, "diary.json")
 
-        app.logger.info("Backfill all: step 1/2 — Q&A translations")
+        app.logger.info("Backfill all: step 1/3 — Q&A translations")
         try:
-            with open(config_path, encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-            _backfill_qa_translations(config, json_path, app.logger)
+            TprsCreation(config_path).backfill_qa_translations(json_path)
         except Exception as exc:
             app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
 
-        app.logger.info("Backfill all: step 2/2 — audio timing / segments")
+        app.logger.info("Backfill all: step 2/3 — variant sentence_input translations")
+        try:
+            TprsCreation(config_path).backfill_sentence_inputs(json_path)
+        except Exception as exc:
+            app.logger.warning(f"Backfill all: sentence_input backfill failed: {exc}")
+
+        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
