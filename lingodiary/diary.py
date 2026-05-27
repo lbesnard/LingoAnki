@@ -72,6 +72,7 @@ import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime
+from functools import cached_property
 from pathlib import Path
 from typing import Callable
 
@@ -83,8 +84,39 @@ from piper import PiperVoice
 from platformdirs import user_config_dir
 from pydub import AudioSegment
 
+from lingodiary.diary_json import (
+    AudioTiming,
+    DiaryEntry,
+    LessonsBlock,
+    QA,
+    ReviewingState,
+    VariantLesson,
+    get_day,
+    load_diary_json,
+    save_diary_json,
+    upsert_day,
+)
+
 APP_NAME = "lingoDiary"
 CONFIG_FILE = "config.yaml"
+
+# Maps the variant handler name (as used in TprsVariantHandler.variant_name)
+# to the JSON key on LessonsBlock.
+VARIANT_NAME_MAP: dict[str, str] = {
+    "Standard": "original",
+    "Enhanced": "enhanced",
+    "Future": "future",
+    "Present": "present",
+}
+# Maps the variant handler name to the audio-path key in diary.json.
+# Currently identical to VARIANT_NAME_MAP but kept separate so the two
+# can diverge independently.
+VARIANT_AUDIO_KEY_MAP: dict[str, str] = {
+    "Standard": "original",
+    "Enhanced": "enhanced",
+    "Future": "future",
+    "Present": "present",
+}
 
 
 class DiaryHandler:
@@ -251,6 +283,68 @@ class DiaryHandler:
         unique_id_str = str(hash_int % (10**length))
         return unique_id_str.zfill(length)
 
+    @cached_property
+    def _openai_client(self) -> OpenAI:
+        """Lazily created, shared OpenAI client for this handler instance."""
+        return OpenAI(api_key=self.config["openai"]["key"], timeout=60)
+
+    def _openai_call(
+        self,
+        messages: list[dict],
+        *,
+        system: str = "You are a helpful assistant.",
+        json_mode: bool = False,
+        retries: int = 3,
+    ) -> str:
+        """Call the OpenAI chat completions API and return the raw content string.
+
+        Retries up to *retries* times on transient errors (network, rate-limit,
+        server error) with exponential back-off (2 s, 5 s, 10 s).
+
+        Args:
+            messages: List of ``{"role": ..., "content": ...}`` dicts (user turns only;
+                      the system message is prepended automatically from *system*).
+            system:   System prompt string.
+            json_mode: If ``True``, sets ``response_format={"type": "json_object"}``.
+            retries:  Maximum number of attempts.
+
+        Returns:
+            Raw content string from the model.
+
+        Raises:
+            RuntimeError: If all retries are exhausted or the model returns empty content.
+        """
+        full_messages = [{"role": "system", "content": system}] + messages
+        kwargs: dict = dict(
+            model=self.config["openai"]["model"],
+            messages=full_messages,
+        )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        delays = [2, 5, 10]
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                response = self._openai_client.chat.completions.create(**kwargs)
+                content = response.choices[0].message.content
+                if not content:
+                    raise RuntimeError(
+                        f"OpenAI returned empty content "
+                        f"(finish_reason={response.choices[0].finish_reason!r})"
+                    )
+                return content
+            except Exception as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    wait = delays[min(attempt, len(delays) - 1)]
+                    self.logging.warning(
+                        f"[OpenAI] Attempt {attempt + 1}/{retries} failed: {exc}. "
+                        f"Retrying in {wait}s…"
+                    )
+                    time.sleep(wait)
+        raise RuntimeError(f"OpenAI call failed after {retries} attempts") from last_exc
+
     def openai_create_day_title(self, sentences_block_dict):
         """Generates a catchy title for a day's diary entries using OpenAI.
 
@@ -282,18 +376,8 @@ class DiaryHandler:
             {sentences}
         """
 
-        self.logging.info(f"[OpenAI] Creating day title (this may take a moment)...")
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
+        self.logging.info("[OpenAI] Creating day title (this may take a moment)...")
+        output = self._openai_call([{"role": "user", "content": prompt}])
         self.logging.info(f"[OpenAI] Day title done: {output.strip()[:80]}")
         return output
 
@@ -345,20 +429,9 @@ class DiaryHandler:
         self.logging.info(
             f"[OpenAI] Translating: {sentence_dict['primary_language_sentence'][:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        output = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        output = json.loads(output)
         self.logging.info(
             f"[OpenAI] Translation done: {output['sentence'].get('study_language_sentence', '')[:80].strip()}"
         )
@@ -422,15 +495,6 @@ class DiaryHandler:
             return
 
         try:
-            from lingodiary.diary_json import (
-                DiaryEntry,
-                LessonsBlock,
-                ReviewingState,
-                load_diary_json,
-                save_diary_json,
-                upsert_day,
-            )
-
             diary_json = load_diary_json(json_path)
 
             for date_obj, day_data in diary_dict.items():
@@ -476,8 +540,6 @@ class DiaryHandler:
                 "json_diary_path not configured; cannot load diary from JSON."
             )
             return {}
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -665,21 +727,7 @@ class TprsVariantHandler:
         if not json_path:
             return
 
-        from lingodiary.diary_json import (
-            QA,
-            AudioTiming,
-            VariantLesson,
-            load_diary_json,
-            save_diary_json,
-        )
-
-        _VARIANT_NAME_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        json_key = _VARIANT_NAME_MAP.get(self.variant_name)
+        json_key = VARIANT_NAME_MAP.get(self.variant_name)
         if json_key is None:
             return
 
@@ -771,8 +819,6 @@ class TprsVariantHandler:
 
     def _record_lesson_audio_path(self, date_str: str, audio_filepath: str):
         """Record the generated lesson audio path in diary.json."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
@@ -790,13 +836,7 @@ class TprsVariantHandler:
             )
             # Use the same key convention as audio_timing.py so both systems
             # write to / read from the same entry in lesson_audio_paths.
-            _AUDIO_PATH_KEY_MAP = {
-                "Standard": "original",
-                "Enhanced": "enhanced",
-                "Future": "future",
-                "Present": "present",
-            }
-            variant_key = _AUDIO_PATH_KEY_MAP.get(
+            variant_key = VARIANT_AUDIO_KEY_MAP.get(
                 self.variant_name, self.variant_name.lower()
             )
             day.lesson_audio_paths[variant_key] = rel_path
@@ -1024,21 +1064,13 @@ class TprsVariantHandler:
             return
 
         # Load diary.json once to check lesson_audio_paths per date
-        from lingodiary.diary_json import load_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         diary_db = load_diary_json(json_path) if json_path else None
 
         force_overwrite = self.config.get("overwrite_tprs_audio", False)
         # Use the same key convention as audio_timing.py (_VARIANT_KEYS uses "original"
         # for the Standard variant, not "standard").
-        _AUDIO_PATH_KEY_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        variant_key = _AUDIO_PATH_KEY_MAP.get(
+        variant_key = VARIANT_AUDIO_KEY_MAP.get(
             self.variant_name, self.variant_name.lower()
         )
 
@@ -1083,17 +1115,9 @@ class TprsVariantHandler:
             )
             return {}
 
-        _VARIANT_NAME_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        json_key = _VARIANT_NAME_MAP.get(self.variant_name)
+        json_key = VARIANT_NAME_MAP.get(self.variant_name)
         if json_key is None:
             return {}
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1255,15 +1279,7 @@ class TprsVariantHandler:
 
     def _clear_variant_audio_paths(self, date_strs: set):
         """Clear this variant's audio path for the given dates so audio is regenerated."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
-        _AUDIO_PATH_KEY_MAP = {
-            "Standard": "original",
-            "Enhanced": "enhanced",
-            "Future": "future",
-            "Present": "present",
-        }
-        variant_key = _AUDIO_PATH_KEY_MAP.get(
+        variant_key = VARIANT_AUDIO_KEY_MAP.get(
             self.variant_name, self.variant_name.lower()
         )
         json_path = self.tprs_creator.config.get("json_diary_path")
@@ -1398,8 +1414,6 @@ class TprsCreation(DiaryHandler):
         if not json_path:
             return
 
-        from lingodiary.diary_json import load_diary_json
-
         try:
             diary_json = load_diary_json(json_path)
             for day in diary_json.diaries:
@@ -1414,8 +1428,6 @@ class TprsCreation(DiaryHandler):
 
     def _clear_lesson_audio_path_for_date(self, date_str: str):
         """Clear the lesson_audio_path for all variants on a date so audio is regenerated."""
-        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
-
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
@@ -1439,8 +1451,6 @@ class TprsCreation(DiaryHandler):
         json_path = self.config.get("json_diary_path")
         if not json_path:
             return
-
-        from lingodiary.diary_json import load_diary_json
 
         try:
             diary_json = load_diary_json(json_path)
@@ -1522,20 +1532,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Enhanced TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -1604,19 +1603,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Future TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -1685,19 +1674,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Present TPRS for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Present TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -1800,20 +1779,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(
             f"[OpenAI] Standard TPRS Q&A for: {study_language_sentence[:80].strip()}..."
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
+        qa_dict = json.loads(
+            self._openai_call([{"role": "user", "content": prompt}], json_mode=True)
         )
-
-        # Extract and parse the JSON response
-        output = response.choices[0].message.content
-        qa_dict = json.loads(output)
         self.logging.info(f"[OpenAI] Standard TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
@@ -1853,29 +1821,17 @@ class TprsCreation(DiaryHandler):
             f'"2": {{"question_input": "What happened?", "answer_input": "We had dinner."}}}}\n\n'
             f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            self.logging.warning(
-                f"OpenAI returned empty content (finish_reason="
-                f"{response.choices[0].finish_reason!r}). Skipping batch."
-            )
-            return []
-        raw = json.loads(content)
         try:
+            raw = json.loads(
+                self._openai_call(
+                    [{"role": "user", "content": prompt}],
+                    system="You are a helpful translator.",
+                    json_mode=True,
+                )
+            )
             return [raw[str(i + 1)] for i in range(len(qa_items))]
         except (KeyError, TypeError) as exc:
-            self.logging.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {json.dumps(raw)}"
-            )
+            self.logging.warning(f"Unexpected translation response shape: {exc}.")
             return []
 
     def openai_translate_texts_batch(self, texts: list[str]) -> list[str]:
@@ -1905,29 +1861,17 @@ class TprsCreation(DiaryHandler):
             f'Output: {{"1": "I went to the beach this morning.", "2": "We had dinner at eight."}}\n\n'
             f"### Now translate:\n{json.dumps(numbered_input, ensure_ascii=False)}"
         )
-        client = OpenAI(api_key=self.config["openai"]["key"], timeout=60)
-        response = client.chat.completions.create(
-            model=self.config["openai"]["model"],
-            messages=[
-                {"role": "system", "content": "You are a helpful translator."},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        if not content:
-            self.logging.warning(
-                f"OpenAI returned empty content (finish_reason="
-                f"{response.choices[0].finish_reason!r}). Skipping batch."
-            )
-            return [""] * len(texts)
-        raw = json.loads(content)
         try:
+            raw = json.loads(
+                self._openai_call(
+                    [{"role": "user", "content": prompt}],
+                    system="You are a helpful translator.",
+                    json_mode=True,
+                )
+            )
             return [raw.get(str(i + 1), "") for i in range(len(texts))]
         except (KeyError, TypeError) as exc:
-            self.logging.warning(
-                f"Unexpected translation response shape: {exc}. Raw: {json.dumps(raw)}"
-            )
+            self.logging.warning(f"Unexpected translation response shape: {exc}.")
             return [""] * len(texts)
 
     def backfill_qa_translations(self, json_path: str) -> None:
@@ -1937,8 +1881,6 @@ class TprsCreation(DiaryHandler):
         Safe to call multiple times — already-translated pairs are skipped.
         Saves diary.json after each day that has new translations.
         """
-        from lingodiary.diary_json import load_diary_json, save_diary_json
-
         self.logging.info(f"Starting Q&A translation backfill for {json_path}")
         db = load_diary_json(json_path)
         changed = False
@@ -2016,8 +1958,6 @@ class TprsCreation(DiaryHandler):
 
         Safe to call multiple times.  Saves diary.json after each changed day.
         """
-        from lingodiary.diary_json import load_diary_json, save_diary_json
-
         self.logging.info(f"Starting sentence_input backfill for {json_path}")
         db = load_diary_json(json_path)
         changed = False
@@ -2175,20 +2115,17 @@ class TprsCreation(DiaryHandler):
         return new_or_updated_tprs_dict_for_standard
 
 
-def main(config_path=None, run_interactive_prompts=False):
+def main(config_path=None):
     """Main function to run the diary and TPRS processing workflow.
 
     Args:
         config_path (str, optional): Path to the configuration file.
                                      Defaults to None, which uses the default user config path.
-        run_interactive_prompts (bool, optional): Whether to prompt the user for new diary entries.
-                                                  Defaults to False.
 
-    Initializes DiaryHandler, prompts for new entries (if run_interactive_prompts is True),
-    completes translations.
+    Initializes DiaryHandler, completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
     adds missing TPRS content for all versions (standard, enhanced, future, present),
-    and finally converts all TPRS markdown entries to audio.
+    and finally converts all TPRS entries to audio.
     """
     diary_instance = DiaryHandler(config_path=config_path)
     _log = diary_instance.logging  # named logger — goes to output.log
@@ -2240,7 +2177,3 @@ def main(config_path=None, run_interactive_prompts=False):
 
     tprs_instance.stop()
     _log.info("=== All generation complete ===")
-
-
-if __name__ == "__main__":
-    main(run_interactive_prompts=True)
