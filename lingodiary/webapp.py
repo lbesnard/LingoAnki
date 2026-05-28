@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
@@ -320,8 +321,9 @@ def api_generate():
 
             backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
         except Exception as exc:
-            app.logger.warning(f"Audio timing backfill failed: {exc}")
-            _log_to_file(f"WARNING: Audio timing backfill failed: {exc}")
+            tb = traceback.format_exc()
+            app.logger.warning(f"Audio timing backfill failed: {exc}\n{tb}")
+            _log_to_file(f"WARNING: Audio timing backfill failed: {exc}\n{tb}")
         finally:
             _detach_output_log(at_logger, at_handler)
         # 2. Q&A translations — needed for flashcard review.
@@ -414,10 +416,11 @@ def api_backfill_audio_timing():
                 overwrite_existing=overwrite,
             )
         except Exception as exc:
-            app.logger.error(f"Audio timing backfill error: {exc}")
+            tb = traceback.format_exc()
+            app.logger.error(f"Audio timing backfill error: {exc}\n{tb}")
             try:
                 with open(os.path.join(output_folder, "output.log"), "a") as _lf:
-                    _lf.write(f"ERROR: Audio timing backfill failed: {exc}\n")
+                    _lf.write(f"ERROR: Audio timing backfill failed: {exc}\n{tb}\n")
             except Exception:
                 pass
         finally:
