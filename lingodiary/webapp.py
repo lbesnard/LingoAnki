@@ -535,52 +535,61 @@ def api_generate_status():
 def api_lessons():
     from flask import g as _g
 
-    items = get_mp3_variants(_g.api_tprs_folder)
     result = []
     diary = None
     try:
-        from lingodiary.diary_json import load_diary_json, compute_stats, get_day
+        from lingodiary.diary_json import load_diary_json
 
         diary = load_diary_json(_g.api_json_diary_path)
     except Exception:
         diary = None
 
-    for base, display, variants in items:
-        lesson = {"base": base, "display": display, "variants": variants}
-        if diary is not None:
-            try:
-                # Match both "…_TPRS_YYYY-MM-DD…" and "TPRS_YYYY-MM-DD…"
-                m = re.search(r"TPRS_(\d{4}-\d{2}-\d{2})", base)
-                if m:
-                    date_dash = m.group(1)
-                    date_slash = date_dash.replace("-", "/")
-                    day = get_day(diary, date_slash)
-                    if day is not None:
-                        lesson["date"] = date_dash
-                        lesson["display"] = (
-                            f"{date_dash}_{day.title}" if day.title else date_dash
-                        )
-                        total = len(day.entries)
-                        mastered = sum(
-                            1
-                            for e in day.entries
-                            if e.lessons.reviewing.status == "mastered"
-                        )
-                        learning = sum(
-                            1
-                            for e in day.entries
-                            if e.lessons.reviewing.status == "learning"
-                        )
-                        new_count = total - mastered - learning
-                        lesson["srs"] = {
-                            "total": total,
-                            "mastered": mastered,
-                            "learning": learning,
-                            "new": new_count,
-                        }
-            except Exception:
-                pass
+    if diary is None:
+        # Fallback: no diary.json — return filesystem-scanned items with no metadata
+        for base, display, variants in get_mp3_variants(_g.api_tprs_folder):
+            result.append({"base": base, "display": display, "variants": variants})
+        return jsonify({"lessons": result})
+
+    for day in diary.diaries:
+        if not day.lesson_audio_paths:
+            continue
+        date_dash = day.date.replace("/", "-")
+        display = f"{date_dash}_{day.title}" if day.title else date_dash
+        # Build variants dict: capitalised key → bare filename (no directory)
+        variants = {
+            k.title(): os.path.basename(v)
+            for k, v in day.lesson_audio_paths.items()
+            if v
+        }
+        if not variants:
+            continue
+        # base = stem of the original MP3 (used by sync manifest matching)
+        original_path = day.lesson_audio_paths.get(
+            "original", next(iter(day.lesson_audio_paths.values()))
+        )
+        base = os.path.splitext(os.path.basename(original_path))[0]
+        lesson = {
+            "base": base,
+            "display": display,
+            "date": date_dash,
+            "variants": variants,
+        }
+        total = len(day.entries)
+        mastered = sum(
+            1 for e in day.entries if e.lessons.reviewing.status == "mastered"
+        )
+        learning = sum(
+            1 for e in day.entries if e.lessons.reviewing.status == "learning"
+        )
+        lesson["srs"] = {
+            "total": total,
+            "mastered": mastered,
+            "learning": learning,
+            "new": total - mastered - learning,
+        }
         result.append(lesson)
+
+    result.sort(key=lambda x: x["date"], reverse=True)
     return jsonify({"lessons": result})
 
 
