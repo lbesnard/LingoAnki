@@ -921,7 +921,12 @@ class TprsVariantHandler:
             f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
         )
 
-        tts_plugin_instance = PiperTTSPlugin()
+        tts_plugin_instance = PiperTTSPlugin(
+            {
+                "lang": self.config["languages"]["study_language_code"],
+                "voice": self.config["tts"]["piper"]["voice"],
+            }
+        )
         tts_plugin_instance.length_scale = self.config["tts"]["piper"][
             "piper_length_scale_tprs"
         ]

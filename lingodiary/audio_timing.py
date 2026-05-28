@@ -490,7 +490,7 @@ def backfill_audio_timings(
         f"repeat={repeat_tprs}, pause={pause_ms}ms, silence={answer_silence_ms}ms"
     )
 
-    tts_plugin = PiperTTSPlugin(lang=lang, config={"lang": lang, "voice": voice})
+    tts_plugin = PiperTTSPlugin({"lang": lang, "voice": voice})
     tts_plugin.length_scale = length_scale
 
     diary = load_diary_json(diary_json_path)
