@@ -67,20 +67,21 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _homeData == null) {
+      final l10n = AppLocalizations.of(context);
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.wifi_off, size: 48, color: Colors.grey),
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: Colors.grey)),
+            Text(l10n.serverUnreachableNoCache, style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             ElevatedButton(
                 onPressed: () {
                   setState(() => _loading = true);
                   _loadData();
                 },
-                child: const Text('Retry')),
+                child: Text(l10n.retryButton)),
           ],
         ),
       );
@@ -169,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStatsCard() {
+    final l10n = AppLocalizations.of(context);
     final stats = _homeData?['stats'] as Map<String, dynamic>? ?? {};
     final total = (stats['total'] as int?) ?? 0;
     final mastered = (stats['mastered'] as int?) ?? 0;
@@ -184,10 +186,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Progress', style: Theme.of(context).textTheme.titleMedium),
+            Text(l10n.homeProgress, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             _progressRow(
-              label: 'Mastered',
+              label: l10n.homeMastered,
               count: mastered,
               total: total,
               value: masteredFrac,
@@ -195,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             _progressRow(
-              label: 'In progress',
+              label: l10n.homeInProgress,
               count: learning,
               total: total,
               value: learningFrac,
@@ -203,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '$newCount new • $total total entries',
+              l10n.homeNewTotalEntries(newCount, total),
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -248,7 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final title = rec['title'] as String? ?? rec['date'] as String? ?? '?';
     final variant = rec['variant'] as String? ?? 'original';
     final reason = rec['reason'] as String? ?? '';
-    final reasonLabel = reason == 'due_for_review' ? 'Due for review' : 'New lesson';
+    final l10n = AppLocalizations.of(context);
+    final reasonLabel = reason == 'due_for_review' ? l10n.dueForReview : l10n.newLesson;
 
     return InkWell(
       onTap: () {
@@ -267,14 +270,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Icon(Icons.push_pin, size: 18),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text('Study Now',
+                    child: Text(l10n.homeStudyNow,
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold)),
                   ),
                   PopupMenuButton<String>(
-                    tooltip: 'Review options',
+                    tooltip: l10n.reviewOptionsTooltip,
                     icon: const Icon(Icons.headphones, size: 16),
                     onSelected: (value) {
                       if (value == 'original') {
@@ -284,20 +287,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     },
                     itemBuilder: (context) => [
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'original',
                         child: ListTile(
-                          leading: Icon(Icons.rate_review_outlined),
-                          title: Text('Original Review'),
+                          leading: const Icon(Icons.rate_review_outlined),
+                          title: Text(l10n.originalReview),
                           contentPadding: EdgeInsets.zero,
                           dense: true,
                         ),
                       ),
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'translation',
                         child: ListTile(
-                          leading: Icon(Icons.translate_outlined),
-                          title: Text('Translation Excercise'),
+                          leading: const Icon(Icons.translate_outlined),
+                          title: Text(l10n.translationExercise),
                           contentPadding: EdgeInsets.zero,
                           dense: true,
                         ),
@@ -328,18 +331,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final recent =
         (_homeData?['recent_lessons'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
+    final l10n = AppLocalizations.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Recently Studied',
+            Text(l10n.homeRecentlyStudied,
                 style: Theme.of(context).textTheme.titleMedium),
             const Divider(),
             if (recent.isEmpty)
-              const Text('No lessons studied yet.',
-                  style: TextStyle(color: Colors.grey))
+              Text(l10n.homeNoLessonsStudied,
+                  style: const TextStyle(color: Colors.grey))
             else
               ...recent.map((item) => _recentTile(item)),
           ],
@@ -349,6 +353,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _recentTile(Map<String, dynamic> item) {
+    final l10n = AppLocalizations.of(context);
     final date = item['date'] as String? ?? '';
     final title = item['title'] as String? ?? date;
     final lastReviewed = item['last_reviewed'] as String? ?? '';
@@ -363,13 +368,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final diff = now.difference(reviewTime);
 
         if (diff.inDays > 0) {
-          timeAgo = '${diff.inDays}d ago';
+          timeAgo = l10n.timeAgoDays(diff.inDays);
         } else if (diff.inHours > 0) {
-          timeAgo = '${diff.inHours}h ago';
+          timeAgo = l10n.timeAgoHours(diff.inHours);
         } else if (diff.inMinutes > 0) {
-          timeAgo = '${diff.inMinutes}m ago';
+          timeAgo = l10n.timeAgoMinutes(diff.inMinutes);
         } else {
-          timeAgo = 'Just now';
+          timeAgo = l10n.timeAgoJustNow;
         }
       } catch (_) {
         timeAgo = '';

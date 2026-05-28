@@ -11,6 +11,7 @@ import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
 import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/player_screen.dart';
 import 'screens/native_first_sentences_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'widgets/scaled_app.dart';
@@ -70,6 +71,14 @@ final _router = GoRouter(
            name: 'nativeFirstReview',
            builder: (_, __) => const NativeFirstSentencesScreen()),
        GoRoute(path: '/lessons', name: 'lessons', builder: (_, __) => const LessonsScreen()),
+       GoRoute(
+         path: '/lessons/player',
+         name: 'player',
+         builder: (_, state) {
+           final lesson = state.extra as Map<String, dynamic>? ?? {};
+           return PlayerScreen(lesson: lesson);
+         },
+       ),
        GoRoute(path: '/diary', name: 'diary', builder: (_, __) => const DiaryScreen()),
        GoRoute(path: '/settings', name: 'settings', builder: (_, __) => const SettingsScreen()),
      ],
@@ -175,18 +184,19 @@ class MainShell extends StatelessWidget {
       listenable: SyncManager.instance,
       builder: (context, _) {
         final sync = SyncManager.instance;
+        final l10n = AppLocalizations.of(context);
         return Scaffold(
           appBar: AppBar(
             title: const Text('LingoDiary'),
             actions: [
               const ConnectionBadge(),
               IconButton(
-                tooltip: 'Help',
+                tooltip: l10n.helpTooltip,
                 icon: const Icon(Icons.help_outline),
                 onPressed: () => _showHelpDialog(context),
               ),
               IconButton(
-                tooltip: 'Settings',
+                tooltip: l10n.settingsTooltip,
                 icon: const Icon(Icons.settings_outlined),
                 onPressed: () => context.push('/settings'),
               ),
@@ -237,8 +247,8 @@ class MainShell extends StatelessWidget {
                         style: TextButton.styleFrom(
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 28)),
-                        child: const Text('Cancel',
-                            style: TextStyle(color: Colors.red)),
+                        child: Text(l10n.cancelButton,
+                            style: const TextStyle(color: Colors.red)),
                       ),
                     ],
                   ),
@@ -278,15 +288,15 @@ class MainShell extends StatelessWidget {
                 type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.home_outlined), label: 'Home'),
+                      icon: const Icon(Icons.home_outlined), label: l10n.navHome),
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.quiz_outlined), label: 'Review'),
+                      icon: const Icon(Icons.quiz_outlined), label: l10n.navReview),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
-                      label: AppLocalizations.of(context).navLessons),
+                      label: l10n.navLessons),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.book),
-                      label: AppLocalizations.of(context).navDiary),
+                      label: l10n.navDiary),
                 ],
               ),
             ],

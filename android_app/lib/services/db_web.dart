@@ -131,4 +131,12 @@ class LocalDbService {
   static Future<void> markLessonReviewSynced(String date) async {}
 
   static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons({int limit = 10}) async => [];
+
+  // ---- Day cache (no-op on web — always reads from API) ----
+
+  static Future<void> saveDayCache(String date, Map<String, dynamic> dayObject) async {}
+
+  static Future<Map<String, dynamic>?> getDayCache(String date) async => null;
+
+  static Future<List<String>> getAllCachedDates() async => [];
 }

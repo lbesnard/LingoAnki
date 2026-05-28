@@ -212,61 +212,6 @@ def _assemble_full_mp3(
     return True
 
 
-def _mp3_stale(day, variant_key: str) -> bool:
-    """Return True if the full lesson MP3 is stale relative to its Q&A segments.
-
-    Checks both sentence_audio_generated_at and qa.generated_at against the
-    stored lesson_mp3_timestamps[variant_key].  Any segment newer than the
-    full MP3 — or missing a timestamp — triggers a rebuild.
-    """
-    mp3_ts_str = day.lesson_mp3_timestamps.get(variant_key)
-    if mp3_ts_str is None:
-        # No MP3 timestamp — can't evaluate; let segments_newly_generated handle it
-        return False
-
-    try:
-        mp3_ts = datetime.fromisoformat(mp3_ts_str)
-    except (ValueError, TypeError):
-        logger.warning(
-            f"  Malformed lesson_mp3_timestamps[{variant_key!r}]={mp3_ts_str!r} "
-            f"for {day.date} — treating MP3 as stale."
-        )
-        return True
-
-    for entry in day.entries:
-        v = entry.lessons.get_variant(variant_key)
-
-        # Check sentence segment
-        if v.sentence_audio_path:
-            if v.sentence_audio_generated_at is None:
-                return True
-            try:
-                if datetime.fromisoformat(v.sentence_audio_generated_at) > mp3_ts:
-                    return True
-            except (ValueError, TypeError):
-                logger.warning(
-                    f"  Malformed sentence_audio_generated_at on entry "
-                    f"{entry.index} ({day.date}) — treating as stale."
-                )
-                return True
-
-        # Check Q&A segments
-        for qa in v.qa:
-            if qa.generated_at is None:
-                return True
-            try:
-                if datetime.fromisoformat(qa.generated_at) > mp3_ts:
-                    return True
-            except (ValueError, TypeError):
-                logger.warning(
-                    f"  Malformed qa.generated_at on entry {entry.index} "
-                    f"({day.date}) — treating as stale."
-                )
-                return True
-
-    return False
-
-
 def _compute_day_timings(
     entries: list,
     variant_key: str,
@@ -442,27 +387,206 @@ def _recompute_timings_from_segments(
     return timings
 
 
+def _process_day_audio(
+    day,
+    variants: list[str],
+    tts_plugin,
+    lang: str,
+    voice: str,
+    repeat_tprs: int,
+    pause_ms: int,
+    answer_silence_ms: int,
+    output_dir: str,
+    tprs_dir: str,
+    overwrite_existing: bool = False,
+) -> bool:
+    """Generate segments, compute timings, and assemble the full MP3 for one DiaryDay.
+
+    Returns True if the day object was modified (caller should save diary.json).
+    """
+    from lingodiary.diary_json import AudioTiming  # type: ignore
+
+    day_modified = False
+
+    # Fill lesson_audio_paths from existing MP3 files on disk
+    for variant_key in variants:
+        suffix = _KEY_TO_SUFFIX.get(variant_key, "")
+        mp3_path = _find_day_mp3(tprs_dir, day.date, suffix)
+        if mp3_path and variant_key not in day.lesson_audio_paths:
+            day.lesson_audio_paths[variant_key] = os.path.relpath(mp3_path, output_dir)
+            day_modified = True
+
+    for variant_key in variants:
+        populated = [
+            e for e in day.entries if e.lessons.get_variant(variant_key).sentence
+        ]
+        if not populated:
+            logger.debug(f"  {variant_key}: no entries, skipping.")
+            continue
+
+        segs_dir = _segments_dir(output_dir, day.date, variant_key)
+
+        segments_newly_generated = False
+        if not overwrite_existing and _segments_complete(
+            segs_dir, day.entries, variant_key
+        ):
+            logger.info(f"  {variant_key}: segments already complete, skipping TTS.")
+
+            # Backfill audio paths and generated_at timestamps from segment files
+            for idx, entry in enumerate(day.entries):
+                v = entry.lessons.get_variant(variant_key)
+                if not v.sentence:
+                    continue
+                s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
+                if os.path.exists(s_path):
+                    if v.sentence_audio_path == "":
+                        v.sentence_audio_path = os.path.relpath(s_path, output_dir)
+                        day_modified = True
+                    if v.sentence_audio_generated_at is None:
+                        mtime = os.path.getmtime(s_path)
+                        v.sentence_audio_generated_at = datetime.fromtimestamp(
+                            mtime, tz=timezone.utc
+                        ).isoformat()
+                        day_modified = True
+
+                for j, qa in enumerate(v.qa):
+                    q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
+                    a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
+                    if qa.question_audio_path == "" and os.path.exists(q_path):
+                        qa.question_audio_path = os.path.relpath(q_path, output_dir)
+                        day_modified = True
+                    if qa.answer_audio_path == "" and os.path.exists(a_path):
+                        qa.answer_audio_path = os.path.relpath(a_path, output_dir)
+                        day_modified = True
+                    if qa.generated_at is None and os.path.exists(q_path):
+                        mtime = max(
+                            os.path.getmtime(q_path),
+                            os.path.getmtime(a_path) if os.path.exists(a_path) else 0,
+                        )
+                        qa.generated_at = datetime.fromtimestamp(
+                            mtime, tz=timezone.utc
+                        ).isoformat()
+                        day_modified = True
+
+            # Recompute timing from segment files if any entry has zero end_ms
+            needs_timing = any(
+                entry.lessons.get_variant(variant_key).sentence
+                and entry.lessons.get_variant(variant_key).audio_timing.end_ms == 0
+                for entry in day.entries
+            )
+            if needs_timing:
+                logger.info(
+                    f"  {variant_key}: zero timing detected — recomputing from segments."
+                )
+                fixed_timings = _recompute_timings_from_segments(
+                    day.entries,
+                    variant_key,
+                    segs_dir,
+                    repeat_tprs,
+                    pause_ms,
+                    answer_silence_ms,
+                    output_dir,
+                )
+                if fixed_timings:
+                    for entry, (start_ms, end_ms) in zip(day.entries, fixed_timings):
+                        v = entry.lessons.get_variant(variant_key)
+                        if v.sentence:
+                            v.audio_timing = AudioTiming(
+                                start_ms=start_ms, end_ms=end_ms
+                            )
+                            day_modified = True
+                    logger.info(
+                        f"  {variant_key}: timing fixed. Last end_ms={fixed_timings[-1][1]}ms "
+                        f"(~{fixed_timings[-1][1]//1000}s)"
+                    )
+        else:
+            logger.info(
+                f"  {variant_key}: generating segments for {len(populated)} entries "
+                f"(repeat x{repeat_tprs})..."
+            )
+            timings = _compute_day_timings(
+                day.entries,
+                variant_key,
+                tts_plugin,
+                lang,
+                voice,
+                repeat_tprs,
+                pause_ms,
+                answer_silence_ms,
+                output_dir=output_dir,
+                date_str=day.date,
+            )
+            if not timings:
+                continue
+
+            for entry, (start_ms, end_ms) in zip(day.entries, timings):
+                v = entry.lessons.get_variant(variant_key)
+                if v.sentence:
+                    v.audio_timing = AudioTiming(start_ms=start_ms, end_ms=end_ms)
+                    day_modified = True
+
+            logger.info(
+                f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
+                f"(~{timings[-1][1]//1000}s)"
+            )
+            segments_newly_generated = True
+
+        # Rebuild the full MP3 when: segments are new OR the file is missing
+        mp3_rel = day.lesson_audio_paths.get(variant_key, "")
+        if not mp3_rel and segments_newly_generated:
+            date_dash = day.date.replace("/", "-")
+            suffix = _KEY_TO_SUFFIX.get(variant_key, "")
+            fname = f"TPRS_{date_dash}{suffix}.mp3"
+            mp3_rel = os.path.join("TPRS", fname)
+            day.lesson_audio_paths[variant_key] = mp3_rel
+            day_modified = True
+            logger.info(
+                f"  {variant_key}: no existing MP3 path — will write to {mp3_rel}"
+            )
+        mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
+        if mp3_path and (segments_newly_generated or not os.path.exists(mp3_path)):
+            rebuilt = _assemble_full_mp3(
+                day.entries,
+                variant_key,
+                segs_dir,
+                repeat_tprs,
+                pause_ms,
+                answer_silence_ms,
+                mp3_path,
+            )
+            if rebuilt:
+                day_modified = True
+                day.lesson_mp3_timestamps[variant_key] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+                logger.info(f"  {variant_key}: rebuilt MP3 at {mp3_path}.")
+        else:
+            logger.debug(f"  {variant_key}: MP3 up-to-date, skipping rebuild.")
+
+    return day_modified
+
+
 def backfill_audio_timings(
     config_path: str | Path,
     diary_json_path: str | Path,
     variants: list[str] | None = None,
     overwrite_existing: bool = False,
 ) -> None:
-    """
-    Generate individual segment MP3s and store per-sentence audio timings for
-    all TPRS variant lessons.
+    """Generate/repair segment MP3s, timings, and full Lesson Audio for all Days.
+
+    Loops over every DiaryDay in diary.json and calls _process_day_audio for each.
+    Saves diary.json after each modified day so progress survives interruptions.
 
     Args:
         config_path:         Path to the user's config.yaml.
-        diary_json_path:     Path to diary.json (updated in-place, saved per day).
+        diary_json_path:     Path to diary.json (updated in-place).
         variants:            Variant keys to process. Defaults to all four.
-        overwrite_existing:  If False (default), skip days where segment files
-                             are already complete.
+        overwrite_existing:  If True, regenerate segments even when already present.
     """
     import yaml  # type: ignore
     from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
 
-    from lingodiary.diary_json import AudioTiming, load_diary_json, save_diary_json
+    from lingodiary.diary_json import load_diary_json, save_diary_json
 
     variants = variants or list(_VARIANT_KEYS)
     diary_json_path = Path(diary_json_path)
@@ -490,7 +614,7 @@ def backfill_audio_timings(
         f"repeat={repeat_tprs}, pause={pause_ms}ms, silence={answer_silence_ms}ms"
     )
 
-    tts_plugin = PiperTTSPlugin()
+    tts_plugin = PiperTTSPlugin({"lang": lang, "voice": voice})
     tts_plugin.length_scale = length_scale
 
     diary = load_diary_json(diary_json_path)
@@ -500,173 +624,19 @@ def backfill_audio_timings(
     try:
         for day_idx, day in enumerate(diary.diaries, 1):
             logger.info(f"Day {day_idx}/{total_days}: {day.date} -- {day.title}")
-            day_modified = False
-
-            # Fill lesson_audio_paths for this day
-            for variant_key in variants:
-                suffix = _KEY_TO_SUFFIX.get(variant_key, "")
-                mp3_path = _find_day_mp3(tprs_dir, day.date, suffix)
-                if mp3_path and variant_key not in day.lesson_audio_paths:
-                    day.lesson_audio_paths[variant_key] = os.path.relpath(
-                        mp3_path, output_dir
-                    )
-                    day_modified = True
-
-            for variant_key in variants:
-                populated = [
-                    e
-                    for e in day.entries
-                    if e.lessons.get_variant(variant_key).sentence
-                ]
-                if not populated:
-                    logger.debug(f"  {variant_key}: no entries, skipping.")
-                    continue
-
-                segs_dir = _segments_dir(output_dir, day.date, variant_key)
-
-                segments_newly_generated = False
-                if not overwrite_existing and _segments_complete(
-                    segs_dir, day.entries, variant_key
-                ):
-                    logger.info(
-                        f"  {variant_key}: segments already complete, skipping TTS."
-                    )
-                    # Fill paths if they're missing from the JSON
-                    for idx, entry in enumerate(day.entries):
-                        v = entry.lessons.get_variant(variant_key)
-                        if not v.sentence:
-                            continue
-                        s_path = os.path.join(segs_dir, f"{idx}_s.mp3")
-                        if v.sentence_audio_path == "" and os.path.exists(s_path):
-                            v.sentence_audio_path = os.path.relpath(s_path, output_dir)
-                            day_modified = True
-                        for j, qa in enumerate(v.qa):
-                            q_path = os.path.join(segs_dir, f"{idx}_q{j}.mp3")
-                            a_path = os.path.join(segs_dir, f"{idx}_a{j}.mp3")
-                            if qa.question_audio_path == "" and os.path.exists(q_path):
-                                qa.question_audio_path = os.path.relpath(
-                                    q_path, output_dir
-                                )
-                                day_modified = True
-                            if qa.answer_audio_path == "" and os.path.exists(a_path):
-                                qa.answer_audio_path = os.path.relpath(
-                                    a_path, output_dir
-                                )
-                                day_modified = True
-
-                    # Recompute timing from segment files if any entry has zero end_ms.
-                    # This fixes days where TTS was generated successfully but the
-                    # sentence-level audio_timing was stored as {start_ms:0, end_ms:0}.
-                    needs_timing = any(
-                        entry.lessons.get_variant(variant_key).sentence
-                        and entry.lessons.get_variant(variant_key).audio_timing.end_ms
-                        == 0
-                        for entry in day.entries
-                    )
-                    if needs_timing:
-                        logger.info(
-                            f"  {variant_key}: zero timing detected — recomputing from segments."
-                        )
-                        fixed_timings = _recompute_timings_from_segments(
-                            day.entries,
-                            variant_key,
-                            segs_dir,
-                            repeat_tprs,
-                            pause_ms,
-                            answer_silence_ms,
-                            output_dir,
-                        )
-                        if fixed_timings:
-                            for entry, (start_ms, end_ms) in zip(
-                                day.entries, fixed_timings
-                            ):
-                                v = entry.lessons.get_variant(variant_key)
-                                if v.sentence:
-                                    v.audio_timing = AudioTiming(
-                                        start_ms=start_ms, end_ms=end_ms
-                                    )
-                                    day_modified = True
-                            logger.info(
-                                f"  {variant_key}: timing fixed. Last end_ms={fixed_timings[-1][1]}ms "
-                                f"(~{fixed_timings[-1][1]//1000}s)"
-                            )
-                else:
-                    logger.info(
-                        f"  {variant_key}: generating segments for {len(populated)} entries "
-                        f"(repeat x{repeat_tprs})..."
-                    )
-                    timings = _compute_day_timings(
-                        day.entries,
-                        variant_key,
-                        tts_plugin,
-                        lang,
-                        voice,
-                        repeat_tprs,
-                        pause_ms,
-                        answer_silence_ms,
-                        output_dir=output_dir,
-                        date_str=day.date,
-                    )
-                    if not timings:
-                        continue
-
-                    for entry, (start_ms, end_ms) in zip(day.entries, timings):
-                        v = entry.lessons.get_variant(variant_key)
-                        if v.sentence:
-                            v.audio_timing = AudioTiming(
-                                start_ms=start_ms, end_ms=end_ms
-                            )
-                            day_modified = True
-
-                    logger.info(
-                        f"  {variant_key}: done. Last end_ms={timings[-1][1]}ms "
-                        f"(~{timings[-1][1]//1000}s)"
-                    )
-                    segments_newly_generated = True
-
-                # Rebuild the full MP3 from segment files only when needed:
-                # - segments were newly generated (timing must stay in sync), OR
-                # - the MP3 file is missing (segments exist but the MP3 was lost), OR
-                # - Q&A segments are newer than the full MP3 (stale MP3 detection)
-                mp3_rel = day.lesson_audio_paths.get(variant_key, "")
-                if not mp3_rel and segments_newly_generated:
-                    # No prior full MP3 (e.g. standalone backfill run with no prior
-                    # convert_to_audio()).  Compute a sensible default path so the
-                    # segments we just generated are actually assembled.
-                    date_dash = day.date.replace("/", "-")
-                    suffix = _KEY_TO_SUFFIX.get(variant_key, "")
-                    fname = f"TPRS_{date_dash}{suffix}.mp3"
-                    mp3_rel = os.path.join("TPRS", fname)
-                    day.lesson_audio_paths[variant_key] = mp3_rel
-                    day_modified = True
-                    logger.info(
-                        f"  {variant_key}: no existing MP3 path — will write to {mp3_rel}"
-                    )
-                mp3_path = os.path.join(output_dir, mp3_rel) if mp3_rel else None
-                if mp3_path and (
-                    segments_newly_generated
-                    or not os.path.exists(mp3_path)
-                    or _mp3_stale(day, variant_key)
-                ):
-                    rebuilt = _assemble_full_mp3(
-                        day.entries,
-                        variant_key,
-                        segs_dir,
-                        repeat_tprs,
-                        pause_ms,
-                        answer_silence_ms,
-                        mp3_path,
-                    )
-                    if rebuilt:
-                        day_modified = True
-                        day.lesson_mp3_timestamps[variant_key] = datetime.now(
-                            timezone.utc
-                        ).isoformat()
-                        logger.info(f"  {variant_key}: rebuilt MP3 at {mp3_path}.")
-                else:
-                    logger.debug(f"  {variant_key}: MP3 up-to-date, skipping rebuild.")
-
-            # Save after each day so progress is not lost on interruption
+            day_modified = _process_day_audio(
+                day=day,
+                variants=variants,
+                tts_plugin=tts_plugin,
+                lang=lang,
+                voice=voice,
+                repeat_tprs=repeat_tprs,
+                pause_ms=pause_ms,
+                answer_silence_ms=answer_silence_ms,
+                output_dir=output_dir,
+                tprs_dir=tprs_dir,
+                overwrite_existing=overwrite_existing,
+            )
             if day_modified:
                 save_diary_json(diary, diary_json_path)
                 logger.info(f"  Saved progress for {day.date}.")

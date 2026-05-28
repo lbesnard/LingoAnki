@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lingodiary.audio_timing import (
-    _mp3_stale,
     _recompute_timings_from_segments,
     _segments_complete,
 )
@@ -61,68 +60,6 @@ def _make_day(entries=None, mp3_ts=None) -> DiaryDay:
     if mp3_ts:
         day.lesson_mp3_timestamps["original"] = mp3_ts
     return day
-
-
-# ── _mp3_stale ─────────────────────────────────────────────────────────────────
-
-
-class TestMp3Stale:
-    def test_no_mp3_timestamp_returns_false(self):
-        """No timestamp → can't determine staleness → return False."""
-        day = _make_day()
-        assert _mp3_stale(day, "original") is False
-
-    def test_malformed_mp3_timestamp_returns_true(self):
-        """Malformed MP3 timestamp → treat as stale → return True."""
-        day = _make_day(mp3_ts="not-a-date")
-        assert _mp3_stale(day, "original") is True
-
-    def test_fresh_segments_returns_false(self):
-        """All segment timestamps older than MP3 → not stale."""
-        day = _make_day(mp3_ts="2026-01-02T00:00:00+00:00")
-        # Sentence and QA generated_at are 2026-01-01, MP3 is 2026-01-02
-        assert _mp3_stale(day, "original") is False
-
-    def test_newer_sentence_segment_returns_true(self):
-        """Sentence segment newer than MP3 → stale."""
-        entry = _make_sentence()
-        entry.lessons.original.sentence_audio_generated_at = "2026-01-03T00:00:00+00:00"
-        day = _make_day(entries=[entry], mp3_ts="2026-01-02T00:00:00+00:00")
-        assert _mp3_stale(day, "original") is True
-
-    def test_newer_qa_segment_returns_true(self):
-        """QA segment newer than MP3 → stale."""
-        entry = _make_sentence()
-        entry.lessons.original.qa[0].generated_at = "2026-01-03T00:00:00+00:00"
-        day = _make_day(entries=[entry], mp3_ts="2026-01-02T00:00:00+00:00")
-        assert _mp3_stale(day, "original") is True
-
-    def test_missing_sentence_generated_at_returns_true(self):
-        """No sentence_audio_generated_at → treat as stale."""
-        entry = _make_sentence()
-        entry.lessons.original.sentence_audio_generated_at = None
-        day = _make_day(entries=[entry], mp3_ts="2026-01-02T00:00:00+00:00")
-        assert _mp3_stale(day, "original") is True
-
-    def test_missing_qa_generated_at_returns_true(self):
-        """No qa.generated_at → treat as stale."""
-        entry = _make_sentence()
-        entry.lessons.original.qa[0].generated_at = None
-        day = _make_day(entries=[entry], mp3_ts="2026-01-02T00:00:00+00:00")
-        assert _mp3_stale(day, "original") is True
-
-    def test_malformed_sentence_generated_at_returns_true(self):
-        """Malformed sentence_audio_generated_at → treat as stale."""
-        entry = _make_sentence()
-        entry.lessons.original.sentence_audio_generated_at = "garbage"
-        day = _make_day(entries=[entry], mp3_ts="2026-01-02T00:00:00+00:00")
-        assert _mp3_stale(day, "original") is True
-
-    def test_wrong_variant_not_stale(self):
-        """Checking a variant that has no MP3 timestamp → False (no timestamp)."""
-        day = _make_day(mp3_ts="2026-01-02T00:00:00+00:00")
-        # 'enhanced' has no mp3 timestamp — should return False
-        assert _mp3_stale(day, "enhanced") is False
 
 
 # ── _segments_complete ─────────────────────────────────────────────────────────

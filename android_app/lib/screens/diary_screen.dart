@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 
@@ -86,8 +87,9 @@ class _DiaryScreenState extends State<DiaryScreen> {
   // ── save to server ────────────────────────────────────────────────────────────
 
   Future<void> _saveEntry() async {
+    final l10n = AppLocalizations.of(context);
     if (_sentences.isEmpty) {
-      setState(() => _error = 'Add at least one sentence first.');
+      setState(() => _error = l10n.diaryAddSentenceFirst);
       return;
     }
     setState(() {
@@ -102,8 +104,9 @@ class _DiaryScreenState extends State<DiaryScreen> {
       // Also cache locally
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');
+      final count = _sentences.length;
       setState(() {
-        _successMessage = '✓ Entry saved for $dateStr (${_sentences.length} sentence(s))';
+        _successMessage = l10n.diaryEntrySaved(dateStr, count);
         _sentences.clear();
         _editingIndex = -1;
       });
@@ -112,7 +115,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');
       if (mounted) {
-        setState(() => _error = 'Saved locally. Will sync on next connection.\n$e');
+        setState(() => _error = l10n.diarySavedLocally(e.toString()));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -122,9 +125,10 @@ class _DiaryScreenState extends State<DiaryScreen> {
   // ── generate lessons ─────────────────────────────────────────────────────────
 
   Future<void> _generateLessons() async {
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _generating = true;
-      _generateLog = 'Starting generation…\n';
+      _generateLog = '${l10n.diaryGenerationStarting}\n';
       _logOffset = 0;
       _error = null;
     });
@@ -141,7 +145,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
         if (result['done'] as bool) break;
       }
     } catch (e) {
-      setState(() => _error = 'Could not connect to server.');
+      setState(() => _error = l10n.diaryCouldNotConnect);
     } finally {
       if (mounted) setState(() => _generating = false);
     }
@@ -162,6 +166,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -171,19 +176,19 @@ class _DiaryScreenState extends State<DiaryScreen> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.calendar_today, color: Colors.indigo),
-              title: const Text('Diary date'),
+              title: Text(l10n.diaryDate),
               subtitle: Text(_dateLabel,
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               trailing: TextButton(
                 onPressed: _pickDate,
-                child: const Text('Change'),
+                child: Text(l10n.changeButton),
               ),
             ),
           ),
           const SizedBox(height: 12),
 
           // ── Sentence input ──────────────────────────────────────────────────
-          Text('Sentences for $_dateLabel',
+          Text(l10n.diarySentencesFor(_dateLabel),
               style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           Row(
@@ -192,8 +197,8 @@ class _DiaryScreenState extends State<DiaryScreen> {
                 child: TextField(
                   controller: _sentenceController,
                   focusNode: _sentenceFocusNode,
-                  decoration: const InputDecoration(
-                    hintText: 'Type a sentence…',
+                  decoration: InputDecoration(
+                    hintText: l10n.diaryTypeSentenceHint,
                     border: OutlineInputBorder(),
                     isDense: true,
                     contentPadding:
@@ -207,7 +212,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
               FilledButton.icon(
                 onPressed: _addSentence,
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add'),
+                label: Text(l10n.addButton),
               ),
             ],
           ),
@@ -249,12 +254,12 @@ class _DiaryScreenState extends State<DiaryScreen> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit, size: 16),
-                          tooltip: 'Edit',
+                          tooltip: l10n.editTooltip,
                           onPressed: () => _startEditing(i),
                         ),
                         IconButton(
                           icon: const Icon(Icons.close, size: 16),
-                          tooltip: 'Remove',
+                          tooltip: l10n.removeTooltip,
                           onPressed: () => _removeSentence(i),
                         ),
                       ],
@@ -273,7 +278,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     width: 16,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.cloud_upload),
-            label: const Text('Save to Server'),
+            label: Text(l10n.diarySaveToServer),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo,
                 foregroundColor: Colors.white),
@@ -315,7 +320,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
                     width: 16,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.play_arrow),
-            label: const Text('Generate Lessons'),
+            label: Text(l10n.diaryGenerateLessons),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green, foregroundColor: Colors.white),
           ),
@@ -368,7 +373,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.check, color: Colors.green),
-            tooltip: 'Confirm',
+            tooltip: AppLocalizations.of(context).confirmTooltip,
             onPressed: () => _commitEdit(index),
           ),
           IconButton(

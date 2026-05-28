@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
@@ -46,6 +47,32 @@ JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 # Bounded job queue — at most 1 pending job (current + 1 queued).
 _job_queue: queue.Queue = queue.Queue(maxsize=2)
+
+
+class _OutputLogHandler(logging.FileHandler):
+    """FileHandler that flushes after every record (mirrors DiaryHandler's setup)."""
+
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
+def _attach_output_log(log_file: str) -> tuple:
+    """Add a file handler to the lingodiary.audio_timing logger so that
+    backfill progress is visible in output.log.  Returns (logger, handler)
+    so the caller can remove the handler when done."""
+    handler = _OutputLogHandler(log_file, encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    at_logger = logging.getLogger("lingodiary.audio_timing")
+    at_logger.setLevel(logging.DEBUG)
+    at_logger.addHandler(handler)
+    return at_logger, handler
+
+
+def _detach_output_log(at_logger, handler) -> None:
+    at_logger.removeHandler(handler)
+    handler.close()
 
 
 def _start_job_worker():
@@ -284,29 +311,34 @@ def api_generate():
         except Exception as exc:
             app.logger.error(f"API generate error: {exc}")
             _log_to_file(f"ERROR: Generation failed: {exc}")
-        # Backfill any missing Q&A translations
+        json_path = os.path.join(output_folder, "diary.json")
+        # 1. Audio segments + timing — run first: critical for playback.
+        #    Must happen before the slow translation backfills so a
+        #    container restart cannot starve the new entry of timing data.
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
-            json_path = os.path.join(output_folder, "diary.json")
+            from lingodiary.audio_timing import backfill_audio_timings
+
+            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            app.logger.warning(f"Audio timing backfill failed: {exc}\n{tb}")
+            _log_to_file(f"WARNING: Audio timing backfill failed: {exc}\n{tb}")
+        finally:
+            _detach_output_log(at_logger, at_handler)
+        # 2. Q&A translations — needed for flashcard review.
+        try:
             TprsCreation(config_path).backfill_qa_translations(json_path)
         except Exception as exc:
             app.logger.warning(f"Q&A translation backfill failed: {exc}")
             _log_to_file(f"WARNING: Q&A translation backfill failed: {exc}")
-        # Backfill missing variant sentence_input translations
+        # 3. sentence_input translations — low-priority metadata; runs last
+        #    because it iterates ALL historical entries and can be slow.
         try:
-            json_path = os.path.join(output_folder, "diary.json")
             TprsCreation(config_path).backfill_sentence_inputs(json_path)
         except Exception as exc:
             app.logger.warning(f"sentence_input backfill failed: {exc}")
             _log_to_file(f"WARNING: sentence_input backfill failed: {exc}")
-        # Backfill missing per-sentence audio segments and timing data in diary.json
-        try:
-            from lingodiary.audio_timing import backfill_audio_timings
-
-            json_path = os.path.join(output_folder, "diary.json")
-            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
-        except Exception as exc:
-            app.logger.warning(f"Audio timing backfill failed: {exc}")
-            _log_to_file(f"WARNING: Audio timing backfill failed: {exc}")
         # Write a completion marker so the client can stop polling.
         try:
             with open(log_file, "a", encoding="utf-8") as lf:
@@ -372,6 +404,8 @@ def api_backfill_audio_timing():
     overwrite = bool(body.get("overwrite", False))
 
     def _run():
+        log_file = os.path.join(output_folder, "output.log")
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
@@ -382,7 +416,15 @@ def api_backfill_audio_timing():
                 overwrite_existing=overwrite,
             )
         except Exception as exc:
-            app.logger.error(f"Audio timing backfill error: {exc}")
+            tb = traceback.format_exc()
+            app.logger.error(f"Audio timing backfill error: {exc}\n{tb}")
+            try:
+                with open(os.path.join(output_folder, "output.log"), "a") as _lf:
+                    _lf.write(f"ERROR: Audio timing backfill failed: {exc}\n{tb}\n")
+            except Exception:
+                pass
+        finally:
+            _detach_output_log(at_logger, at_handler)
 
     try:
         _job_queue.put_nowait(_run)
@@ -399,12 +441,12 @@ def api_backfill_audio_timing():
 @app.route("/api/backfill/all", methods=["POST"])
 @_jwt_required
 def api_backfill_all():
-    """Background job: fill in everything missing — Q&A translations, sentence inputs, audio segments.
+    """Background job: fill in everything missing — audio segments, Q&A translations, sentence inputs.
 
     Runs in sequence:
-      1. backfill_qa_translations    (translate missing Q&A pairs)
-      2. backfill_sentence_inputs    (translate missing variant sentence_input fields)
-      3. backfill_audio_timings      (generate missing segment MP3s + timing data)
+      1. backfill_audio_timings      (generate missing segment MP3s + timing data — critical for playback)
+      2. backfill_qa_translations    (translate missing Q&A pairs)
+      3. backfill_sentence_inputs    (translate missing variant sentence_input fields — slow, runs last)
     """
     from flask import g as _g
 
@@ -412,29 +454,40 @@ def api_backfill_all():
     output_folder = _g.api_output_folder
 
     def _run():
-        json_path = os.path.join(output_folder, "diary.json")
-
-        app.logger.info("Backfill all: step 1/3 — Q&A translations")
+        log_file = os.path.join(output_folder, "output.log")
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
-            TprsCreation(config_path).backfill_qa_translations(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+            json_path = os.path.join(output_folder, "diary.json")
 
-        app.logger.info("Backfill all: step 2/3 — variant sentence_input translations")
-        try:
-            TprsCreation(config_path).backfill_sentence_inputs(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: sentence_input backfill failed: {exc}")
+            app.logger.info("Backfill all: step 1/3 — audio timing / segments")
+            try:
+                from lingodiary.audio_timing import backfill_audio_timings
 
-        app.logger.info("Backfill all: step 3/3 — audio timing / segments")
-        try:
-            from lingodiary.audio_timing import backfill_audio_timings
+                backfill_audio_timings(
+                    config_path=config_path, diary_json_path=json_path
+                )
+            except Exception as exc:
+                app.logger.warning(f"Backfill all: audio timing failed: {exc}")
 
-            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+            app.logger.info("Backfill all: step 2/3 — Q&A translations")
+            try:
+                TprsCreation(config_path).backfill_qa_translations(json_path)
+            except Exception as exc:
+                app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
 
-        app.logger.info("Backfill all: complete")
+            app.logger.info(
+                "Backfill all: step 3/3 — variant sentence_input translations"
+            )
+            try:
+                TprsCreation(config_path).backfill_sentence_inputs(json_path)
+            except Exception as exc:
+                app.logger.warning(
+                    f"Backfill all: sentence_input backfill failed: {exc}"
+                )
+
+            app.logger.info("Backfill all: complete")
+        finally:
+            _detach_output_log(at_logger, at_handler)
 
     try:
         _job_queue.put_nowait(_run)
@@ -482,47 +535,61 @@ def api_generate_status():
 def api_lessons():
     from flask import g as _g
 
-    items = get_mp3_variants(_g.api_tprs_folder)
     result = []
     diary = None
     try:
-        from lingodiary.diary_json import load_diary_json, compute_stats, get_day
+        from lingodiary.diary_json import load_diary_json
 
         diary = load_diary_json(_g.api_json_diary_path)
     except Exception:
         diary = None
 
-    for base, display, variants in items:
-        lesson = {"base": base, "display": display, "variants": variants}
-        if diary is not None:
-            try:
-                m = re.search(r"_TPRS_(\d{4}-\d{2}-\d{2})", base)
-                if m:
-                    date_dash = m.group(1)
-                    date_slash = date_dash.replace("-", "/")
-                    day = get_day(diary, date_slash)
-                    if day is not None:
-                        total = len(day.entries)
-                        mastered = sum(
-                            1
-                            for e in day.entries
-                            if e.lessons.reviewing.status == "mastered"
-                        )
-                        learning = sum(
-                            1
-                            for e in day.entries
-                            if e.lessons.reviewing.status == "learning"
-                        )
-                        new_count = total - mastered - learning
-                        lesson["srs"] = {
-                            "total": total,
-                            "mastered": mastered,
-                            "learning": learning,
-                            "new": new_count,
-                        }
-            except Exception:
-                pass
+    if diary is None:
+        # Fallback: no diary.json — return filesystem-scanned items with no metadata
+        for base, display, variants in get_mp3_variants(_g.api_tprs_folder):
+            result.append({"base": base, "display": display, "variants": variants})
+        return jsonify({"lessons": result})
+
+    for day in diary.diaries:
+        if not day.lesson_audio_paths:
+            continue
+        date_dash = day.date.replace("/", "-")
+        display = f"{date_dash}_{day.title}" if day.title else date_dash
+        # Build variants dict: capitalised key → bare filename (no directory)
+        variants = {
+            k.title(): os.path.basename(v)
+            for k, v in day.lesson_audio_paths.items()
+            if v
+        }
+        if not variants:
+            continue
+        # base = stem of the original MP3 (used by sync manifest matching)
+        original_path = day.lesson_audio_paths.get(
+            "original", next(iter(day.lesson_audio_paths.values()))
+        )
+        base = os.path.splitext(os.path.basename(original_path))[0]
+        lesson = {
+            "base": base,
+            "display": display,
+            "date": date_dash,
+            "variants": variants,
+        }
+        total = len(day.entries)
+        mastered = sum(
+            1 for e in day.entries if e.lessons.reviewing.status == "mastered"
+        )
+        learning = sum(
+            1 for e in day.entries if e.lessons.reviewing.status == "learning"
+        )
+        lesson["srs"] = {
+            "total": total,
+            "mastered": mastered,
+            "learning": learning,
+            "new": total - mastered - learning,
+        }
         result.append(lesson)
+
+    result.sort(key=lambda x: x["date"], reverse=True)
     return jsonify({"lessons": result})
 
 
@@ -540,6 +607,7 @@ def api_sync_manifest():
                 fname.startswith(".")
                 or fname.endswith(".zip")
                 or fname.endswith(".log")
+                or fname == "diary.json"
             ):
                 continue
             full = os.path.join(root, fname)
@@ -574,10 +642,7 @@ def api_sync_file(rel_path):
 @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
 @_jwt_required
 def api_sync_lesson_manifest(base):
-    """Return manifest filtered to files belonging to a single lesson (by base name).
-
-    Always includes diary.json so the app can read lesson text offline.
-    """
+    """Return manifest filtered to files belonging to a single lesson (by base name)."""
     from flask import g as _g
 
     output_folder = _g.api_output_folder
@@ -592,8 +657,7 @@ def api_sync_lesson_manifest(base):
                 continue
             full = os.path.join(root, fname)
             rel = os.path.relpath(full, output_folder)
-            # Always include diary.json so lesson text is available offline
-            if base not in rel and rel != "diary.json":
+            if base not in rel:
                 continue
             stat = os.stat(full)
             manifest.append(
@@ -621,6 +685,26 @@ def api_get_diary_json():
         return jsonify(diary.to_dict())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/diary/day/<date>", methods=["GET"])
+@_jwt_required
+def api_diary_day(date):
+    """Return the complete Day object for a given date (all variants, all entries, title, etc.)."""
+    from flask import g as _g
+    from lingodiary.diary_json import load_diary_json, get_day
+
+    date_slash = date.replace("-", "/")
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    day = get_day(diary, date_slash)
+    if day is None:
+        return jsonify({"error": "Date not found"}), 404
+
+    return jsonify(day.to_dict())
 
 
 @app.route("/api/diary/json", methods=["POST"])

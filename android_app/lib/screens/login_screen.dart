@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../l10n/app_localizations.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -68,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
-      setState(() => _error = 'Error: $e\n\nCheck the server URL is correct and the server is reachable.');
+      setState(() => _error = AppLocalizations.of(context).loginConnectionError(e.toString()));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -76,6 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -96,36 +98,36 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (!kIsWeb) ...[
                     TextFormField(
                       controller: _serverController,
-                      decoration: const InputDecoration(
-                        labelText: 'Server URL',
-                        hintText: 'http://192.168.1.x:8084',
+                      decoration: InputDecoration(
+                        labelText: l10n.loginServerUrl,
+                        hintText: l10n.loginServerHint,
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.url,
                       validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Enter the server URL' : null,
+                          (v == null || v.isEmpty) ? l10n.loginServerRequired : null,
                     ),
                     const SizedBox(height: 12),
                   ],
                   TextFormField(
                     controller: _usernameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Username',
+                    decoration: InputDecoration(
+                      labelText: l10n.loginUsername,
                       border: OutlineInputBorder(),
                     ),
                     validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Enter username' : null,
+                        (v == null || v.isEmpty) ? l10n.loginUsernameRequired : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
+                    decoration: InputDecoration(
+                      labelText: l10n.loginPassword,
                       border: OutlineInputBorder(),
                     ),
                     obscureText: true,
                     validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Enter password' : null,
+                        (v == null || v.isEmpty) ? l10n.loginPasswordRequired : null,
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),

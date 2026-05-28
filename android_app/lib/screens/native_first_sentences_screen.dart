@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_service.dart';
+import '../l10n/app_localizations.dart';
 import 'stats_screen.dart';
 
 /// A screen that shows native (input) text for each sentence first,
@@ -295,8 +296,8 @@ class _NativeFirstSentencesScreenState
       setState(() => _syncing = false);
       _loadAudio();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Audio synced'), duration: Duration(seconds: 2)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context).audioSynced), duration: const Duration(seconds: 2)),
       );
     }
   }
@@ -315,7 +316,7 @@ class _NativeFirstSentencesScreenState
       _loadAudio();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Synced audio for $count sentences'),
+          content: Text(AppLocalizations.of(context).syncedAudioCount(count)),
           duration: const Duration(seconds: 3),
         ),
       );
@@ -384,6 +385,7 @@ class _NativeFirstSentencesScreenState
 
   Future<void> _score(int score) async {
     if (_scoring) return;
+    final l10n = AppLocalizations.of(context);
     setState(() => _scoring = true);
     final item = _sentences[_currentIndex];
     final date = item['date'] as String? ?? '';
@@ -410,8 +412,8 @@ class _NativeFirstSentencesScreenState
             e.toString().contains('TimeoutException');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(isOffline
-              ? 'Score saved (will sync when online)'
-              : 'Score saved locally — sync error: $e'),
+              ? l10n.scoreSavedWillSync
+              : l10n.scoreSavedLocallyError(e.toString())),
           duration: const Duration(seconds: 2),
         ));
       }
@@ -437,6 +439,7 @@ class _NativeFirstSentencesScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -449,12 +452,12 @@ class _NativeFirstSentencesScreenState
             children: [
               const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
               const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center),
+              Text(l10n.offlineLoadNewSentences, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: _loadSentences,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(l10n.retryButton),
               ),
             ],
           ),
@@ -471,21 +474,21 @@ class _NativeFirstSentencesScreenState
               const Icon(Icons.check_circle_outline,
                   size: 64, color: Colors.green),
               const SizedBox(height: 16),
-              const Text(
-                'All caught up!',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              Text(
+                l10n.allCaughtUp,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'No sentences due for review right now.',
+              Text(
+                l10n.noSentencesDue,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: _loadSentences,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Refresh'),
+                label: Text(l10n.refreshButton),
               ),
             ],
           ),
@@ -507,7 +510,7 @@ class _NativeFirstSentencesScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Translation Excercise'),
+        title: Text(l10n.translationExerciseTitle),
         actions: [
           _syncing
               ? const Padding(
@@ -548,7 +551,7 @@ class _NativeFirstSentencesScreenState
                   ],
                 ),
           IconButton(
-            tooltip: 'Stats & Streak',
+            tooltip: l10n.statsAndStreakTooltip,
             icon: const Icon(Icons.bar_chart_outlined),
             onPressed: () => Navigator.push(
               context,
@@ -628,7 +631,7 @@ class _NativeFirstSentencesScreenState
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                '$remaining left',
+                l10n.reviewRemaining(remaining),
                 style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
             ),
@@ -763,7 +766,7 @@ class _NativeFirstSentencesScreenState
                                             controller: _sentenceInputController,
                                             focusNode: _sentenceFocusNode,
                                             decoration: InputDecoration(
-                                              labelText: 'Your translation attempt (press Enter to reveal)',
+                                              labelText: l10n.translationAttemptHintWithEnter,
                                               labelStyle: TextStyle(fontSize: 14 * _fontSizeScale),
                                               border: const OutlineInputBorder(),
                                             ),
@@ -846,8 +849,8 @@ class _NativeFirstSentencesScreenState
                                           ),
                                         ),
                                       if (_audioDownloading)
-                                        const Text(
-                                          'Downloading audio…',
+                                        Text(
+                                          l10n.downloadingAudio,
                                           style: TextStyle(
                                               fontSize: 11, color: Colors.grey),
                                         )
@@ -855,8 +858,8 @@ class _NativeFirstSentencesScreenState
                                         Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Text(
-                                              'Audio unavailable',
+                                            Text(
+                                              l10n.audioUnavailable,
                                               style: TextStyle(
                                                   fontSize: 11, color: Colors.grey),
                                             ),
@@ -1147,25 +1150,25 @@ class _NativeFirstSentencesScreenState
             ),
             child: Column(
               children: [
-                const Text(
-                  'How well did you remember?',
+                Text(
+                  l10n.howWellDidYouRemember,
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _scoreButton('Again', 0, Colors.red),
-                    _scoreButton('Hard', 2, Colors.orange),
-                    _scoreButton('Good', 3, Colors.blue),
-                    _scoreButton('Easy', 5, Colors.green),
+                    _scoreButton(l10n.scoreAgain, 0, Colors.red),
+                    _scoreButton(l10n.scoreHard, 2, Colors.orange),
+                    _scoreButton(l10n.scoreGood, 3, Colors.blue),
+                    _scoreButton(l10n.scoreEasy, 5, Colors.green),
                   ],
                 ),
                 const SizedBox(height: 4),
                 TextButton(
                   onPressed: _scoring ? null : _next,
-                  child: const Text(
-                    'Skip',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  child: Text(
+                    l10n.skipButton,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ),
               ],

@@ -81,6 +81,8 @@ class AudioTiming:
 
     @classmethod
     def from_dict(cls, d: dict) -> "AudioTiming":
+        if not isinstance(d, dict):
+            return cls()
         return cls(start_ms=int(d.get("start_ms", 0)), end_ms=int(d.get("end_ms", 0)))
 
 
@@ -115,6 +117,8 @@ class QA:
 
     @classmethod
     def from_dict(cls, d: dict) -> "QA":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             question=d.get("question", ""),
             answer=d.get("answer", ""),
@@ -153,6 +157,8 @@ class SentenceBlock:
 
     @classmethod
     def from_dict(cls, d: dict) -> "SentenceBlock":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             sentence=d.get("sentence", ""),
             sentence_input=d.get("sentence_input", ""),
@@ -184,6 +190,8 @@ class ReviewingState:
 
     @classmethod
     def from_dict(cls, d: dict) -> "ReviewingState":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             status=d.get("status", "new"),
             mastery_score=d.get("mastery_score", 0),
@@ -213,6 +221,8 @@ class VariantSet:
 
     @classmethod
     def from_dict(cls, d: dict) -> "VariantSet":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             reviewing=ReviewingState.from_dict(d.get("reviewing", {})),
             original=SentenceBlock.from_dict(d.get("original", {})),
@@ -250,6 +260,8 @@ class Sentence:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sentence":
+        if not isinstance(d, dict):
+            return cls()
         return cls(
             index=d.get("index", 0),
             input_language_sentence=d.get("input_language_sentence", ""),
@@ -285,13 +297,15 @@ class DiaryDay:
 
     @classmethod
     def from_dict(cls, d: dict) -> "DiaryDay":
+        lap = d.get("lesson_audio_paths", {})
+        lmt = d.get("lesson_mp3_timestamps", {})
         return cls(
             date=d.get("date", ""),
             title=d.get("title", ""),
             last_reviewed=d.get("last_reviewed"),
             entries=[Sentence.from_dict(e) for e in d.get("entries", [])],
-            lesson_audio_paths=d.get("lesson_audio_paths", {}),
-            lesson_mp3_timestamps=d.get("lesson_mp3_timestamps", {}),
+            lesson_audio_paths=lap if isinstance(lap, dict) else {},
+            lesson_mp3_timestamps=lmt if isinstance(lmt, dict) else {},
         )
 
 
