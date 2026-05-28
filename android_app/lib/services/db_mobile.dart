@@ -14,14 +14,18 @@ class LocalDbService {
     final path = join(await getDatabasesPath(), 'lingodiary.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createV1Tables(db);
         await _createV2Tables(db);
+        await _createV3Tables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _createV2Tables(db);
+        }
+        if (oldVersion < 3) {
+          await _createV3Tables(db);
         }
       },
     );
@@ -69,6 +73,16 @@ class LocalDbService {
         date TEXT PRIMARY KEY,
         last_reviewed TEXT NOT NULL,
         synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  static Future<void> _createV3Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS day_cache (
+        date TEXT PRIMARY KEY,
+        day_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
       )
     ''');
   }
@@ -150,6 +164,38 @@ class LocalDbService {
   static Future<List<Map<String, dynamic>>> getLessons() async {
     final database = await db;
     return database.query('lessons_cache', orderBy: 'display DESC');
+  }
+
+  // ---- Day cache ----
+
+  static Future<void> saveDayCache(String date, Map<String, dynamic> dayObject) async {
+    final database = await db;
+    await database.insert(
+      'day_cache',
+      {
+        'date': date,
+        'day_json': jsonEncode(dayObject),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<Map<String, dynamic>?> getDayCache(String date) async {
+    final database = await db;
+    final rows = await database.query('day_cache', where: 'date = ?', whereArgs: [date]);
+    if (rows.isEmpty) return null;
+    try {
+      return jsonDecode(rows.first['day_json'] as String) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<List<String>> getAllCachedDates() async {
+    final database = await db;
+    final rows = await database.query('day_cache', columns: ['date']);
+    return rows.map((r) => r['date'] as String).toList();
   }
 
   // ---- Home cache ----
@@ -295,6 +341,7 @@ class LocalDbService {
     await database.delete('home_cache');
     await database.delete('srs_scores');
     await database.delete('lesson_last_reviewed');
+    await database.delete('day_cache');
   }
 
   // ---- Lesson last_reviewed tracking ----

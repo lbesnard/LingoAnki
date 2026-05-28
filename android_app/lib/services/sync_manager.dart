@@ -96,7 +96,7 @@ class SyncManager extends ChangeNotifier {
     }
   }
 
-  Future<void> syncLesson(String base) async {
+  Future<void> syncLesson(String base, {String? date}) async {
     if (isSyncing) return;
     _start('Loading manifest…');
     try {
@@ -118,6 +118,16 @@ class SyncManager extends ChangeNotifier {
       message = _cancelled ? 'Cancelled.' : 'Synced $count file(s) ✓';
       progress = 1.0;
       notifyListeners();
+
+      // After successful sync, populate day_cache if date is known
+      if (date != null && !_cancelled) {
+        try {
+          final dayData = await ApiService.getDayData(date);
+          await LocalDbService.saveDayCache(date, dayData);
+        } catch (_) {
+          // Non-fatal — lesson text will be loaded on next player open
+        }
+      }
     } catch (e) {
       message = 'Sync failed: $e';
       progress = null;
@@ -155,6 +165,28 @@ class SyncManager extends ChangeNotifier {
         message = _cancelled ? 'Cancelled.' : 'Synced $count file(s) ✓';
         progress = 1.0;
         notifyListeners();
+
+        // After successful sync, populate day_cache for all lessons
+        if (!_cancelled) {
+          try {
+            message = 'Caching lesson text…';
+            notifyListeners();
+            final lessons = await ApiService.getLessons();
+            for (final lesson in lessons) {
+              if (_cancelled) break;
+              final date = lesson['date'] as String?;
+              if (date == null || date.isEmpty) continue;
+              try {
+                final dayData = await ApiService.getDayData(date);
+                await LocalDbService.saveDayCache(date, dayData);
+              } catch (_) {
+                // Non-fatal — skip this day
+              }
+            }
+          } catch (_) {
+            // Non-fatal — text cache population failed, will retry on lesson open
+          }
+        }
       }
     } catch (e) {
       message = 'Sync failed: $e';

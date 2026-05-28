@@ -607,6 +607,7 @@ def api_sync_manifest():
                 fname.startswith(".")
                 or fname.endswith(".zip")
                 or fname.endswith(".log")
+                or fname == "diary.json"
             ):
                 continue
             full = os.path.join(root, fname)
@@ -641,10 +642,7 @@ def api_sync_file(rel_path):
 @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
 @_jwt_required
 def api_sync_lesson_manifest(base):
-    """Return manifest filtered to files belonging to a single lesson (by base name).
-
-    Always includes diary.json so the app can read lesson text offline.
-    """
+    """Return manifest filtered to files belonging to a single lesson (by base name)."""
     from flask import g as _g
 
     output_folder = _g.api_output_folder
@@ -659,8 +657,7 @@ def api_sync_lesson_manifest(base):
                 continue
             full = os.path.join(root, fname)
             rel = os.path.relpath(full, output_folder)
-            # Always include diary.json so lesson text is available offline
-            if base not in rel and rel != "diary.json":
+            if base not in rel:
                 continue
             stat = os.stat(full)
             manifest.append(
@@ -688,6 +685,26 @@ def api_get_diary_json():
         return jsonify(diary.to_dict())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/diary/day/<date>", methods=["GET"])
+@_jwt_required
+def api_diary_day(date):
+    """Return the complete Day object for a given date (all variants, all entries, title, etc.)."""
+    from flask import g as _g
+    from lingodiary.diary_json import load_diary_json, get_day
+
+    date_slash = date.replace("-", "/")
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    day = get_day(diary, date_slash)
+    if day is None:
+        return jsonify({"error": "Date not found"}), 404
+
+    return jsonify(day.to_dict())
 
 
 @app.route("/api/diary/json", methods=["POST"])

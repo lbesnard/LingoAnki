@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -25,8 +24,7 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   /// Safe int coercion: handles JSON values that may arrive as double (e.g.
-  /// audio_timing.start_ms / end_ms were stored as floats in older diary.json
-  /// files produced by audio_timing.py before the int-cast fix).
+  /// audio_timing.start_ms / end_ms stored as floats in older data).
   static int _toInt(dynamic v) {
     if (v is int) return v;
     if (v is double) return v.round();
@@ -105,7 +103,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _tabNames = [...orderedVariants, ...extras, _kInputDiaryTab];
     _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
-    // Prefer date field from server (diary.json); fall back to parsing base name.
+    // Prefer date field from server; fall back to parsing base name.
     final base = widget.lesson['base'] as String? ?? '';
     _lessonDate = widget.lesson['date'] as String? ??
         RegExp(r'TPRS_(\d{4}-\d{2}-\d{2})').firstMatch(base)?.group(1);
@@ -219,75 +217,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _tryLoadAudio(variantName);
 
     // Fetch structured entries (timings + translations).
-    // Strategy: load local diary.json immediately (instant), then try the API
-    // in the background and update if fresher data arrives.
+    // Strategy: load from day_cache SQLite immediately (instant, offline),
+    // then fetch full day data from the API in the background and update cache.
     if (_lessonDate != null) {
       final variantKey = _variantToApiKey(variantName);
 
-      // Local-first: instant display from cached diary.json.
+      // Local-first: instant display from day_cache SQLite.
       if (_sentenceEntries.isEmpty) {
-        await _loadEntriesFromLocalJson(variantKey);
+        await _loadEntriesFromDayCache(variantKey);
       }
 
-      // Background API refresh (does not block UI or delay text display).
-      ApiService.getLessonEntries(_lessonDate!, variantKey).then((data) {
-        final entries =
-            (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-        if (mounted && entries.isNotEmpty) {
-          _applyEntries(entries);
+      // Background API refresh — fetches full day data and updates day_cache.
+      ApiService.getDayData(_lessonDate!).then((dayData) {
+        if (mounted) {
+          LocalDbService.saveDayCache(_lessonDate!, dayData).catchError((_) {});
+          _applyEntriesFromDayData(dayData, variantKey);
         }
       }).catchError((_) {
-        // Server unreachable — local data already shown, nothing to do.
+        // Server unreachable — local cache already shown, nothing to do.
       });
     }
   }
 
-  /// Parse entries for [variantKey] from the locally cached diary.json.
-  /// On web there is no local file cache — this is skipped and the server
+  /// Load entries for [variantKey] from the local day_cache SQLite table.
+  /// On web there is no local cache — this is skipped and the server
   /// data (already loaded via the API) is used instead.
-  Future<void> _loadEntriesFromLocalJson(String variantKey) async {
+  Future<void> _loadEntriesFromDayCache(String variantKey) async {
     if (_lessonDate == null || kIsWeb) return;
     try {
-      final jsonPath = await SyncService.localPath('diary.json');
-      final jsonFile = File(jsonPath);
-      if (!await jsonFile.exists()) return;
-
-      final data = json.decode(await jsonFile.readAsString()) as Map<String, dynamic>;
-      final diaries = (data['diaries'] as List?) ?? [];
-
-      // diary.json dates are stored as YYYY/MM/DD; _lessonDate is YYYY-MM-DD
-      final lessonDateSlash = _lessonDate!.replaceAll('-', '/');
-      Map<String, dynamic>? day;
-      for (final d in diaries) {
-        if ((d as Map<String, dynamic>)['date'] == lessonDateSlash) {
-          day = d;
-          break;
-        }
-      }
-      if (day == null) return;
-
-      final rawEntries = (day['entries'] as List?) ?? [];
-      final entries = rawEntries.map((e) {
-        final em = e as Map<String, dynamic>;
-        final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
-            as Map<String, dynamic>? ?? {};
-        return <String, dynamic>{
-          'index': em['index'],  // preserve 1-based index for correct scoring
-          'sentence': lesson['sentence'] ?? '',
-          'sentence_input': lesson['sentence_input'] ?? '',
-          'input_language_sentence': em['input_language_sentence'] ?? '',
-          'output_language_translation': em['output_language_translation'] ?? '',
-          'audio_timing': lesson['audio_timing'],
-          'qa': lesson['qa'] ?? [],
-        };
-      }).cast<Map<String, dynamic>>().toList();
-
-      if (mounted && entries.isNotEmpty) {
-        _applyEntries(entries);
-      }
+      final dayData = await LocalDbService.getDayCache(_lessonDate!);
+      if (dayData == null) return;
+      _applyEntriesFromDayData(dayData, variantKey);
     } catch (e, st) {
-      // Corrupt or missing local cache — show nothing (error logged for debugging)
-      debugPrint('_loadEntriesFromLocalJson error: $e\n$st');
+      debugPrint('_loadEntriesFromDayCache error: $e\n$st');
+    }
+  }
+
+  /// Extract and apply entries for [variantKey] from a full Day object.
+  void _applyEntriesFromDayData(Map<String, dynamic> dayData, String variantKey) {
+    final rawEntries = (dayData['entries'] as List?) ?? [];
+    final entries = rawEntries.map((e) {
+      final em = e as Map<String, dynamic>;
+      final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
+          as Map<String, dynamic>? ?? {};
+      return <String, dynamic>{
+        'index': em['index'],
+        'sentence': lesson['sentence'] ?? '',
+        'sentence_input': lesson['sentence_input'] ?? '',
+        'input_language_sentence': em['input_language_sentence'] ?? '',
+        'output_language_translation': em['output_language_translation'] ?? '',
+        'audio_timing': lesson['audio_timing'],
+        'qa': lesson['qa'] ?? [],
+        'reviewing': (em['lessons'] as Map<String, dynamic>?)?['reviewing'],
+      };
+    }).cast<Map<String, dynamic>>().toList();
+
+    if (mounted && entries.isNotEmpty) {
+      _applyEntries(entries);
     }
   }
 
@@ -639,7 +625,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _triggerSync() {
     final base = widget.lesson['base'] as String;
-    SyncManager.instance.syncLesson(base);
+    SyncManager.instance.syncLesson(base, date: _lessonDate);
   }
 
   @override

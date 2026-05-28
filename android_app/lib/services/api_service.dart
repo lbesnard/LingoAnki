@@ -174,6 +174,24 @@ class ApiService {
     return jsonDecode(resp.body) as Map<String, dynamic>;
   }
 
+  /// Fetch the complete Day object for a given date (all variants, all entries, title, etc.).
+  /// [date] in YYYY-MM-DD or YYYY/MM/DD format.
+  static Future<Map<String, dynamic>> getDayData(String date) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final dateFmt = date.replaceAll('/', '-');
+    final resp = await http
+        .get(
+          Uri.parse('$base/api/diary/day/$dateFmt'),
+          headers: headers,
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, 'Failed to get day data');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
   /// Score an individual entry via SM-2.
   /// [score]: 0=Again, 2=Hard, 3=Good, 5=Easy
   static Future<Map<String, dynamic>> scoreEntry(
