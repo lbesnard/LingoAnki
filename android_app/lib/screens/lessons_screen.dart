@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
-import 'player_screen.dart';
 
 class LessonsScreen extends StatefulWidget {
   const LessonsScreen({super.key});
@@ -156,10 +156,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
   }
 
   void _openLesson(Map<String, dynamic> lesson) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => PlayerScreen(lesson: lesson)),
-    );
+    context.push('/lessons/player', extra: lesson);
   }
 
   @override

@@ -11,6 +11,7 @@ import 'screens/diary_screen.dart';
 import 'screens/lessons_screen.dart';
 import 'screens/sentences_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/player_screen.dart';
 import 'screens/native_first_sentences_screen.dart';
 import 'widgets/connection_badge.dart';
 import 'widgets/scaled_app.dart';
@@ -70,6 +71,14 @@ final _router = GoRouter(
            name: 'nativeFirstReview',
            builder: (_, __) => const NativeFirstSentencesScreen()),
        GoRoute(path: '/lessons', name: 'lessons', builder: (_, __) => const LessonsScreen()),
+       GoRoute(
+         path: '/lessons/player',
+         name: 'player',
+         builder: (_, state) {
+           final lesson = state.extra as Map<String, dynamic>? ?? {};
+           return PlayerScreen(lesson: lesson);
+         },
+       ),
        GoRoute(path: '/diary', name: 'diary', builder: (_, __) => const DiaryScreen()),
        GoRoute(path: '/settings', name: 'settings', builder: (_, __) => const SettingsScreen()),
      ],
