@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
+import '../l10n/app_localizations.dart';
 
 class LessonsScreen extends StatefulWidget {
   const LessonsScreen({super.key});
@@ -145,7 +146,7 @@ class _LessonsScreenState extends State<LessonsScreen> {
       final total = (srs['total'] as int?) ?? 0;
       final mastered = (srs['mastered'] as int?) ?? 0;
       return Text(
-        '$variantStr  ·  $mastered/$total mastered',
+        '$variantStr  ·  ${AppLocalizations.of(context).lessonsMasteredCount(mastered, total)}',
         style: const TextStyle(fontSize: 12, color: Colors.grey),
       );
     }
@@ -188,13 +189,13 @@ class _LessonsScreenState extends State<LessonsScreen> {
                           onPressed: SyncManager.instance.cancel,
                           icon: const Icon(Icons.stop,
                               size: 16, color: Colors.red),
-                          label: const Text('Cancel',
-                              style: TextStyle(color: Colors.red)),
+                          label: Text(AppLocalizations.of(context).cancelButton,
+                              style: const TextStyle(color: Colors.red)),
                         )
                       : ElevatedButton.icon(
                           onPressed: SyncManager.instance.syncAll,
                           icon: const Icon(Icons.sync, size: 16),
-                          label: const Text('Sync All'),
+                          label: Text(AppLocalizations.of(context).syncAll),
                         );
                 },
               ),
@@ -205,9 +206,9 @@ class _LessonsScreenState extends State<LessonsScreen> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _lessons.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                          'No lessons yet.\nTap Sync All to download.',
+                          AppLocalizations.of(context).noLessons,
                           textAlign: TextAlign.center))
                   : RefreshIndicator(
                       onRefresh: _onRefresh,

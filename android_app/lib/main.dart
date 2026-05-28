@@ -184,18 +184,19 @@ class MainShell extends StatelessWidget {
       listenable: SyncManager.instance,
       builder: (context, _) {
         final sync = SyncManager.instance;
+        final l10n = AppLocalizations.of(context);
         return Scaffold(
           appBar: AppBar(
             title: const Text('LingoDiary'),
             actions: [
               const ConnectionBadge(),
               IconButton(
-                tooltip: 'Help',
+                tooltip: l10n.helpTooltip,
                 icon: const Icon(Icons.help_outline),
                 onPressed: () => _showHelpDialog(context),
               ),
               IconButton(
-                tooltip: 'Settings',
+                tooltip: l10n.settingsTooltip,
                 icon: const Icon(Icons.settings_outlined),
                 onPressed: () => context.push('/settings'),
               ),
@@ -246,8 +247,8 @@ class MainShell extends StatelessWidget {
                         style: TextButton.styleFrom(
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 28)),
-                        child: const Text('Cancel',
-                            style: TextStyle(color: Colors.red)),
+                        child: Text(l10n.cancelButton,
+                            style: const TextStyle(color: Colors.red)),
                       ),
                     ],
                   ),
@@ -287,15 +288,15 @@ class MainShell extends StatelessWidget {
                 type: BottomNavigationBarType.fixed,
                 items: [
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.home_outlined), label: 'Home'),
+                      icon: const Icon(Icons.home_outlined), label: l10n.navHome),
                   BottomNavigationBarItem(
-                      icon: const Icon(Icons.quiz_outlined), label: 'Review'),
+                      icon: const Icon(Icons.quiz_outlined), label: l10n.navReview),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.headphones),
-                      label: AppLocalizations.of(context).navLessons),
+                      label: l10n.navLessons),
                   BottomNavigationBarItem(
                       icon: const Icon(Icons.book),
-                      label: AppLocalizations.of(context).navDiary),
+                      label: l10n.navDiary),
                 ],
               ),
             ],

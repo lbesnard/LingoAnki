@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
+import '../l10n/app_localizations.dart';
 
 /// Synthetic tab name for the "Input Diary" view (no audio).
 const _kInputDiaryTab = 'Input Diary';
@@ -1029,6 +1030,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final title = widget.lesson['display'] as String? ?? '';
     final isInputDiary = _currentTab == _kInputDiaryTab;
 
@@ -1038,13 +1040,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         actions: [
           // Font size cycle button
           IconButton(
-            tooltip: 'Font size (${_fontSize.toStringAsFixed(0)})',
+            tooltip: l10n.fontSizeTooltip(_fontSize.toStringAsFixed(0)),
             icon: const Icon(Icons.text_fields),
             onPressed: _cycleFontSize,
           ),
           // Loop toggle
           IconButton(
-            tooltip: _loopEnabled ? 'Loop: on' : 'Loop: off',
+            tooltip: _loopEnabled ? l10n.loopOn : l10n.loopOff,
             icon: Icon(
               _loopEnabled ? Icons.repeat_one : Icons.repeat,
               color: _loopEnabled ? Colors.blue.shade400 : null,
@@ -1223,7 +1225,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
-                        tooltip: 'Previous block',
+                        tooltip: l10n.previousBlock,
                         icon: const Icon(Icons.skip_previous),
                         onPressed: _audioReady && _entrySpans.isNotEmpty
                             ? _prevBlock
@@ -1297,7 +1299,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             : null,
                       ),
                       IconButton(
-                        tooltip: 'Next block',
+                        tooltip: l10n.nextBlock,
                         icon: const Icon(Icons.skip_next),
                         onPressed: _audioReady && _entrySpans.isNotEmpty
                             ? _nextBlock

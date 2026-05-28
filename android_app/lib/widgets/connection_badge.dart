@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import '../services/sync_manager.dart';
 
 class ConnectionBadge extends StatelessWidget {
@@ -9,6 +10,7 @@ class ConnectionBadge extends StatelessWidget {
     return ListenableBuilder(
       listenable: SyncManager.instance,
       builder: (context, _) {
+        final l10n = AppLocalizations.of(context);
         final online = SyncManager.instance.isOnline;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -22,7 +24,7 @@ class ConnectionBadge extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                online ? 'Server online' : 'Server offline',
+                online ? l10n.serverOnline : l10n.serverOffline,
                 style: TextStyle(
                   fontSize: 12,
                   color: online ? Colors.green : Colors.red,
