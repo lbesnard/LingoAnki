@@ -14,11 +14,12 @@ class LocalDbService {
     final path = join(await getDatabasesPath(), 'lingodiary.db');
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await _createV1Tables(db);
         await _createV2Tables(db);
         await _createV3Tables(db);
+        await _createV4Tables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -26,6 +27,9 @@ class LocalDbService {
         }
         if (oldVersion < 3) {
           await _createV3Tables(db);
+        }
+        if (oldVersion < 4) {
+          await _createV4Tables(db);
         }
       },
     );
@@ -83,6 +87,17 @@ class LocalDbService {
         date TEXT PRIMARY KEY,
         day_json TEXT NOT NULL,
         fetched_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createV4Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pending_trials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        trials_json TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
@@ -342,6 +357,7 @@ class LocalDbService {
     await database.delete('srs_scores');
     await database.delete('lesson_last_reviewed');
     await database.delete('day_cache');
+    await database.delete('pending_trials');
   }
 
   // ---- Lesson last_reviewed tracking ----
@@ -377,5 +393,31 @@ class LocalDbService {
       orderBy: 'last_reviewed DESC',
       limit: limit,
     );
+  }
+
+  // ---- Translation attempts ----
+
+  static Future<void> savePendingTrials(String date, List<String> trials) async {
+    final database = await db;
+    await database.insert('pending_trials', {
+      'date': date,
+      'trials_json': jsonEncode(trials),
+      'synced': 0,
+    });
+  }
+
+  static Future<List<Map<String, dynamic>>> getUnsyncedTrials() async {
+    final database = await db;
+    final rows = await database.query('pending_trials', where: 'synced = 0', orderBy: 'id ASC');
+    return rows.map((r) => {
+      'id': r['id'] as int,
+      'date': r['date'] as String,
+      'trials': (jsonDecode(r['trials_json'] as String) as List).cast<String>(),
+    }).toList();
+  }
+
+  static Future<void> markTrialSynced(int id) async {
+    final database = await db;
+    await database.update('pending_trials', {'synced': 1}, where: 'id = ?', whereArgs: [id]);
   }
 }

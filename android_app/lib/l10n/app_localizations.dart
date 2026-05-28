@@ -170,6 +170,13 @@ class AppLocalizations {
   String scoreSavedLocallyError(String error) => _t('scoreSavedLocallyError').replaceAll('{error}', error);
   String get translationAttemptHintWithEnter => _t('translationAttemptHintWithEnter');
   String get translationAttemptLabel => _t('translationAttemptLabel');
+  String get translateNowButton => _t('translateNowButton');
+  String get translationAttemptTitle => _t('translationAttemptTitle');
+  String get saveAttemptsButton => _t('saveAttemptsButton');
+  String get translationAttemptHint => _t('translationAttemptHint');
+  String get translationAttemptSaved => _t('translationAttemptSaved');
+  String get translationAttemptSavedLocally => _t('translationAttemptSavedLocally');
+  String get translationAttemptSkip => _t('translationAttemptSkip');
   String get fontSizeSmall => _t('fontSizeSmall');
   String get fontSizeNormal => _t('fontSizeNormal');
   String get fontSizeLarge => _t('fontSizeLarge');
@@ -357,6 +364,13 @@ class AppLocalizations {
       'scoreSavedLocallyError': 'Score saved locally — sync error: {error}',
       'translationAttemptHintWithEnter': 'Your translation attempt (press Enter to reveal)',
       'translationAttemptLabel': 'Your translation attempt',
+      'translateNowButton': 'Translate Now',
+      'translationAttemptTitle': 'Translation Attempts',
+      'saveAttemptsButton': 'Save Attempts',
+      'translationAttemptHint': 'Your translation attempt…',
+      'translationAttemptSaved': 'Translation attempts saved!',
+      'translationAttemptSavedLocally': 'Saved locally — will sync when online.',
+      'translationAttemptSkip': 'Skip',
       'fontSizeSmall': 'Small',
       'fontSizeNormal': 'Normal',
       'fontSizeLarge': 'Large',
@@ -538,6 +552,13 @@ class AppLocalizations {
       'scoreSavedLocallyError': 'Score enregistré localement — erreur de sync : {error}',
       'translationAttemptHintWithEnter': 'Votre tentative de traduction (appuyez sur Entrée pour révéler)',
       'translationAttemptLabel': 'Votre tentative de traduction',
+      'translateNowButton': 'Traduire maintenant',
+      'translationAttemptTitle': 'Tentatives de traduction',
+      'saveAttemptsButton': 'Enregistrer les tentatives',
+      'translationAttemptHint': 'Votre tentative de traduction…',
+      'translationAttemptSaved': 'Tentatives de traduction enregistrées !',
+      'translationAttemptSavedLocally': 'Enregistré localement — sera synchronisé en ligne.',
+      'translationAttemptSkip': 'Ignorer',
       'fontSizeSmall': 'Petit',
       'fontSizeNormal': 'Normal',
       'fontSizeLarge': 'Grand',
@@ -718,6 +739,13 @@ class AppLocalizations {
       'scoreSavedLocallyError': 'Puntuación guardada localmente — error de sincronización: {error}',
       'translationAttemptHintWithEnter': 'Tu intento de traducción (presiona Enter para revelar)',
       'translationAttemptLabel': 'Tu intento de traducción',
+      'translateNowButton': 'Traducir ahora',
+      'translationAttemptTitle': 'Intentos de traducción',
+      'saveAttemptsButton': 'Guardar intentos',
+      'translationAttemptHint': 'Tu intento de traducción…',
+      'translationAttemptSaved': '¡Intentos de traducción guardados!',
+      'translationAttemptSavedLocally': 'Guardado localmente — se sincronizará cuando esté en línea.',
+      'translationAttemptSkip': 'Omitir',
       'fontSizeSmall': 'Pequeño',
       'fontSizeNormal': 'Normal',
       'fontSizeLarge': 'Grande',

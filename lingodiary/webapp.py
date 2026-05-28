@@ -970,6 +970,48 @@ def api_add_diary_entry():
     )
 
 
+@app.route("/api/diary/<date>/trials", methods=["POST"])
+@_jwt_required
+def api_save_trials(date):
+    """Save user_trial_translation for each sentence of a day.
+    Body: {"trials": ["attempt1", "attempt2", ...]} ordered by sentence index (1-based).
+    """
+    from flask import g as _g
+
+    data = request.get_json(silent=True) or {}
+    trials = data.get("trials", [])
+    if not trials:
+        return jsonify({"error": "trials list is required"}), 400
+
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
+
+    try:
+        from lingodiary.diary_json import load_diary_json, save_diary_json, get_day
+
+        json_path = _g.api_json_diary_path
+        if not json_path:
+            return jsonify({"error": "json_diary_path not configured"}), 500
+
+        date_slash = date.replace("-", "/")
+        diary_json = load_diary_json(json_path)
+        day = get_day(diary_json, date_slash)
+        if day is None:
+            return jsonify({"error": f"No diary entry for {date}"}), 404
+
+        for i, trial in enumerate(trials):
+            if i < len(day.entries):
+                day.entries[i].user_trial_translation = trial
+        save_diary_json(diary_json, json_path)
+    except Exception as exc:
+        app.logger.error(f"api_save_trials error: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"success": True, "date": date, "trials_saved": len(trials)})
+
+
 @app.route("/api/config", methods=["GET"])
 @_jwt_required
 def api_get_config():
