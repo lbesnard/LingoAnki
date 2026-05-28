@@ -595,6 +595,29 @@ class DiaryHandler:
         self.write_diary_json(diary_dict)
 
 
+def _build_story_context_block(
+    target_sentence: str, all_day_sentences: list | None
+) -> str:
+    """Return a prompt snippet listing all day sentences as story context.
+
+    When there is only one sentence (or no context), returns an empty string so
+    the prompt is unchanged.  The target sentence is marked with '← target' so
+    the model knows exactly which sentence to generate Q&A for.
+    """
+    if not all_day_sentences or len(all_day_sentences) <= 1:
+        return ""
+    lines = []
+    for i, s in enumerate(all_day_sentences, start=1):
+        marker = "  ← generate Q&A for this sentence" if s == target_sentence else ""
+        lines.append(f"        {i}. {s}{marker}")
+    context = "\n".join(lines)
+    return (
+        f"        ### Story context — read all sentences to resolve pronouns and references,\n"
+        f"        ### but generate Q&A only for the sentence marked '← generate Q&A for this sentence':\n"
+        f"{context}\n\n"
+    )
+
+
 class TprsVariantHandler:
     def __init__(
         self,
@@ -647,6 +670,13 @@ class TprsVariantHandler:
         for diary_date, date_entry in diary_dict.items():
             day_qa_dict = {}
 
+            # Collect all non-empty sentences for the day to use as story context.
+            all_day_sentences = [
+                sd["study_language_sentence"]
+                for sd in date_entry["sentences"].values()
+                if sd.get("study_language_sentence")
+            ]
+
             for sentence_no, sentence_dict in date_entry["sentences"].items():
                 sentence = sentence_dict["study_language_sentence"]
                 if not sentence:
@@ -671,9 +701,13 @@ class TprsVariantHandler:
                             )
                             continue
                         existing_qa = base_tprs_dict[diary_date][sentence]
-                        qa_dict_or_block = openai_func(sentence, existing_qa)
+                        qa_dict_or_block = openai_func(
+                            sentence, existing_qa, all_day_sentences=all_day_sentences
+                        )
                     else:
-                        qa_dict_or_block = openai_func(sentence)
+                        qa_dict_or_block = openai_func(
+                            sentence, all_day_sentences=all_day_sentences
+                        )
 
                     if self.needs_base_tprs_data:
                         # openai_tprs_enhanced/future/present() returns
@@ -1195,7 +1229,9 @@ class TprsCreation(DiaryHandler):
         except Exception as exc:
             self.logging.warning(f"Could not load diary titles from diary.json: {exc}")
 
-    def openai_tprs_enhanced(self, study_language_sentence, qa_org_dict):
+    def openai_tprs_enhanced(
+        self, study_language_sentence, qa_org_dict, all_day_sentences=None
+    ):
         """Generates an enhanced TPRS teaching block using OpenAI.
 
         Rewrites a given sentence and its original Q&A block for better clarity,
@@ -1205,11 +1241,16 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
+            all_day_sentences (list[str] | None): All sentences for the diary day, used
+                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   and the value is a dictionary of new circling-style questions and answers.
         """
+        story_context_block = _build_story_context_block(
+            study_language_sentence, all_day_sentences
+        )
         # study_language_sentence = next(iter(qa_org_dict))
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
@@ -1226,7 +1267,7 @@ class TprsCreation(DiaryHandler):
             "4": {{"question": "Hva var spesielt med fisken jeg fanget?", "answer": "Det var min første norske fisk."}}
         }}
 
-
+{story_context_block}
         Follow these guidelines:
         - Generate a revised version of the input sentence: "{study_language_sentence}".
         - Vary the wording slightly for fluency and naturalness.
@@ -1269,7 +1310,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
-    def openai_tprs_future(self, study_language_sentence, qa_org_dict):
+    def openai_tprs_future(
+        self, study_language_sentence, qa_org_dict, all_day_sentences=None
+    ):
         """Generates a future tense TPRS teaching block using OpenAI.
 
         Transforms a given sentence and its original Q&A block into the future tense,
@@ -1279,12 +1322,17 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
+            all_day_sentences (list[str] | None): All sentences for the diary day, used
+                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   (in future tense) and the value is a dictionary of new, future-oriented
                   circling-style questions and answers.
         """
+        story_context_block = _build_story_context_block(
+            study_language_sentence, all_day_sentences
+        )
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1298,6 +1346,7 @@ class TprsCreation(DiaryHandler):
             "2": {{"question": "Hva gjorde vi etter at Johanne var syk?", "answer": "Vi ble hjemme og senere dro vi for å fiske med Emil og Mati."}}
         }}
 
+{story_context_block}
         Follow these guidelines:
         - Convert the input sentence "{study_language_sentence}" to future tense, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
         - Vary the wording slightly to ensure fluency and naturalness.
@@ -1340,7 +1389,9 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
-    def openai_tprs_present(self, study_language_sentence, qa_org_dict):
+    def openai_tprs_present(
+        self, study_language_sentence, qa_org_dict, all_day_sentences=None
+    ):
         """Generates a present tense TPRS teaching block using OpenAI.
 
         Transforms a given sentence and its original Q&A block into the present tense,
@@ -1350,12 +1401,17 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
+            all_day_sentences (list[str] | None): All sentences for the diary day, used
+                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   (in present tense) and the value is a dictionary of new, present-oriented
                   circling-style questions and answers.
         """
+        story_context_block = _build_story_context_block(
+            study_language_sentence, all_day_sentences
+        )
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1369,6 +1425,7 @@ class TprsCreation(DiaryHandler):
             "2": {{"question": "Hva gjør vi etter at Johanne er syk?", "answer": "Vi blir hjemme og senere drar vi for å fiske med Emil og Mati."}}
         }}
 
+{story_context_block}
         Follow these guidelines:
         - Convert the input sentence "{study_language_sentence}" to **present tense**, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
         - Vary the wording slightly to ensure fluency and naturalness.
@@ -1411,7 +1468,7 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"[OpenAI] Present TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
-    def openai_tprs(self, study_language_sentence):
+    def openai_tprs(self, study_language_sentence, all_day_sentences=None):
         """Generates TPRS questions and answers for a given sentence using OpenAI.
 
         The generated Q&A aims to be natural, logically sound, and suitable for TTS.
@@ -1420,12 +1477,17 @@ class TprsCreation(DiaryHandler):
         Args:
             study_language_sentence (str): The sentence in the study language for which
                                            to generate TPRS content.
+            all_day_sentences (list[str] | None): All sentences for the diary day, used
+                                                  as story context so pronouns and
+                                                  references resolve correctly.
 
         Returns:
             dict: A dictionary where keys are numbers (as strings, starting from "1")
                   and values are dictionaries, each containing a "question" and "answer".
         """
-        # Define the prompt
+        story_context_block = _build_story_context_block(
+            study_language_sentence, all_day_sentences
+        )
 
         prompt = f"""
         We are working on a TPRS (Teaching Proficiency through Reading and Storytelling) method to learn {
@@ -1435,6 +1497,7 @@ class TprsCreation(DiaryHandler):
         From the following {
             self.config["languages"]["study_language"]
         } input, generate a few questions and answers per sentence.
+{story_context_block}
         The output should be a JSON dictionary where:
         - The main keys are numbers (starting from 1) as strings.
         - Each value is another dictionary with two keys: "question" and "answer".
@@ -1504,7 +1567,7 @@ class TprsCreation(DiaryHandler):
 
         ### Now generate logical questions and answers in {
             self.config["languages"]["study_language"]
-        } for the following sentence: "{study_language_sentence}"
+        } for the target sentence above: "{study_language_sentence}"
         """
         # Make the API call
         self.logging.info(
