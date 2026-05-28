@@ -67,8 +67,6 @@ import hashlib
 import json
 import logging
 import os
-import re
-import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -78,11 +76,7 @@ from typing import Callable
 
 import yaml
 from openai import OpenAI
-from ovos_plugin_manager.tts import load_tts_plugin
-from ovos_tts_plugin_piper import PiperTTSPlugin
-from piper import PiperVoice
 from platformdirs import user_config_dir
-from pydub import AudioSegment
 
 from lingodiary.diary_json import (
     AudioTiming,
@@ -839,297 +833,6 @@ class TprsVariantHandler:
             self.logging.warning(
                 f"Could not write {self.variant_name} TPRS data to JSON diary: {exc}"
             )
-
-    def _record_lesson_audio_path(self, date_str: str, audio_filepath: str):
-        """Record the generated lesson audio path in diary.json."""
-        json_path = self.config.get("json_diary_path")
-        if not json_path:
-            return
-        try:
-            diary_db = load_diary_json(json_path)
-            day = get_day(diary_db, date_str)
-            if day is None:
-                return
-            # Store path relative to output_dir for portability
-            output_dir = self.config.get("output_dir", "")
-            rel_path = (
-                os.path.relpath(audio_filepath, output_dir)
-                if output_dir
-                else audio_filepath
-            )
-            # Use the same key convention as audio_timing.py so both systems
-            # write to / read from the same entry in lesson_audio_paths.
-            variant_key = VARIANT_AUDIO_KEY_MAP.get(
-                self.variant_name, self.variant_name.lower()
-            )
-            day.lesson_audio_paths[variant_key] = rel_path
-            save_diary_json(diary_db, json_path)
-        except Exception as exc:
-            self.logging.warning(
-                f"Could not record lesson audio path in diary.json: {exc}"
-            )
-
-    def _create_audio_for_day_block(self, day_block_data, date_str):
-        """Generates a TPRS audio lesson for a given day's content for this variant."""
-        if (
-            not hasattr(self.tprs_creator, "titles_diary_dict")
-            or not self.tprs_creator.titles_diary_dict
-        ):
-            self.tprs_creator.get_all_diary_titles()
-
-        current_titles_dict = self.tprs_creator.titles_diary_dict
-        try:
-            title_date_obj = datetime.strptime(date_str, "%Y/%m/%d")
-        except ValueError:
-            self.logging.error(
-                f"Invalid date string format '{date_str}' for TPRS audio generation. Skipping."
-            )
-            return
-
-        title = current_titles_dict.get(
-            title_date_obj,
-            self.tprs_creator.titles_dict.get(title_date_obj, "No Title"),
-        )
-
-        if not title or title == "No Title":
-            self.logging.warning(
-                f"Skipping audio for {self.variant_name} on {date_str} due to missing/default title."
-            )
-            return
-
-        base_filename = f"{self.config['tprs_lesson_name']}_TPRS_{date_str.replace('/', '-')}_{title}{self.file_suffix}.mp3"
-        # Sanitize filename
-        base_filename = re.sub(r'[\\/*?:"<>|]', "", base_filename)
-        tprs_audio_lesson_filepath = os.path.join(
-            self.config["output_dir"], "TPRS", base_filename
-        )
-
-        os.makedirs(os.path.dirname(tprs_audio_lesson_filepath), exist_ok=True)
-
-        # If the file already exists on disk and overwrite is disabled, skip and
-        # backfill lesson_audio_paths so future runs don't even reach this point.
-        if os.path.exists(tprs_audio_lesson_filepath) and not self.config.get(
-            "overwrite_tprs_audio", False
-        ):
-            self.logging.info(
-                f"{self.variant_name} TPRS audio already on disk for {date_str} — skipping."
-            )
-            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
-            return
-
-        self.logging.info(
-            f"Generating {self.variant_name} TPRS audio file for {date_str}: {tprs_audio_lesson_filepath}"
-        )
-
-        tts_plugin_instance = PiperTTSPlugin(
-            {
-                "lang": self.config["languages"]["study_language_code"],
-                "voice": self.config["tts"]["piper"]["voice"],
-            }
-        )
-        tts_plugin_instance.length_scale = self.config["tts"]["piper"][
-            "piper_length_scale_tprs"
-        ]
-
-        pause_filename = os.path.join(
-            tempfile.gettempdir(),
-            f"{self.tprs_creator.generate_unique_id('pause', 5)}.wav",
-        )
-        paused_duration = self.config["tts"]["pause_between_sentences_duration"]
-        repeat_tprs = (
-            self.config["tts"]["repeat_sentence_tprs"]
-            if self.config["tts"]["repeat_sentence_tprs"] > 0
-            else 1
-        )
-
-        # Ensure pause duration is not negative if repeat_tprs is large
-        actual_pause_duration = max(0, paused_duration / repeat_tprs)
-        pause_segment = AudioSegment.silent(duration=actual_pause_duration)
-        pause_segment.export(pause_filename, format="wav")
-
-        media_files = []
-        temp_files_to_clean = {pause_filename}  # Keep track of all temp files
-
-        total_sentences = len(day_block_data)
-        total_qa_pairs = sum(len(qa) for qa in day_block_data.values())
-        total_tts_calls = total_sentences + total_qa_pairs * 2
-        self.logging.info(
-            f"[TTS] {self.variant_name} {date_str}: {total_sentences} sentences, "
-            f"{total_qa_pairs} Q&A pairs → {total_tts_calls} TTS calls total"
-        )
-
-        try:
-            for sent_idx, (sentence, tprs_qa_list) in enumerate(
-                day_block_data.items(), 1
-            ):
-                self.logging.info(
-                    f"[TTS] {self.variant_name} sentence {sent_idx}/{total_sentences}: {sentence[:60]}"
-                )
-                t0 = time.time()
-                audio_filename = os.path.join(
-                    tempfile.gettempdir(),
-                    f"{self.tprs_creator.generate_unique_id(sentence, 12)}.wav",
-                )
-                temp_files_to_clean.add(audio_filename)
-                tts_plugin_instance.get_tts(
-                    sentence,
-                    audio_filename,
-                    lang=self.config["languages"]["study_language_code"],
-                    voice=self.config["tts"]["piper"]["voice"],
-                )
-                self.logging.info(
-                    f"[TTS] sentence {sent_idx}/{total_sentences} done ({time.time()-t0:.1f}s)"
-                )
-                media_files.append(audio_filename)
-                media_files.append(pause_filename)
-
-                for qa_idx, (question, answer) in enumerate(tprs_qa_list, 1):
-                    media_files.append(pause_filename)  # Pause before question
-                    question_audio = os.path.join(
-                        tempfile.gettempdir(),
-                        f"{self.tprs_creator.generate_unique_id(question, 12)}.wav",
-                    )
-                    temp_files_to_clean.add(question_audio)
-                    tq = time.time()
-                    tts_plugin_instance.get_tts(
-                        question,
-                        question_audio,
-                        lang=self.config["languages"]["study_language_code"],
-                        voice=self.config["tts"]["piper"]["voice"],
-                    )
-                    self.logging.info(
-                        f"[TTS]   Q {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-tq:.1f}s)"
-                    )
-                    media_files.append(question_audio)
-
-                    silence_file = os.path.join(
-                        tempfile.gettempdir(),
-                        f"{self.tprs_creator.generate_unique_id('silence_answer', 5)}.wav",
-                    )
-                    temp_files_to_clean.add(silence_file)
-                    # Ensure silence duration is not negative
-                    actual_silence_duration = max(
-                        0, self.config["tts"]["answer_silence_duration"] / repeat_tprs
-                    )
-                    AudioSegment.silent(duration=actual_silence_duration).export(
-                        silence_file, format="wav"
-                    )
-                    media_files.append(silence_file)  # Silence for user to answer
-
-                    answer_audio = os.path.join(
-                        tempfile.gettempdir(),
-                        f"{self.tprs_creator.generate_unique_id(answer, 12)}.wav",
-                    )
-                    temp_files_to_clean.add(answer_audio)
-                    ta = time.time()
-                    tts_plugin_instance.get_tts(
-                        answer,
-                        answer_audio,
-                        lang=self.config["languages"]["study_language_code"],
-                        voice=self.config["tts"]["piper"]["voice"],
-                    )
-                    self.logging.info(
-                        f"[TTS]   A {qa_idx}/{len(tprs_qa_list)} (sent {sent_idx}) done ({time.time()-ta:.1f}s)"
-                    )
-                    media_files.append(answer_audio)
-                    media_files.append(pause_filename)  # Pause after answer
-
-            tts_plugin_instance.stop()
-            self.logging.info(
-                f"[TTS] All {total_tts_calls} calls complete for {self.variant_name} {date_str}"
-            )
-
-            if not media_files:
-                self.logging.warning(
-                    f"No audio segments generated for {self.variant_name} TPRS on {date_str}. Skipping MP3 export."
-                )
-                return
-
-            playlist_media = [
-                AudioSegment.from_wav(wav_file) for wav_file in media_files
-            ]
-            combined = AudioSegment.empty()
-            for segment in playlist_media:
-                for _ in range(repeat_tprs):
-                    combined += segment
-
-            combined.export(tprs_audio_lesson_filepath, format="mp3")
-            self.logging.info(
-                f"Successfully exported {self.variant_name} TPRS audio to {tprs_audio_lesson_filepath}"
-            )
-            # Record the audio path in diary.json so future runs can skip this date
-            self._record_lesson_audio_path(date_str, tprs_audio_lesson_filepath)
-
-        except Exception as e:
-            self.logging.error(
-                f"Error during audio generation for {self.variant_name} TPRS on {date_str}: {e}",
-                exc_info=True,
-            )
-        finally:
-            # Clean up temporary files
-            for f_path in temp_files_to_clean:
-                if os.path.exists(f_path):
-                    try:
-                        os.remove(f_path)
-                    except Exception as e_clean:
-                        self.logging.warning(
-                            f"Could not remove temporary file {f_path}: {e_clean}"
-                        )
-
-    def convert_to_audio(self):
-        """Generates TPRS audio lessons from diary.json Q&A data for this variant.
-
-        Skips any date that already has a non-empty lesson_audio_paths entry for
-        this variant in diary.json — unless overwrite_tprs_audio is True in config.
-        """
-        self.tprs_creator.validate_arguments()
-
-        variant_tprs_dict = self._read_variant_tprs_from_json()
-        if not variant_tprs_dict:
-            self.logging.info(
-                f"No {self.variant_name} TPRS data found in diary.json. Skipping audio generation."
-            )
-            return
-
-        # Load diary.json once to check lesson_audio_paths per date
-        json_path = self.config.get("json_diary_path")
-        diary_db = load_diary_json(json_path) if json_path else None
-
-        force_overwrite = self.config.get("overwrite_tprs_audio", False)
-        # Use the same key convention as audio_timing.py (_VARIANT_KEYS uses "original"
-        # for the Standard variant, not "standard").
-        variant_key = VARIANT_AUDIO_KEY_MAP.get(
-            self.variant_name, self.variant_name.lower()
-        )
-
-        for date_obj, day_qa_dict in variant_tprs_dict.items():
-            date_str = date_obj.strftime("%Y/%m/%d")
-
-            # Skip if audio path already recorded in diary.json for this variant
-            if not force_overwrite and diary_db:
-                day = get_day(diary_db, date_str)
-                if day and day.lesson_audio_paths.get(variant_key):
-                    self.logging.info(
-                        f"Audio already exists for {self.variant_name} on {date_str} — skipping."
-                    )
-                    continue
-
-            day_block_data = {}
-            for sentence_text, qa_numbered_dict in day_qa_dict.items():
-                qa_tuples = [
-                    (qa_numbered_dict[k]["question"], qa_numbered_dict[k]["answer"])
-                    for k in sorted(
-                        qa_numbered_dict.keys(),
-                        key=lambda x: int(x) if x.isdigit() else 0,
-                    )
-                ]
-                day_block_data[sentence_text] = qa_tuples
-
-            self._create_audio_for_day_block(day_block_data, date_str)
-
-        self.logging.info(
-            f"All diary entries converted into {self.variant_name} TPRS audio."
-        )
 
     def _read_variant_tprs_from_json(self):
         """Reads this variant's TPRS Q&A data from diary.json into a structured dictionary.
@@ -2143,25 +1846,21 @@ class TprsCreation(DiaryHandler):
         return new_or_updated_tprs_dict_for_standard
 
 
-def main(config_path=None, skip_audio: bool = False):
+def main(config_path=None):
     """Main function to run the diary and TPRS processing workflow.
 
     Args:
         config_path (str, optional): Path to the configuration file.
                                      Defaults to None, which uses the default user config path.
-        skip_audio (bool): When True, skip convert_to_audio() for all variants.
-                           Use this in the webapp flow where backfill_audio_timings()
-                           handles audio generation and timing in a single pass.
-                           Defaults to False (used by the lingoDiary admin script).
 
     Initializes DiaryHandler, completes translations.
     Then, initializes TprsCreation, checks for missing TPRS sentences,
-    adds missing TPRS content for all versions (standard, enhanced, future, present),
-    and optionally converts all TPRS entries to audio.
+    adds missing TPRS content for all versions (standard, enhanced, future, present).
+    Audio generation is handled separately via backfill_audio_timings() in the webapp.
     """
     diary_instance = DiaryHandler(config_path=config_path)
     _log = diary_instance.logging  # named logger — goes to output.log
-    _log.info("=== Phase 1/3: Diary translations ===")
+    _log.info("=== Phase 1/2: Diary translations ===")
     diary_instance.diary_complete_translations()
     _log.info("=== Diary translations complete ===")
     diary_instance.stop()
@@ -2169,7 +1868,7 @@ def main(config_path=None, skip_audio: bool = False):
     # --- TPRS Processing ---
     tprs_instance = TprsCreation(config_path=config_path)
     _log = tprs_instance.logging  # re-bind after stop() re-opens handlers
-    _log.info("=== Phase 2/3: TPRS Q&A generation ===")
+    _log.info("=== Phase 2/2: TPRS Q&A generation ===")
 
     diary_dict = tprs_instance.json_diary_to_dict()
     if not diary_dict:
@@ -2197,20 +1896,6 @@ def main(config_path=None, skip_audio: bool = False):
         else:
             variant.add_missing_entries(diary_dict, base_tprs_dict)
         _log.info(f"Q&A generation done for {variant.variant_name}.")
-
-        _log.info(f"=== Phase 3/3: Audio generation — {variant.variant_name} ===")
-        if skip_audio:
-            _log.info(
-                f"Skipping convert_to_audio() for {variant.variant_name} "
-                f"(webapp flow — backfill_audio_timings handles audio)."
-            )
-        elif tprs_instance.config.get("create_tprs_audio", True):
-            variant.convert_to_audio()
-        else:
-            _log.info(
-                f"Skipping audio generation for {variant.variant_name} as per configuration."
-            )
-        _log.info(f"Audio done for {variant.variant_name}.")
 
     tprs_instance.stop()
     _log.info("=== All generation complete ===")
