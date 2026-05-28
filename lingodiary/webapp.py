@@ -48,6 +48,32 @@ JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 _job_queue: queue.Queue = queue.Queue(maxsize=2)
 
 
+class _OutputLogHandler(logging.FileHandler):
+    """FileHandler that flushes after every record (mirrors DiaryHandler's setup)."""
+
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
+def _attach_output_log(log_file: str) -> tuple:
+    """Add a file handler to the lingodiary.audio_timing logger so that
+    backfill progress is visible in output.log.  Returns (logger, handler)
+    so the caller can remove the handler when done."""
+    handler = _OutputLogHandler(log_file, encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    at_logger = logging.getLogger("lingodiary.audio_timing")
+    at_logger.setLevel(logging.DEBUG)
+    at_logger.addHandler(handler)
+    return at_logger, handler
+
+
+def _detach_output_log(at_logger, handler) -> None:
+    at_logger.removeHandler(handler)
+    handler.close()
+
+
 def _start_job_worker():
     """Single background worker that drains the job queue sequentially."""
     while True:
@@ -288,6 +314,7 @@ def api_generate():
         # 1. Audio segments + timing — run first: critical for playback.
         #    Must happen before the slow translation backfills so a
         #    container restart cannot starve the new entry of timing data.
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
@@ -295,6 +322,8 @@ def api_generate():
         except Exception as exc:
             app.logger.warning(f"Audio timing backfill failed: {exc}")
             _log_to_file(f"WARNING: Audio timing backfill failed: {exc}")
+        finally:
+            _detach_output_log(at_logger, at_handler)
         # 2. Q&A translations — needed for flashcard review.
         try:
             TprsCreation(config_path).backfill_qa_translations(json_path)
@@ -373,6 +402,8 @@ def api_backfill_audio_timing():
     overwrite = bool(body.get("overwrite", False))
 
     def _run():
+        log_file = os.path.join(output_folder, "output.log")
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
             from lingodiary.audio_timing import backfill_audio_timings
 
@@ -384,6 +415,13 @@ def api_backfill_audio_timing():
             )
         except Exception as exc:
             app.logger.error(f"Audio timing backfill error: {exc}")
+            try:
+                with open(os.path.join(output_folder, "output.log"), "a") as _lf:
+                    _lf.write(f"ERROR: Audio timing backfill failed: {exc}\n")
+            except Exception:
+                pass
+        finally:
+            _detach_output_log(at_logger, at_handler)
 
     try:
         _job_queue.put_nowait(_run)
@@ -413,29 +451,40 @@ def api_backfill_all():
     output_folder = _g.api_output_folder
 
     def _run():
-        json_path = os.path.join(output_folder, "diary.json")
-
-        app.logger.info("Backfill all: step 1/3 — audio timing / segments")
+        log_file = os.path.join(output_folder, "output.log")
+        at_logger, at_handler = _attach_output_log(log_file)
         try:
-            from lingodiary.audio_timing import backfill_audio_timings
+            json_path = os.path.join(output_folder, "diary.json")
 
-            backfill_audio_timings(config_path=config_path, diary_json_path=json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: audio timing failed: {exc}")
+            app.logger.info("Backfill all: step 1/3 — audio timing / segments")
+            try:
+                from lingodiary.audio_timing import backfill_audio_timings
 
-        app.logger.info("Backfill all: step 2/3 — Q&A translations")
-        try:
-            TprsCreation(config_path).backfill_qa_translations(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
+                backfill_audio_timings(
+                    config_path=config_path, diary_json_path=json_path
+                )
+            except Exception as exc:
+                app.logger.warning(f"Backfill all: audio timing failed: {exc}")
 
-        app.logger.info("Backfill all: step 3/3 — variant sentence_input translations")
-        try:
-            TprsCreation(config_path).backfill_sentence_inputs(json_path)
-        except Exception as exc:
-            app.logger.warning(f"Backfill all: sentence_input backfill failed: {exc}")
+            app.logger.info("Backfill all: step 2/3 — Q&A translations")
+            try:
+                TprsCreation(config_path).backfill_qa_translations(json_path)
+            except Exception as exc:
+                app.logger.warning(f"Backfill all: Q&A translation failed: {exc}")
 
-        app.logger.info("Backfill all: complete")
+            app.logger.info(
+                "Backfill all: step 3/3 — variant sentence_input translations"
+            )
+            try:
+                TprsCreation(config_path).backfill_sentence_inputs(json_path)
+            except Exception as exc:
+                app.logger.warning(
+                    f"Backfill all: sentence_input backfill failed: {exc}"
+                )
+
+            app.logger.info("Backfill all: complete")
+        finally:
+            _detach_output_log(at_logger, at_handler)
 
     try:
         _job_queue.put_nowait(_run)
