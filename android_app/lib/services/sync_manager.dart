@@ -82,7 +82,7 @@ class SyncManager extends ChangeNotifier {
     _cancelled = true;
   }
 
-  /// Flushes pending scores, diary entries, and lesson reviews to the server.
+  /// Flushes pending scores, diary entries, lesson reviews, and translation trials to the server.
   /// Safe to call concurrently — a second call is ignored while one is running.
   Future<void> flushPending() async {
     if (_flushing) return;
@@ -91,6 +91,7 @@ class SyncManager extends ChangeNotifier {
       await _syncPendingLessonReviews();
       await _syncPendingDiaryEntries();
       await _syncPendingScores();
+      await _syncPendingTrials();
     } finally {
       _flushing = false;
     }
@@ -266,6 +267,26 @@ class SyncManager extends ChangeNotifier {
           break; // Network unreachable — retry on next sync.
         }
         debugPrint('SyncManager: diary entry sync failed for row $id: $e');
+      }
+    }
+  }
+
+  /// Flush pending translation attempts to the server.
+  Future<void> _syncPendingTrials() async {
+    final pending = await LocalDbService.getUnsyncedTrials();
+    for (final row in pending) {
+      if (_cancelled) break;
+      final id = row['id'] as int;
+      final date = row['date'] as String;
+      final trials = row['trials'] as List<String>;
+      try {
+        await ApiService.saveTrials(date, trials);
+        await LocalDbService.markTrialSynced(id);
+      } catch (e) {
+        if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+          break;
+        }
+        debugPrint('SyncManager: trial sync failed for row $id: $e');
       }
     }
   }

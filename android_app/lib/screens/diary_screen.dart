@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
+import 'translation_attempt_screen.dart';
 
 class DiaryScreen extends StatefulWidget {
   const DiaryScreen({super.key});
@@ -26,6 +27,8 @@ class _DiaryScreenState extends State<DiaryScreen> {
   int _logOffset = 0;
   String? _error;
   String? _successMessage;
+  List<String>? _savedSentences;
+  String? _savedDate;
 
   // ── date picker ──────────────────────────────────────────────────────────────
 
@@ -105,10 +108,13 @@ class _DiaryScreenState extends State<DiaryScreen> {
       final entryText = _sentences.map((s) => '- $s').join('\n');
       await LocalDbService.saveDiaryContent('[$dateStr]\n$entryText');
       final count = _sentences.length;
+      final savedSentencesCopy = List<String>.from(_sentences);
       setState(() {
         _successMessage = l10n.diaryEntrySaved(dateStr, count);
         _sentences.clear();
         _editingIndex = -1;
+        _savedSentences = savedSentencesCopy;
+        _savedDate = dateStr;
       });
     } catch (e) {
       // Save locally even when offline — will be retried on next sync.
@@ -296,6 +302,26 @@ class _DiaryScreenState extends State<DiaryScreen> {
               ),
               child: Text(_successMessage!,
                   style: TextStyle(color: Colors.green.shade800)),
+            ),
+          if (_savedSentences != null && _savedSentences!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => TranslationAttemptScreen(
+                      date: _savedDate!,
+                      sentences: _savedSentences!,
+                    ),
+                  ));
+                },
+                icon: const Icon(Icons.translate),
+                label: Text(l10n.translateNowButton),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                ),
+              ),
             ),
           if (_error != null)
             Container(

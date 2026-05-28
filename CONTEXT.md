@@ -67,6 +67,13 @@ SM-2 spaced-repetition metadata for one **Sentence**: status (`new` / `learning`
 `mastered`), mastery score (0–5), interval, and next-review date.  Shared across
 all Lesson Variants of the same Sentence.  `ReviewingState` in code.
 
+### Translation Attempt
+The learner's own rendering of a **Sentence** in the **Output Language**, written
+before the AI-generated translation is revealed.  Stored per-Sentence in
+`user_trial_translation`.  Not meant to be correct — its value is in the act of
+trying.
+_Avoid_: trial sentence, trial translation, draft translation
+
 ### TPRS
 Total Physical Response Storytelling — the language-teaching method that motivates
 the Lesson Variant / Q&A structure.  Also used as the top-level folder name for

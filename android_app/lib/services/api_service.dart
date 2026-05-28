@@ -351,4 +351,20 @@ class ApiService {
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(data['lessons'] as List);
   }
+
+  static Future<void> saveTrials(String date, List<String> trials) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .post(
+          Uri.parse('$base/api/diary/$date/trials'),
+          headers: headers,
+          body: jsonEncode({'trials': trials}),
+        )
+        .timeout(_timeout);
+    if (resp.statusCode != 200) {
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      throw ApiException(resp.statusCode, body['error'] ?? 'Failed to save trials');
+    }
+  }
 }

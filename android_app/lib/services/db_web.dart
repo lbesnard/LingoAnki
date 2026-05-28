@@ -139,4 +139,9 @@ class LocalDbService {
   static Future<Map<String, dynamic>?> getDayCache(String date) async => null;
 
   static Future<List<String>> getAllCachedDates() async => [];
+
+  // ---- Translation attempts (no-op on web) ----
+  static Future<void> savePendingTrials(String date, List<String> trials) async {}
+  static Future<List<Map<String, dynamic>>> getUnsyncedTrials() async => [];
+  static Future<void> markTrialSynced(int id) async {}
 }
