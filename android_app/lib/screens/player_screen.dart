@@ -104,10 +104,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _tabNames = [...orderedVariants, ...extras, _kInputDiaryTab];
     _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
-    // Extract YYYY-MM-DD from base name (e.g. …_TPRS_2026-01-21_…)
+    // Prefer date field from server (diary.json); fall back to parsing base name.
     final base = widget.lesson['base'] as String? ?? '';
-    final m = RegExp(r'_TPRS_(\d{4}-\d{2}-\d{2})').firstMatch(base);
-    _lessonDate = m?.group(1);
+    _lessonDate = widget.lesson['date'] as String? ??
+        RegExp(r'TPRS_(\d{4}-\d{2}-\d{2})').firstMatch(base)?.group(1);
 
     _loadKeywords().then((_) {
       if (_currentTab != _kInputDiaryTab) {

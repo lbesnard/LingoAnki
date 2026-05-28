@@ -549,12 +549,17 @@ def api_lessons():
         lesson = {"base": base, "display": display, "variants": variants}
         if diary is not None:
             try:
-                m = re.search(r"_TPRS_(\d{4}-\d{2}-\d{2})", base)
+                # Match both "…_TPRS_YYYY-MM-DD…" and "TPRS_YYYY-MM-DD…"
+                m = re.search(r"TPRS_(\d{4}-\d{2}-\d{2})", base)
                 if m:
                     date_dash = m.group(1)
                     date_slash = date_dash.replace("-", "/")
                     day = get_day(diary, date_slash)
                     if day is not None:
+                        lesson["date"] = date_dash
+                        lesson["display"] = (
+                            f"{date_dash}_{day.title}" if day.title else date_dash
+                        )
                         total = len(day.entries)
                         mastered = sum(
                             1
