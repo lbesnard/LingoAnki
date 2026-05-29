@@ -612,8 +612,7 @@ def _build_story_context_block(
         lines.append(f"        {i}. {s}{marker}")
     context = "\n".join(lines)
     return (
-        f"        ### Story context — read all sentences to resolve pronouns and references,\n"
-        f"        ### but generate Q&A only for the sentence marked '← generate Q&A for this sentence':\n"
+        f"        ### Full diary entry for context — generate Q&A solely for the sentence marked below:\n"
         f"{context}\n\n"
     )
 
@@ -1494,10 +1493,9 @@ class TprsCreation(DiaryHandler):
             self.config["languages"]["study_language"]
         }.
         All output must be written in {self.config["languages"]["study_language"]}.
-        From the following {
+{story_context_block}        Generate a set of questions and answers for the target sentence in {
             self.config["languages"]["study_language"]
-        } input, generate a few questions and answers per sentence.
-{story_context_block}
+        }.
         The output should be a JSON dictionary where:
         - The main keys are numbers (starting from 1) as strings.
         - Each value is another dictionary with two keys: "question" and "answer".
