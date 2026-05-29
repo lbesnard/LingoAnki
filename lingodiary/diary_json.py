@@ -64,7 +64,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 VARIANTS = ("original", "enhanced", "present", "future")
 
 
@@ -98,6 +98,8 @@ class QA:
         ""  # relative to output_dir, e.g. "TPRS/SEGMENTS/2025-12-14_original/0_q0.mp3"
     )
     answer_audio_path: str = ""  # relative to output_dir
+    question_input_language_audio_path: str = ""  # Input Language TTS for Drive Mode
+    answer_input_language_audio_path: str = ""  # Input Language TTS for Drive Mode
     generated_at: Optional[
         str
     ] = None  # ISO-8601 UTC — when this Q&A's audio segments were generated
@@ -112,6 +114,8 @@ class QA:
             "answer_timing": self.answer_timing.to_dict(),
             "question_audio_path": self.question_audio_path,
             "answer_audio_path": self.answer_audio_path,
+            "question_input_language_audio_path": self.question_input_language_audio_path,
+            "answer_input_language_audio_path": self.answer_input_language_audio_path,
             "generated_at": self.generated_at,
         }
 
@@ -128,6 +132,12 @@ class QA:
             answer_timing=AudioTiming.from_dict(d.get("answer_timing", {})),
             question_audio_path=d.get("question_audio_path", ""),
             answer_audio_path=d.get("answer_audio_path", ""),
+            question_input_language_audio_path=d.get(
+                "question_input_language_audio_path", ""
+            ),
+            answer_input_language_audio_path=d.get(
+                "answer_input_language_audio_path", ""
+            ),
             generated_at=d.get("generated_at"),
         )
 
@@ -144,6 +154,7 @@ class SentenceBlock:
     sentence_audio_generated_at: Optional[
         str
     ] = None  # ISO-8601 UTC — when this sentence's audio segment was generated
+    sentence_input_language_audio_path: str = ""  # Input Language TTS for Drive Mode
 
     def to_dict(self) -> dict:
         return {
@@ -153,6 +164,7 @@ class SentenceBlock:
             "qa": [q.to_dict() for q in self.qa],
             "sentence_audio_path": self.sentence_audio_path,
             "sentence_audio_generated_at": self.sentence_audio_generated_at,
+            "sentence_input_language_audio_path": self.sentence_input_language_audio_path,
         }
 
     @classmethod
@@ -166,6 +178,9 @@ class SentenceBlock:
             qa=[QA.from_dict(q) for q in d.get("qa", [])],
             sentence_audio_path=d.get("sentence_audio_path", ""),
             sentence_audio_generated_at=d.get("sentence_audio_generated_at"),
+            sentence_input_language_audio_path=d.get(
+                "sentence_input_language_audio_path", ""
+            ),
         )
 
 

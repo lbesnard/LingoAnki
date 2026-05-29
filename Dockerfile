@@ -17,6 +17,7 @@ ENV PYTHONUNBUFFERED=1
 # System tools + ffmpeg + Poetry binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
+        espeak-ng \
         ffmpeg \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && ln -s ${POETRY_HOME}/bin/poetry /usr/local/bin/poetry \
@@ -36,8 +37,7 @@ RUN pip install --no-cache-dir \
 
 RUN pip install --no-cache-dir \
     "spacy==3.7.5" \
-    "piper-tts==1.2.0" \
-    "ovos-tts-plugin-piper==0.0.2"
+    "ovos-tts-plugin-piper==0.2.5"
 
 RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 

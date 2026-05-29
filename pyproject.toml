@@ -33,8 +33,7 @@ PyJWT = ">=2.8.0"
 spacy = ">=3.6.1"
 # openai-whisper = { git = "https://github.com/openai/whisper", rev = "main" }
 openai-whisper = ">=20250625"
-piper-tts = ">=1.2.0"
-ovos-tts-plugin-piper = "==0.0.2"
+ovos-tts-plugin-piper = "==0.2.5"
 
 
 [tool.poetry.scripts]

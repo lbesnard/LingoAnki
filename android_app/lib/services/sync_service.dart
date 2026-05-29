@@ -62,11 +62,11 @@ class SyncService {
   ///
   /// Returns null if the file could not be downloaded.
   /// On web, always returns the authenticated server URI without any local check.
-  static Future<Uri?> ensureLocalAndGetUri(String relPath) async {
+  static Future<Uri?> ensureLocalAndGetUri(String relPath, {bool forceRefresh = false}) async {
     if (relPath.isEmpty) return null;
     if (!kIsWeb) {
       final path = await localPath(relPath);
-      if (!File(path).existsSync()) {
+      if (forceRefresh || !File(path).existsSync()) {
         final ok = await downloadFile(relPath);
         if (!ok) return null;
       }

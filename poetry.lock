@@ -2630,14 +2630,14 @@ rich-click = ">=1.6,<2.0"
 
 [[package]]
 name = "ovos-plugin-manager"
-version = "0.8.6"
+version = "1.0.3"
 description = "OpenVoiceOS plugin manager"
 optional = false
 python-versions = "*"
 groups = ["ml"]
 files = [
-    {file = "ovos-plugin-manager-0.8.6.tar.gz", hash = "sha256:7f7013f9293d8e28407d86035c2f37b5b0a968015d10ef69203e8f4b5ef43000"},
-    {file = "ovos_plugin_manager-0.8.6-py3-none-any.whl", hash = "sha256:62d4da70eb811d128d90098ae0c821ac1088b9fcccfb87a4d20a6caeb8b5f4f1"},
+    {file = "ovos-plugin-manager-1.0.3.tar.gz", hash = "sha256:e73a29c85eccc2730b24e45cff9805388f5d5de33a3432c2f96338644ae519c4"},
+    {file = "ovos_plugin_manager-1.0.3-py3-none-any.whl", hash = "sha256:9a215bcd647c18e258f8f0ec74af6bbc98df67f7902b71ecb9c9d113406ed12b"},
 ]
 
 [package.dependencies]
@@ -2653,19 +2653,23 @@ setuptools = "*"
 
 [[package]]
 name = "ovos-tts-plugin-piper"
-version = "0.0.2"
+version = "0.2.5"
 description = "piper tts plugin for OpenVoiceOS"
 optional = false
 python-versions = "*"
 groups = ["ml"]
 files = [
-    {file = "ovos-tts-plugin-piper-0.0.2.tar.gz", hash = "sha256:79e90ce73d42005893939af651c81db4550677afa1f1d38437268ecb0a43bf2d"},
-    {file = "ovos_tts_plugin_piper-0.0.2-py3-none-any.whl", hash = "sha256:d73d674eec875309ef0c95dadff580d1e4ba41bd653de99620d90ac723a6585d"},
+    {file = "ovos_tts_plugin_piper-0.2.5-py3-none-any.whl", hash = "sha256:41dad562659b82dbec94d67f81ddc4c5c1c9e799d50919034dd6e330b6208de1"},
+    {file = "ovos_tts_plugin_piper-0.2.5.tar.gz", hash = "sha256:46df5e7f48675615017626cb0514eab6dfcf75cd70a22cadafcd3732b6f83d6f"},
 ]
 
 [package.dependencies]
-ovos-plugin-manager = ">=0.0.5"
-piper-tts = "1.2.0"
+langcodes = "*"
+numpy = "<3.0.0"
+onnxruntime = "*"
+ovos-plugin-manager = ">=1.0.0,<3.0.0"
+ovos-utils = ">=0.2.1"
+quebra-frases = "*"
 
 [[package]]
 name = "ovos-utils"
@@ -2770,41 +2774,6 @@ files = [
     {file = "pickleshare-0.7.5-py2.py3-none-any.whl", hash = "sha256:9649af414d74d4df115d5d718f82acb59c9d418196b7b4290ed47a12ce62df56"},
     {file = "pickleshare-0.7.5.tar.gz", hash = "sha256:87683d47965c1da65cdacaf31c8441d12b8044cdec9aca500cd78fc2c683afca"},
 ]
-
-[[package]]
-name = "piper-phonemize"
-version = "1.1.0"
-description = "Phonemization libary used by Piper text to speech system"
-optional = false
-python-versions = ">=3.7"
-groups = ["ml"]
-files = [
-    {file = "piper_phonemize-1.1.0-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:8f1024e89a0215624a74ab3b504db084aa1486cadff4acb52e0381bdeed4c88b"},
-    {file = "piper_phonemize-1.1.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:a39507d2105acce4b6a01cb9c62c714e45f45f35753e2c7a52a195e97e1a00d9"},
-    {file = "piper_phonemize-1.1.0-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:a1a6d468afba2eba084ec7457d1eb74b758ade94125b03c216b892150f3caa1c"},
-    {file = "piper_phonemize-1.1.0-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:d4b9265213ab53275d52318c18226c30c1cde5ab6d829f73c6ae6b8deb49e612"},
-    {file = "piper_phonemize-1.1.0-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:a021b6e49e26e14246579d01264353880f261be66c03ab7cb353d28ed49a59a2"},
-    {file = "piper_phonemize-1.1.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:793077437584cf314a6d49c9c6d9d655b4c373391da5384e832208aa80402949"},
-    {file = "piper_phonemize-1.1.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:c1062e00c94835e9115df7ce1d7b3b5c40c6d845cd70b2c121954faf5b8d23c7"},
-    {file = "piper_phonemize-1.1.0-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:9c5401dc49ca868f988d88d48e592ec39a10e3fedde994c884854a6c0f44f634"},
-    {file = "piper_phonemize-1.1.0-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:855200dec36ed040df4dcac0bc7d816a95434af87f55ad9c367be68415e4ad52"},
-    {file = "piper_phonemize-1.1.0-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:59158d9dce0ee6c6f3f53cd48b13ef0069bf191f4203846f7c1ffab42160b699"},
-]
-
-[[package]]
-name = "piper-tts"
-version = "1.2.0"
-description = "A fast, local neural text to speech system that sounds great and is optimized for the Raspberry Pi 4."
-optional = false
-python-versions = "*"
-groups = ["ml"]
-files = [
-    {file = "piper_tts-1.2.0-py3-none-any.whl", hash = "sha256:f3410aea0f8051d8a118050a5b954faeb36f6ac0da6d10fc2f8a043a8eaf27b5"},
-]
-
-[package.dependencies]
-onnxruntime = ">=1.11.0,<2"
-piper-phonemize = ">=1.1.0,<1.2.0"
 
 [[package]]
 name = "pkginfo"
@@ -4756,4 +4725,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "0fe107a0f67ee4cbded351aebef84df98369e34b7cc2b1fc727e060e3c48689e"
+content-hash = "397edec5ac0162c35559af84b475b3c611f00c40dda560a62c1f1a8b7d0b22b9"

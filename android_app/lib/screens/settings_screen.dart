@@ -356,6 +356,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     () => ApiService.triggerAudioTimingBackfill(
                         overwrite: _forceTimingRegen)),
           ),
+          ListTile(
+            leading: _maintenanceRunning == 'drive_mode'
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.directions_car_outlined),
+            title: Text(l10n.driveModeSettingsButton),
+            subtitle: const Text('Generates Input Language TTS audio for all lessons'),
+            onTap: _maintenanceRunning != null
+                ? null
+                : () => _runMaintenanceJob(
+                    'drive_mode', ApiService.triggerDriveModeAudioBackfill),
+          ),
           SwitchListTile(
             secondary: const Icon(Icons.replay_outlined),
             title: const Text('Force audio re-generation'),

@@ -700,9 +700,7 @@ class TprsVariantHandler:
                             )
                             continue
                         existing_qa = base_tprs_dict[diary_date][sentence]
-                        qa_dict_or_block = openai_func(
-                            sentence, existing_qa, all_day_sentences=all_day_sentences
-                        )
+                        qa_dict_or_block = openai_func(sentence, existing_qa)
                     else:
                         qa_dict_or_block = openai_func(
                             sentence, all_day_sentences=all_day_sentences
@@ -828,9 +826,26 @@ class TprsVariantHandler:
                                 answer_audio_path=(
                                     existing.answer_audio_path if existing else ""
                                 ),
+                                question_input_language_audio_path=(
+                                    existing.question_input_language_audio_path
+                                    if existing
+                                    else ""
+                                ),
+                                answer_input_language_audio_path=(
+                                    existing.answer_input_language_audio_path
+                                    if existing
+                                    else ""
+                                ),
                             )
                         )
                     existing_sl = getattr(matched_entry.lessons, json_key, None)
+                    # For 'original', sentence_input == input_language_sentence by
+                    # definition.  The backfill skips 'original' so we must seed it here.
+                    fallback_sentence_input = (
+                        matched_entry.input_language_sentence
+                        if json_key == "original"
+                        else ""
+                    )
                     matched_entry.lessons.set_variant(
                         json_key,
                         SentenceBlock(
@@ -840,7 +855,7 @@ class TprsVariantHandler:
                             sentence_input=(
                                 existing_sl.sentence_input
                                 if existing_sl and existing_sl.sentence_input
-                                else ""
+                                else fallback_sentence_input
                             ),
                             audio_timing=(
                                 existing_sl.audio_timing
@@ -854,6 +869,11 @@ class TprsVariantHandler:
                                 existing_sl.sentence_audio_generated_at
                                 if existing_sl
                                 else None
+                            ),
+                            sentence_input_language_audio_path=(
+                                existing_sl.sentence_input_language_audio_path
+                                if existing_sl
+                                else ""
                             ),
                         ),
                     )
@@ -1228,9 +1248,7 @@ class TprsCreation(DiaryHandler):
         except Exception as exc:
             self.logging.warning(f"Could not load diary titles from diary.json: {exc}")
 
-    def openai_tprs_enhanced(
-        self, study_language_sentence, qa_org_dict, all_day_sentences=None
-    ):
+    def openai_tprs_enhanced(self, study_language_sentence, qa_org_dict):
         """Generates an enhanced TPRS teaching block using OpenAI.
 
         Rewrites a given sentence and its original Q&A block for better clarity,
@@ -1240,16 +1258,11 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
-            all_day_sentences (list[str] | None): All sentences for the diary day, used
-                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   and the value is a dictionary of new circling-style questions and answers.
         """
-        story_context_block = _build_story_context_block(
-            study_language_sentence, all_day_sentences
-        )
         # study_language_sentence = next(iter(qa_org_dict))
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
@@ -1266,7 +1279,6 @@ class TprsCreation(DiaryHandler):
             "4": {{"question": "Hva var spesielt med fisken jeg fanget?", "answer": "Det var min første norske fisk."}}
         }}
 
-{story_context_block}
         Follow these guidelines:
         - Generate a revised version of the input sentence: "{study_language_sentence}".
         - Vary the wording slightly for fluency and naturalness.
@@ -1309,9 +1321,7 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"[OpenAI] Enhanced TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
-    def openai_tprs_future(
-        self, study_language_sentence, qa_org_dict, all_day_sentences=None
-    ):
+    def openai_tprs_future(self, study_language_sentence, qa_org_dict):
         """Generates a future tense TPRS teaching block using OpenAI.
 
         Transforms a given sentence and its original Q&A block into the future tense,
@@ -1321,17 +1331,12 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
-            all_day_sentences (list[str] | None): All sentences for the diary day, used
-                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   (in future tense) and the value is a dictionary of new, future-oriented
                   circling-style questions and answers.
         """
-        story_context_block = _build_story_context_block(
-            study_language_sentence, all_day_sentences
-        )
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1345,7 +1350,6 @@ class TprsCreation(DiaryHandler):
             "2": {{"question": "Hva gjorde vi etter at Johanne var syk?", "answer": "Vi ble hjemme og senere dro vi for å fiske med Emil og Mati."}}
         }}
 
-{story_context_block}
         Follow these guidelines:
         - Convert the input sentence "{study_language_sentence}" to future tense, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
         - Vary the wording slightly to ensure fluency and naturalness.
@@ -1388,9 +1392,7 @@ class TprsCreation(DiaryHandler):
         self.logging.info(f"[OpenAI] Future TPRS done ({len(qa_dict)} Q&A pairs).")
         return qa_dict
 
-    def openai_tprs_present(
-        self, study_language_sentence, qa_org_dict, all_day_sentences=None
-    ):
+    def openai_tprs_present(self, study_language_sentence, qa_org_dict):
         """Generates a present tense TPRS teaching block using OpenAI.
 
         Transforms a given sentence and its original Q&A block into the present tense,
@@ -1400,17 +1402,12 @@ class TprsCreation(DiaryHandler):
             study_language_sentence (str): The original sentence in the study language.
             qa_org_dict (dict): The original TPRS question and answer dictionary
                                 for the sentence.
-            all_day_sentences (list[str] | None): All sentences for the diary day, used
-                                                  as story context.
 
         Returns:
             dict: A new TPRS Q&A dictionary where the key is the revised sentence
                   (in present tense) and the value is a dictionary of new, present-oriented
                   circling-style questions and answers.
         """
-        story_context_block = _build_story_context_block(
-            study_language_sentence, all_day_sentences
-        )
         prompt = f"""
         You are an expert in language teaching using the TPRS (Teaching Proficiency through Reading and Storytelling) method.
 
@@ -1424,7 +1421,6 @@ class TprsCreation(DiaryHandler):
             "2": {{"question": "Hva gjør vi etter at Johanne er syk?", "answer": "Vi blir hjemme og senere drar vi for å fiske med Emil og Mati."}}
         }}
 
-{story_context_block}
         Follow these guidelines:
         - Convert the input sentence "{study_language_sentence}" to **present tense**, as it would be spoken naturally in {self.config["languages"]["study_language"]}.
         - Vary the wording slightly to ensure fluency and naturalness.
@@ -1744,10 +1740,14 @@ class TprsCreation(DiaryHandler):
         """Backfill ``sentence_input`` for variant lessons missing a primary-language
         translation of the variant sentence.
 
-        Skips the ``original`` variant (its sentence is already the study-language
-        output; the primary-language equivalent is ``input_language_sentence`` on
-        the entry level).  Skips any variant whose ``sentence_input`` is already set.
+        For ``enhanced``, ``present``, and ``future`` variants, translates the
+        target-language sentence via OpenAI.
 
+        For ``original``, no translation is needed: ``input_language_sentence``
+        on the entry is the primary-language equivalent and is copied directly
+        (no API call).
+
+        Skips any variant whose ``sentence_input`` is already set.
         Safe to call multiple times.  Saves diary.json after each changed day.
         """
         self.logging.info(f"Starting sentence_input backfill for {json_path}")
@@ -1759,6 +1759,21 @@ class TprsCreation(DiaryHandler):
             day_changed = False
             day_translated = 0
             for entry in day.entries:
+                # Original variant: copy input_language_sentence directly, no OpenAI
+                orig_vl = entry.lessons.get_variant("original")
+                if (
+                    orig_vl is not None
+                    and not orig_vl.sentence_input
+                    and entry.input_language_sentence
+                ):
+                    orig_vl.sentence_input = entry.input_language_sentence
+                    day_translated += 1
+                    day_changed = True
+                    self.logging.info(
+                        f"  [{day.date}] entry {entry.index} original: "
+                        f"copied input_language_sentence → sentence_input"
+                    )
+
                 for variant_name in ("enhanced", "present", "future"):
                     vl = getattr(entry.lessons, variant_name, None)
                     if vl is None or not vl.sentence or vl.sentence_input:

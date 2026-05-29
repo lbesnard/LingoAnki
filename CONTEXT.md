@@ -78,3 +78,22 @@ _Avoid_: trial sentence, trial translation, draft translation
 Total Physical Response Storytelling — the language-teaching method that motivates
 the Lesson Variant / Q&A structure.  Also used as the top-level folder name for
 all generated audio files (`TPRS/`).
+
+### Drive Mode
+An audio-first, hands-free playback experience for a **Lesson**.  Plays
+**Input Language Audio Segments** and **Audio Segments** in sequence per
+**Sentence Block**, with auto-advance, without requiring the user to look at
+the screen.  Within each Sentence Block the playback order is: Input Language
+sentence → Output Language sentence → for each **Q&A Pair**, Input Language
+question → Output Language question → Input Language answer → Output Language
+answer.  Auto-advances to the next Sentence Block when complete.  In the
+Drive Mode UI the navigable unit is called a **Block** (short for Sentence
+Block).
+_Avoid_: car mode, driving mode, chapter (legacy term, ambiguous)
+
+### Input Language Audio Segment
+A Piper TTS-generated MP3 of one unit of **Input Language** text: the
+`sentence_input` of a **Sentence Block**, or the `question_input`/`answer_input`
+of a **Q&A Pair**.  Paths stored as `sentence_input_language_audio_path`,
+`question_input_language_audio_path`, `answer_input_language_audio_path`.
+_Avoid_: native audio, input audio

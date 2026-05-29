@@ -198,6 +198,19 @@ class AppLocalizations {
   String markedScore(String score) => _t('markedScore').replaceAll('{score}', score);
   String markedScoreWithInterval(String score, int days) => _t('markedScoreWithInterval').replaceAll('{score}', score).replaceAll('{days}', '$days');
 
+  // Drive Mode
+  String get driveModeTooltip => _t('driveModeTooltip');
+  String get driveModeGenerateTitle => _t('driveModeGenerateTitle');
+  String get driveModeGenerateBody => _t('driveModeGenerateBody');
+  String get driveModeGenerateConfirm => _t('driveModeGenerateConfirm');
+  String get driveModeOfflineError => _t('driveModeOfflineError');
+  String driveModeBlockOf(int current, int total) =>
+      _t('driveModeBlockOf').replaceAll('{current}', '$current').replaceAll('{total}', '$total');
+  String get driveModeRepeatBlock => _t('driveModeRepeatBlock');
+  String get driveModeSettingsButton => _t('driveModeSettingsButton');
+  String get driveModeAudioPending => _t('driveModeAudioPending');
+  String get driveModeConfigMissing => _t('driveModeConfigMissing');
+
   // Settings (new)
   String get settingsLessonPlayback => _t('settingsLessonPlayback');
   String get settingsAutoRepeatLesson => _t('settingsAutoRepeatLesson');
@@ -415,6 +428,16 @@ class AppLocalizations {
       'statsReviewedTodayLabel': 'Reviewed today',
       'statsNoScores': 'No scores recorded yet.',
       'statsScoreDistribution': 'Score distribution',
+      'driveModeTooltip': 'Drive Mode',
+      'driveModeGenerateTitle': 'Generate Drive Mode audio?',
+      'driveModeGenerateBody': 'Input Language audio for this lesson is not yet available on the server. Generate it now?',
+      'driveModeGenerateConfirm': 'Generate',
+      'driveModeOfflineError': 'Drive Mode audio not available offline. Connect to sync.',
+      'driveModeBlockOf': 'Block {current} of {total}',
+      'driveModeRepeatBlock': 'Repeat block',
+      'driveModeSettingsButton': 'Generate Drive Mode audio (all lessons)',
+      'driveModeAudioPending': 'Input audio pending',
+      'driveModeConfigMissing': 'Drive Mode requires input_voice in server config',
     },
     'fr': {
       'appTitle': 'LingoDiary',
@@ -602,6 +625,16 @@ class AppLocalizations {
       'statsReviewedTodayLabel': 'Révisé aujourd’hui',
       'statsNoScores': 'Aucun score enregistré pour l’instant.',
       'statsScoreDistribution': 'Distribution des scores',
+      'driveModeTooltip': 'Mode conduite',
+      'driveModeGenerateTitle': 'Générer l\'audio du mode conduite\u00a0?',
+      'driveModeGenerateBody': 'L\'audio en langue native n\'est pas encore disponible. Le générer maintenant\u00a0?',
+      'driveModeGenerateConfirm': 'Générer',
+      'driveModeOfflineError': 'Audio du mode conduite non disponible hors ligne.',
+      'driveModeBlockOf': 'Bloc {current} sur {total}',
+      'driveModeRepeatBlock': 'Répéter le bloc',
+      'driveModeSettingsButton': 'Générer l\'audio du mode conduite (toutes leçons)',
+      'driveModeAudioPending': 'Audio natif en attente',
+      'driveModeConfigMissing': 'Le mode conduite nécessite input_voice dans la config',
     },
     'es': {
       'appTitle': 'LingoDiary',
@@ -789,6 +822,16 @@ class AppLocalizations {
       'statsReviewedTodayLabel': 'Revisado hoy',
       'statsNoScores': 'Aún no hay puntuaciones registradas.',
       'statsScoreDistribution': 'Distribución de puntuaciones',
+      'driveModeTooltip': 'Modo conducción',
+      'driveModeGenerateTitle': '¿Generar audio del modo conducción?',
+      'driveModeGenerateBody': 'El audio en lengua nativa aún no está disponible. ¿Generarlo ahora?',
+      'driveModeGenerateConfirm': 'Generar',
+      'driveModeOfflineError': 'Audio del modo conducción no disponible sin conexión.',
+      'driveModeBlockOf': 'Bloque {current} de {total}',
+      'driveModeRepeatBlock': 'Repetir bloque',
+      'driveModeSettingsButton': 'Generar audio del modo conducción (todas las lecciones)',
+      'driveModeAudioPending': 'Audio nativo pendiente',
+      'driveModeConfigMissing': 'El modo conducción requiere input_voice en la configuración',
     },
   };
 }

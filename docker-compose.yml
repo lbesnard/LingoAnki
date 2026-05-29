@@ -14,3 +14,13 @@ services:
       # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
       # IMPORTANT: rotate this key — do not commit real secrets to source control.
       SECRET_KEY: "4dea2020568dca5f8ad784e3110283fcf82f87c50c12f47b9a56ae95f572b0d2"
+  # docker compose run --rm apk-debug
+  apk-debug:
+    profiles: ["tools"]  # Only runs when explicitly requested
+    build:
+      context: .
+      dockerfile: Dockerfile.apk-debug
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    # Output: android_app/build/app/outputs/flutter-apk/app-debug.apk
