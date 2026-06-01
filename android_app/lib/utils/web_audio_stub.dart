@@ -13,7 +13,6 @@ class HTMLAudioElement {
 
 class Event {}
 
-// Define a stub extension so .toJS can still syntactically compile on mobile
-extension StubToJS on Function {
-  dynamic get toJS => null;
-}
+// Mirror signatures to ensure the Android build passes cleanly
+dynamic convertEndedCallback(Function callback) => null;
+dynamic convertErrorCallback(Function callback) => null;

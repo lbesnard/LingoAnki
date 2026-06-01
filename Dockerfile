@@ -82,7 +82,7 @@ COPY --chown=flutteruser:flutteruser android_app/lib/ ./lib/
 COPY --chown=flutteruser:flutteruser android_app/web/ ./web/
 
 RUN git config --global --add safe.directory /opt/flutter && \
-  flutter build web --release
+  flutter build web --release --no-wasm-dry-run
 
 # ── Stage 3: app — lightweight deps + source code ────────────────────────────
 # Rebuilt on every poetry.lock or source change, but stays fast because

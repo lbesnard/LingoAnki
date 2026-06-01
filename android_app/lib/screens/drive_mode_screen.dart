@@ -54,11 +54,11 @@ class DriveModeScreen extends StatefulWidget {
 /// One playable item inside a Sentence Block.
 class _PlaylistItem {
   final int entryIndex;
-  final int qaIndex;      // -1 = sentence
-  final bool isInput;     // true = Input Language audio
-  final bool isQuestion;  // only meaningful when qaIndex >= 0
+  final int qaIndex; // -1 = sentence
+  final bool isInput; // true = Input Language audio
+  final bool isQuestion; // only meaningful when qaIndex >= 0
   final String audioPath; // relative path served by server
-  final String text;      // text to bold when this item is playing
+  final String text; // text to bold when this item is playing
 
   const _PlaylistItem({
     required this.entryIndex,
@@ -74,6 +74,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   // ── Playback engines ──
   /// APK only: just_audio player.  Null on web.
   AudioPlayer? _player;
+
   /// Web only: bare HTMLAudioElement.  Null on APK.
   web.HTMLAudioElement? _webAudio;
 
@@ -128,7 +129,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   @override
   void dispose() {
-    _generation++;             // invalidate any in-flight loop
+    _generation++; // invalidate any in-flight loop
     _currentItem?.complete(_ItemResult.cancelled);
     _detachWebListeners();
     _webAudio?.pause();
@@ -167,20 +168,29 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       final items = <_PlaylistItem>[];
 
       final sentencePath = (entry['sentence_audio_path'] as String?) ?? '';
-      final sentenceInputPath = (entry['sentence_input_language_audio_path'] as String?) ?? '';
+      final sentenceInputPath =
+          (entry['sentence_input_language_audio_path'] as String?) ?? '';
       final sentenceText = (entry['sentence'] as String?) ?? '';
       final sentenceInputText = (entry['sentence_input'] as String?) ?? '';
 
       if (sentenceInputPath.isNotEmpty) {
         items.add(_PlaylistItem(
-          entryIndex: i, qaIndex: -1, isInput: true, isQuestion: false,
-          audioPath: sentenceInputPath, text: sentenceInputText,
+          entryIndex: i,
+          qaIndex: -1,
+          isInput: true,
+          isQuestion: false,
+          audioPath: sentenceInputPath,
+          text: sentenceInputText,
         ));
       }
       if (sentencePath.isNotEmpty) {
         items.add(_PlaylistItem(
-          entryIndex: i, qaIndex: -1, isInput: false, isQuestion: false,
-          audioPath: sentencePath, text: sentenceText,
+          entryIndex: i,
+          qaIndex: -1,
+          isInput: false,
+          isQuestion: false,
+          audioPath: sentencePath,
+          text: sentenceText,
         ));
       }
 
@@ -188,9 +198,11 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       for (var j = 0; j < qaList.length; j++) {
         final qa = qaList[j] as Map<String, dynamic>;
         final qPath = (qa['question_audio_path'] as String?) ?? '';
-        final qInputPath = (qa['question_input_language_audio_path'] as String?) ?? '';
+        final qInputPath =
+            (qa['question_input_language_audio_path'] as String?) ?? '';
         final aPath = (qa['answer_audio_path'] as String?) ?? '';
-        final aInputPath = (qa['answer_input_language_audio_path'] as String?) ?? '';
+        final aInputPath =
+            (qa['answer_input_language_audio_path'] as String?) ?? '';
         final qText = (qa['question'] as String?) ?? '';
         final qInputText = (qa['question_input'] as String?) ?? '';
         final aText = (qa['answer'] as String?) ?? '';
@@ -198,26 +210,42 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
         if (qInputPath.isNotEmpty) {
           items.add(_PlaylistItem(
-            entryIndex: i, qaIndex: j, isInput: true, isQuestion: true,
-            audioPath: qInputPath, text: qInputText,
+            entryIndex: i,
+            qaIndex: j,
+            isInput: true,
+            isQuestion: true,
+            audioPath: qInputPath,
+            text: qInputText,
           ));
         }
         if (qPath.isNotEmpty) {
           items.add(_PlaylistItem(
-            entryIndex: i, qaIndex: j, isInput: false, isQuestion: true,
-            audioPath: qPath, text: qText,
+            entryIndex: i,
+            qaIndex: j,
+            isInput: false,
+            isQuestion: true,
+            audioPath: qPath,
+            text: qText,
           ));
         }
         if (aInputPath.isNotEmpty) {
           items.add(_PlaylistItem(
-            entryIndex: i, qaIndex: j, isInput: true, isQuestion: false,
-            audioPath: aInputPath, text: aInputText,
+            entryIndex: i,
+            qaIndex: j,
+            isInput: true,
+            isQuestion: false,
+            audioPath: aInputPath,
+            text: aInputText,
           ));
         }
         if (aPath.isNotEmpty) {
           items.add(_PlaylistItem(
-            entryIndex: i, qaIndex: j, isInput: false, isQuestion: false,
-            audioPath: aPath, text: aText,
+            entryIndex: i,
+            qaIndex: j,
+            isInput: false,
+            isQuestion: false,
+            audioPath: aPath,
+            text: aText,
           ));
         }
       }
@@ -353,12 +381,14 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     final audio = _webAudio!;
     _detachWebListeners();
 
-    void onEnded(web.Event _) { // Changed to proxy web.Event
+    void onEnded(web.Event _) {
+      // Changed to proxy web.Event
       _detachWebListeners();
       if (!completer.isCompleted) completer.complete(_ItemResult.ok);
     }
 
-    void onError(web.Event _) { // Changed to proxy web.Event
+    void onError(web.Event _) {
+      // Changed to proxy web.Event
       final err = audio.error;
       debugPrint('[DriveMode] ERROR: HTMLAudioElement error '
           'code=${err?.code} msg="${err?.message}" src=$src');
@@ -366,9 +396,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
     }
 
-    // .toJS works natively on web, and safe-stubs out to null on APK
-    final endedCb = onEnded.toJS;
-    final errorCb = onError.toJS;
+    // Convert callbacks using the strict top-level wrapper functions
+    final endedCb = web.convertEndedCallback(onEnded);
+    final errorCb = web.convertErrorCallback(onError);
+
     _webEndedListener = endedCb;
     _webErrorListener = errorCb;
     audio.addEventListener('ended', endedCb);
@@ -391,7 +422,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   // ── APK / native playback ───────────────────────────────────────────────────
 
-  Future<void> _playOneNative(String src, Completer<_ItemResult> completer) async {
+  Future<void> _playOneNative(
+      String src, Completer<_ItemResult> completer) async {
     final player = _player!;
     StreamSubscription<ProcessingState>? sub;
 
@@ -586,7 +618,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     }
     final block = _blocks[index];
     final isCurrentBlock = index == _blockIndex;
-    final currentItem = (isCurrentBlock && _itemIndex < block.length) ? block[_itemIndex] : null;
+    final currentItem = (isCurrentBlock && _itemIndex < block.length)
+        ? block[_itemIndex]
+        : null;
     final entry = widget.entries[index];
 
     final sentenceInputText = (entry['sentence_input'] as String?) ?? '';
@@ -598,14 +632,18 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       children: [
         _styledText(
           sentenceInputText,
-          bold: currentItem != null && currentItem.qaIndex == -1 && currentItem.isInput,
+          bold: currentItem != null &&
+              currentItem.qaIndex == -1 &&
+              currentItem.isInput,
           isInput: true,
           dimmed: !isCurrentBlock,
         ),
         const SizedBox(height: 4),
         _styledText(
           sentenceText,
-          bold: currentItem != null && currentItem.qaIndex == -1 && !currentItem.isInput,
+          bold: currentItem != null &&
+              currentItem.qaIndex == -1 &&
+              !currentItem.isInput,
           isInput: false,
           dimmed: !isCurrentBlock,
         ),
@@ -617,7 +655,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             ),
             const SizedBox(height: 4),
             _styledText(
-              (qaList[j] as Map<String, dynamic>)['question_input'] as String? ?? '',
+              (qaList[j] as Map<String, dynamic>)['question_input']
+                      as String? ??
+                  '',
               bold: currentItem != null &&
                   currentItem.qaIndex == j &&
                   currentItem.isQuestion &&
@@ -637,7 +677,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             ),
             const SizedBox(height: 8),
             _styledText(
-              (qaList[j] as Map<String, dynamic>)['answer_input'] as String? ?? '',
+              (qaList[j] as Map<String, dynamic>)['answer_input'] as String? ??
+                  '',
               bold: currentItem != null &&
                   currentItem.qaIndex == j &&
                   !currentItem.isQuestion &&
@@ -661,7 +702,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     );
   }
 
-  Widget _styledText(String text, {required bool bold, required bool isInput, required bool dimmed}) {
+  Widget _styledText(String text,
+      {required bool bold, required bool isInput, required bool dimmed}) {
     if (text.isEmpty) return const SizedBox.shrink();
 
     Color textColor;
@@ -692,7 +734,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           IconButton(
-            icon: const Icon(Icons.skip_previous, color: Colors.white, size: 32),
+            icon:
+                const Icon(Icons.skip_previous, color: Colors.white, size: 32),
             onPressed: _prevBlock,
             tooltip: 'Previous block',
           ),
@@ -741,8 +784,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 enum _ItemResult {
   /// Audio played through and `ended` fired.
   ok,
+
   /// HTMLAudioElement / just_audio reported an error.  Loop must stop.
   error,
+
   /// Manual navigation cancelled the in-flight item.  Loop should bail
   /// without advancing — a fresh `_runDriveMode` is starting.
   cancelled,
