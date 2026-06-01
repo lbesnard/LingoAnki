@@ -100,10 +100,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _player = AudioPlayer();
     _variants = widget.lesson['variants'] as Map<String, dynamic>? ?? {};
     // Sort tabs into canonical order; append Input Diary at the end.
-    final orderedVariants = _kCanonicalOrder
-        .where((v) => _variants.containsKey(v))
-        .toList();
-    final extras = _variants.keys.where((v) => !_kCanonicalOrder.contains(v)).toList();
+    final orderedVariants =
+        _kCanonicalOrder.where((v) => _variants.containsKey(v)).toList();
+    final extras =
+        _variants.keys.where((v) => !_kCanonicalOrder.contains(v)).toList();
     _tabNames = [...orderedVariants, ...extras, _kInputDiaryTab];
     _currentTab = _tabNames.isNotEmpty ? _tabNames.first : _kInputDiaryTab;
 
@@ -176,7 +176,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted) {
         setState(() {
           _driveModeAvailable = cfg['drive_mode_available'] as bool? ?? false;
-          _driveModePauseMs = (cfg['pause_between_sentences_duration'] as num?)?.toInt() ?? 600;
+          _driveModePauseMs =
+              (cfg['pause_between_sentences_duration'] as num?)?.toInt() ?? 600;
         });
       }
     } catch (_) {
@@ -219,6 +220,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     await _player.stop();
     setState(() {
+      _sentenceEntries =
+          []; // 👈 CRITICAL: Clear out old entries so cache read triggers!
       _audioReady = false;
       _cycleTriggered = false;
       _activeEntryIndex = -1;
@@ -251,6 +254,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       }).catchError((_) {
         // Server unreachable — local cache already shown, nothing to do.
+        debugPrint(
+            '[PlayerScreen] Offline mode active: relying completely on local SQLite cache.');
       });
     }
   }
@@ -270,25 +275,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// Extract and apply entries for [variantKey] from a full Day object.
-  void _applyEntriesFromDayData(Map<String, dynamic> dayData, String variantKey) {
+  void _applyEntriesFromDayData(
+      Map<String, dynamic> dayData, String variantKey) {
     final rawEntries = (dayData['entries'] as List?) ?? [];
-    final entries = rawEntries.map((e) {
-      final em = e as Map<String, dynamic>;
-      final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
-          as Map<String, dynamic>? ?? {};
-      return <String, dynamic>{
-        'index': em['index'],
-        'sentence': lesson['sentence'] ?? '',
-        'sentence_input': lesson['sentence_input'] ?? '',
-        'sentence_audio_path': lesson['sentence_audio_path'] ?? '',
-        'sentence_input_language_audio_path': lesson['sentence_input_language_audio_path'] ?? '',
-        'input_language_sentence': em['input_language_sentence'] ?? '',
-        'output_language_translation': em['output_language_translation'] ?? '',
-        'audio_timing': lesson['audio_timing'],
-        'qa': lesson['qa'] ?? [],
-        'reviewing': (em['lessons'] as Map<String, dynamic>?)?['reviewing'],
-      };
-    }).cast<Map<String, dynamic>>().toList();
+    final entries = rawEntries
+        .map((e) {
+          final em = e as Map<String, dynamic>;
+          final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
+                  as Map<String, dynamic>? ??
+              {};
+          return <String, dynamic>{
+            'index': em['index'],
+            'sentence': lesson['sentence'] ?? '',
+            'sentence_input': lesson['sentence_input'] ?? '',
+            'sentence_audio_path': lesson['sentence_audio_path'] ?? '',
+            'sentence_input_language_audio_path':
+                lesson['sentence_input_language_audio_path'] ?? '',
+            'input_language_sentence': em['input_language_sentence'] ?? '',
+            'output_language_translation':
+                em['output_language_translation'] ?? '',
+            'audio_timing': lesson['audio_timing'],
+            'qa': lesson['qa'] ?? [],
+            'reviewing': (em['lessons'] as Map<String, dynamic>?)?['reviewing'],
+          };
+        })
+        .cast<Map<String, dynamic>>()
+        .toList();
 
     if (mounted && entries.isNotEmpty) {
       _applyEntries(entries);
@@ -326,7 +338,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // Check if Input Language audio paths are present in loaded entries
     final hasInputAudio = _sentenceEntries.any((e) =>
-        (e['sentence_input_language_audio_path'] as String?)?.isNotEmpty == true);
+        (e['sentence_input_language_audio_path'] as String?)?.isNotEmpty ==
+        true);
 
     if (!hasInputAudio) {
       // Check if drive mode is even configured on server
@@ -350,7 +363,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+                    child:
+                        Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
@@ -396,7 +410,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final data = await ApiService.getDayData(_lessonDate!);
           if (mounted) {
             _applyEntriesFromDayData(data, variantKey);
-            await LocalDbService.saveDayCache(_lessonDate!, data).catchError((_) {});
+            await LocalDbService.saveDayCache(_lessonDate!, data)
+                .catchError((_) {});
           }
         } catch (_) {}
       }
@@ -423,7 +438,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _buildSegmentList() {
     final segs = <Map<String, dynamic>>[];
     final spans = <int, Map<String, int>>{}; // entryIdx → {start, end}
-    final firstQaStarts = <int, int>{}; // entryIdx → start_ms of first Q/A segment
+    final firstQaStarts =
+        <int, int>{}; // entryIdx → start_ms of first Q/A segment
 
     for (var i = 0; i < _sentenceEntries.length; i++) {
       final entry = _sentenceEntries[i];
@@ -432,13 +448,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       int blockEnd = _toInt(st?['end_ms']);
 
       if (st != null && blockEnd > 0) {
-        segs.add({'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
+        segs.add(
+            {'entryIdx': i, 'qaIdx': -1, 'isQuestion': false, 'timing': st});
       }
       final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       for (var j = 0; j < qa.length; j++) {
         final qt = qa[j]['question_timing'] as Map<String, dynamic>?;
         if (qt != null && _toInt(qt['end_ms']) > 0) {
-          segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
+          segs.add(
+              {'entryIdx': i, 'qaIdx': j, 'isQuestion': true, 'timing': qt});
           final start = _toInt(qt['start_ms']);
           final end = _toInt(qt['end_ms']);
           if (end > blockEnd) blockEnd = end;
@@ -448,7 +466,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         final at = qa[j]['answer_timing'] as Map<String, dynamic>?;
         if (at != null && _toInt(at['end_ms']) > 0) {
-          segs.add({'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
+          segs.add(
+              {'entryIdx': i, 'qaIdx': j, 'isQuestion': false, 'timing': at});
           final end = _toInt(at['end_ms']);
           if (end > blockEnd) blockEnd = end;
         }
@@ -516,7 +535,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _stickyQaIndex = qaIdx;
         _stickyIsQuestion = isQ;
         _stickyEntryIndex = entryIdx;
-      } else if (entryIdx >= 0 && entryIdx == _stickyEntryIndex && _stickyQaIndex >= 0) {
+      } else if (entryIdx >= 0 &&
+          entryIdx == _stickyEntryIndex &&
+          _stickyQaIndex >= 0) {
         // In a pause within the same entry — hold last Q/A bold, BUT only if we
         // are past the first Q/A start.  If the user seeked backward to the
         // sentence, ms will be before the first Q/A start and we must clear
@@ -550,7 +571,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         // New sentence block → center on the sentence container
         if (entryIdx >= 0 && entryIdx != prevEntryIdx) {
           _scrollToSentence(entryIdx);
-        } else if (entryIdx >= 0 && qaIdx >= 0 &&
+        } else if (entryIdx >= 0 &&
+            qaIdx >= 0 &&
             (qaIdx != prevQaIdx || isQ != prevIsQ)) {
           // Q/A changed within same block → center on the active Q or A row
           _scrollToQA(entryIdx, qaIdx, isQ);
@@ -647,9 +669,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!_cycleVariants || _cycleTriggered) return;
     setState(() => _cycleTriggered = true);
     // Canonical variant list filtered to only those present in this lesson
-    final available = _kCanonicalOrder
-        .where((v) => _variants.containsKey(v))
-        .toList();
+    final available =
+        _kCanonicalOrder.where((v) => _variants.containsKey(v)).toList();
     if (available.isEmpty) return;
     final currentIdx = available.indexOf(_currentTab);
     if (currentIdx < 0 || currentIdx >= available.length - 1) {
@@ -686,7 +707,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_sentenceEntries.isNotEmpty) {
       final buf = StringBuffer();
       for (var i = 0; i < _sentenceEntries.length; i++) {
-        final s = _sentenceEntries[i]['input_language_sentence'] as String? ?? '';
+        final s =
+            _sentenceEntries[i]['input_language_sentence'] as String? ?? '';
         if (s.isNotEmpty) buf.writeln('${i + 1}. $s');
       }
       if (buf.isNotEmpty) {
@@ -699,7 +721,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // On Android: check/use local text cache.
     if (!kIsWeb) {
-      final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+      final cachePath =
+          await SyncService.localPath('TPRS/$base.diary_input.txt');
       final cacheFile = File(cachePath);
       if (await cacheFile.exists()) {
         setState(() => _diaryContent = cacheFile.readAsStringSync());
@@ -716,8 +739,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final firstVariant = _variants.keys.isNotEmpty
           ? _variantToApiKey(_variants.keys.first)
           : 'original';
-      final data = await ApiService.getLessonEntries(_lessonDate!, firstVariant);
-      final entries = (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final data =
+          await ApiService.getLessonEntries(_lessonDate!, firstVariant);
+      final entries =
+          (data['entries'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       final buf = StringBuffer();
       for (var i = 0; i < entries.length; i++) {
         final s = entries[i]['input_language_sentence'] as String? ?? '';
@@ -725,12 +750,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       final content = buf.toString().trim();
       if (content.isNotEmpty && !kIsWeb) {
-        final cachePath = await SyncService.localPath('TPRS/$base.diary_input.txt');
+        final cachePath =
+            await SyncService.localPath('TPRS/$base.diary_input.txt');
         final cacheFile = File(cachePath);
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }
-      if (mounted) setState(() => _diaryContent = content.isNotEmpty ? content : '(No diary entries found)');
+      if (mounted)
+        setState(() => _diaryContent =
+            content.isNotEmpty ? content : '(No diary entries found)');
     } catch (e) {
       if (mounted) {
         setState(() => _diaryContent =
@@ -804,13 +832,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
               entry['input_language_sentence'] as String? ?? '';
           // For non-original variants, prefer sentence_input (variant's own
           // English translation); fall back to inputSentence (original English).
-          final displayInput = (_currentTab.toLowerCase() != 'original' && sentenceInput.isNotEmpty)
+          final displayInput = (_currentTab.toLowerCase() != 'original' &&
+                  sentenceInput.isNotEmpty)
               ? sentenceInput
               : inputSentence;
           final outputTranslation =
               entry['output_language_translation'] as String? ?? '';
-          final qa =
-              (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+          final qa = (entry['qa'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
           return Container(
             key: _sentenceKeys[i],
@@ -855,9 +883,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ),
                         ),
                         Icon(
-                          isExpanded
-                              ? Icons.visibility
-                              : Icons.visibility_off,
+                          isExpanded ? Icons.visibility : Icons.visibility_off,
                           size: 16,
                           color: Colors.grey.shade400,
                         ),
@@ -873,8 +899,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                 // Translation (hidden until tapped)
                 if (isExpanded &&
-                    (displayInput.isNotEmpty ||
-                        outputTranslation.isNotEmpty))
+                    (displayInput.isNotEmpty || outputTranslation.isNotEmpty))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                     child: Column(
@@ -912,12 +937,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final qaPair = e.value;
                   final question = qaPair['question'] as String? ?? '';
                   final answer = qaPair['answer'] as String? ?? '';
-                  final questionInput = qaPair['question_input'] as String? ?? '';
+                  final questionInput =
+                      qaPair['question_input'] as String? ?? '';
                   final answerInput = qaPair['answer_input'] as String? ?? '';
                   final isQActive =
                       isEntryActive && _activeQaIndex == j && _activeIsQuestion;
-                  final isAActive =
-                      isEntryActive && _activeQaIndex == j && !_activeIsQuestion && _activeQaIndex >= 0;
+                  final isAActive = isEntryActive &&
+                      _activeQaIndex == j &&
+                      !_activeIsQuestion &&
+                      _activeQaIndex >= 0;
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
                     child: Column(
@@ -1125,7 +1153,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       padding: const EdgeInsets.all(16),
       child: SelectableText(
         _diaryContent,
-        style: TextStyle(fontSize: _fontSize, color: Colors.black87, height: 1.6),
+        style:
+            TextStyle(fontSize: _fontSize, color: Colors.black87, height: 1.6),
       ),
     );
   }
@@ -1164,9 +1193,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             onPressed: _toggleLoop,
           ),
           IconButton(
-            tooltip: _cycleVariants
-                ? 'Cycle variants: on'
-                : 'Cycle variants: off',
+            tooltip:
+                _cycleVariants ? 'Cycle variants: on' : 'Cycle variants: off',
             icon: Icon(
               Icons.playlist_play,
               color: _cycleVariants ? Colors.blue.shade400 : null,
@@ -1344,8 +1372,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       IconButton(
                         icon: const Icon(Icons.replay_10),
                         onPressed: _audioReady
-                            ? () => _player.seek(_player.position -
-                                const Duration(seconds: 10))
+                            ? () => _player.seek(
+                                _player.position - const Duration(seconds: 10))
                             : null,
                       ),
                       StreamBuilder<PlayerState>(
@@ -1404,8 +1432,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       IconButton(
                         icon: const Icon(Icons.forward_10),
                         onPressed: _audioReady
-                            ? () => _player.seek(_player.position +
-                                const Duration(seconds: 10))
+                            ? () => _player.seek(
+                                _player.position + const Duration(seconds: 10))
                             : null,
                       ),
                       IconButton(
@@ -1421,7 +1449,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
-                        tooltip: _loopBlock ? 'Stop block repeat' : 'Repeat current block',
+                        tooltip: _loopBlock
+                            ? 'Stop block repeat'
+                            : 'Repeat current block',
                         icon: Icon(
                           _loopBlock ? Icons.repeat_one : Icons.repeat,
                           color: _loopBlock ? Colors.blue.shade400 : null,
@@ -1441,7 +1471,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
-                            color: Colors.orange.shade900.withValues(alpha: 0.15),
+                            color:
+                                Colors.orange.shade900.withValues(alpha: 0.15),
                             border: Border.all(
                                 color: Colors.orange.shade700, width: 1),
                             borderRadius: BorderRadius.circular(8),
@@ -1453,8 +1484,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       width: 16,
                                       height: 16,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.orange))
+                                          strokeWidth: 2, color: Colors.orange))
                                   : const Icon(Icons.sync_problem,
                                       color: Colors.orange, size: 18),
                               const SizedBox(width: 10),
@@ -1482,9 +1512,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
           // ── Content area ──────────────────────────────────────────────────
           Expanded(
-            child: isInputDiary
-                ? _buildDiaryContent()
-                : _buildTprsContent(),
+            child: isInputDiary ? _buildDiaryContent() : _buildTprsContent(),
           ),
         ],
       ),
@@ -1497,10 +1525,12 @@ class _DriveModeGeneratingDialog extends StatefulWidget {
   const _DriveModeGeneratingDialog({required this.onDone});
 
   @override
-  State<_DriveModeGeneratingDialog> createState() => _DriveModeGeneratingDialogState();
+  State<_DriveModeGeneratingDialog> createState() =>
+      _DriveModeGeneratingDialogState();
 }
 
-class _DriveModeGeneratingDialogState extends State<_DriveModeGeneratingDialog> {
+class _DriveModeGeneratingDialogState
+    extends State<_DriveModeGeneratingDialog> {
   String _status = '';
   bool _done = false;
   int _offset = 0;
@@ -1524,7 +1554,8 @@ class _DriveModeGeneratingDialogState extends State<_DriveModeGeneratingDialog> 
           setState(() {
             _offset = newOffset;
             if (log.isNotEmpty) {
-              final lines = log.split('\n').where((l) => l.trim().isNotEmpty).toList();
+              final lines =
+                  log.split('\n').where((l) => l.trim().isNotEmpty).toList();
               if (lines.isNotEmpty) _status = lines.last;
             }
             _done = done;
@@ -1551,7 +1582,9 @@ class _DriveModeGeneratingDialogState extends State<_DriveModeGeneratingDialog> 
           const CircularProgressIndicator(),
           if (_status.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Text(_status, style: const TextStyle(fontSize: 11), textAlign: TextAlign.center),
+            Text(_status,
+                style: const TextStyle(fontSize: 11),
+                textAlign: TextAlign.center),
           ],
         ],
       ),
