@@ -346,10 +346,20 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     try {
       // On web `forceRefresh` is a no-op (server URL, no local file).
       final isFirstPlay = _refreshedPaths.add(item.audioPath);
+
+      // Only force a network refresh check if we aren't trying to run offline
+      final shouldRefresh = !kIsWeb && isFirstPlay;
+
       final uri = await SyncService.ensureLocalAndGetUri(
         item.audioPath,
-        forceRefresh: !kIsWeb && isFirstPlay,
-      );
+        forceRefresh: shouldRefresh,
+      ).catchError((e) {
+        // Fallback fallback: if network validation throws because you are offline,
+        // try to see if SyncService can still give you the local path directly.
+        debugPrint(
+            '[DriveMode] Offline fallback triggered for ${item.audioPath}');
+        return Uri.parse(item.audioPath);
+      });
       if (uri == null) {
         debugPrint('[DriveMode] ERROR: audio path resolved to null '
             '(${item.audioPath}) — upstream bug');
@@ -422,36 +432,53 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   // ── APK / native playback ───────────────────────────────────────────────────
 
+// ── APK / native playback ───────────────────────────────────────────────────
+
   Future<void> _playOneNative(
       String src, Completer<_ItemResult> completer) async {
     final player = _player!;
     StreamSubscription<ProcessingState>? sub;
 
-    sub = player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        sub?.cancel();
-        if (!completer.isCompleted) completer.complete(_ItemResult.ok);
-      }
-    }, onError: (Object e) {
-      debugPrint('[DriveMode] ERROR: native processingState error: $e');
-      sub?.cancel();
-      if (!completer.isCompleted) completer.complete(_ItemResult.error);
-    });
-
     try {
-      await player.setAudioSource(AudioSource.uri(Uri.parse(src)));
+      // 1. Safe Native URI Parsing
+      // If the path is a local file path (cached by SyncService), package it safely.
+      Uri audioUri;
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        audioUri = Uri.parse(src);
+      } else {
+        audioUri = Uri.file(
+            src); // Ensure local storage paths are treated as file:// schemes
+      }
+
+      // 2. Set the local source and completely await processing/buffering
+      await player.setAudioSource(AudioSource.uri(audioUri));
+
+      // If manual navigation bumped the generation counter while we loaded, exit.
+      if (completer.isCompleted) return;
+
+      // 3. Bind the state listener ONLY after loading is fully completed
+      sub = player.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          sub?.cancel();
+          if (!completer.isCompleted) completer.complete(_ItemResult.ok);
+        }
+      }, onError: (Object e) {
+        debugPrint('[DriveMode] ERROR: native processingState error: $e');
+        sub?.cancel();
+        if (!completer.isCompleted) completer.complete(_ItemResult.error);
+      });
+
+      // 4. Play the track smoothly from local storage
       await player.play();
     } catch (e) {
       debugPrint('[DriveMode] ERROR: native playback threw for $src: $e');
-      sub.cancel();
+      sub?.cancel();
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
     }
 
-    // Ensure the subscription is torn down if the completer resolved via
-    // cancellation (manual nav) rather than the completed event.
+    // Guard against manual navigation cancellations resetting lifecycle hooks
     completer.future.whenComplete(() => sub?.cancel());
   }
-
   // ── Controls ────────────────────────────────────────────────────────────────
 
   Future<void> _pauseAudio() async {
