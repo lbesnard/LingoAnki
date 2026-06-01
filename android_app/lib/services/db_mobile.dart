@@ -134,8 +134,8 @@ class LocalDbService {
   /// Content format expected: "[YYYY-MM-DD]\n- sentence1\n- sentence2"
   static Future<List<Map<String, dynamic>>> getUnsyncedDiaryEntries() async {
     final database = await db;
-    final rows =
-        await database.query('diary_cache', where: 'synced = 0', orderBy: 'id ASC');
+    final rows = await database.query('diary_cache',
+        where: 'synced = 0', orderBy: 'id ASC');
     final result = <Map<String, dynamic>>[];
     for (final row in rows) {
       final content = row['content'] as String? ?? '';
@@ -151,7 +151,8 @@ class LocalDbService {
           .where((s) => s.isNotEmpty)
           .toList();
       if (sentences.isEmpty) continue;
-      result.add({'id': row['id'] as int, 'date': date, 'sentences': sentences});
+      result
+          .add({'id': row['id'] as int, 'date': date, 'sentences': sentences});
     }
     return result;
   }
@@ -178,12 +179,30 @@ class LocalDbService {
 
   static Future<List<Map<String, dynamic>>> getLessons() async {
     final database = await db;
-    return database.query('lessons_cache', orderBy: 'display DESC');
-  }
+    final List<Map<String, dynamic>> rows =
+        await database.query('lessons_cache', orderBy: 'display DESC');
 
+    // Map the raw SQFlite rows to editable Maps and decode the JSON payload
+    return rows.map((row) {
+      final mutableMap = Map<String, dynamic>.from(row);
+
+      if (mutableMap['variants_json'] != null) {
+        try {
+          // Un-marshal the raw SQLite string back into a standard Dart Map structure
+          mutableMap['variants'] =
+              jsonDecode(mutableMap['variants_json'] as String);
+        } catch (_) {
+          mutableMap['variants'] = <String, dynamic>{};
+        }
+      }
+
+      return mutableMap;
+    }).toList();
+  }
   // ---- Day cache ----
 
-  static Future<void> saveDayCache(String date, Map<String, dynamic> dayObject) async {
+  static Future<void> saveDayCache(
+      String date, Map<String, dynamic> dayObject) async {
     final database = await db;
     await database.insert(
       'day_cache',
@@ -198,10 +217,12 @@ class LocalDbService {
 
   static Future<Map<String, dynamic>?> getDayCache(String date) async {
     final database = await db;
-    final rows = await database.query('day_cache', where: 'date = ?', whereArgs: [date]);
+    final rows =
+        await database.query('day_cache', where: 'date = ?', whereArgs: [date]);
     if (rows.isEmpty) return null;
     try {
-      return jsonDecode(rows.first['day_json'] as String) as Map<String, dynamic>;
+      return jsonDecode(rows.first['day_json'] as String)
+          as Map<String, dynamic>;
     } catch (_) {
       return null;
     }
@@ -233,7 +254,8 @@ class LocalDbService {
     final rows = await database.query('home_cache', where: 'id = 1');
     if (rows.isEmpty) return null;
     try {
-      return jsonDecode(rows.first['data_json'] as String) as Map<String, dynamic>;
+      return jsonDecode(rows.first['data_json'] as String)
+          as Map<String, dynamic>;
     } catch (_) {
       return null;
     }
@@ -362,7 +384,8 @@ class LocalDbService {
 
   // ---- Lesson last_reviewed tracking ----
 
-  static Future<void> saveLessonLastReviewed(String date, String timestamp) async {
+  static Future<void> saveLessonLastReviewed(
+      String date, String timestamp) async {
     final database = await db;
     await database.insert(
       'lesson_last_reviewed',
@@ -386,7 +409,8 @@ class LocalDbService {
         where: 'date = ?', whereArgs: [date]);
   }
 
-  static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons({int limit = 10}) async {
+  static Future<List<Map<String, dynamic>>> getRecentlyStudiedLessons(
+      {int limit = 10}) async {
     final database = await db;
     return database.query(
       'lesson_last_reviewed',
@@ -397,7 +421,8 @@ class LocalDbService {
 
   // ---- Translation attempts ----
 
-  static Future<void> savePendingTrials(String date, List<String> trials) async {
+  static Future<void> savePendingTrials(
+      String date, List<String> trials) async {
     final database = await db;
     await database.insert('pending_trials', {
       'date': date,
@@ -408,16 +433,21 @@ class LocalDbService {
 
   static Future<List<Map<String, dynamic>>> getUnsyncedTrials() async {
     final database = await db;
-    final rows = await database.query('pending_trials', where: 'synced = 0', orderBy: 'id ASC');
-    return rows.map((r) => {
-      'id': r['id'] as int,
-      'date': r['date'] as String,
-      'trials': (jsonDecode(r['trials_json'] as String) as List).cast<String>(),
-    }).toList();
+    final rows = await database.query('pending_trials',
+        where: 'synced = 0', orderBy: 'id ASC');
+    return rows
+        .map((r) => {
+              'id': r['id'] as int,
+              'date': r['date'] as String,
+              'trials': (jsonDecode(r['trials_json'] as String) as List)
+                  .cast<String>(),
+            })
+        .toList();
   }
 
   static Future<void> markTrialSynced(int id) async {
     final database = await db;
-    await database.update('pending_trials', {'synced': 1}, where: 'id = ?', whereArgs: [id]);
+    await database.update('pending_trials', {'synced': 1},
+        where: 'id = ?', whereArgs: [id]);
   }
 }

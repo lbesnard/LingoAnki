@@ -27,7 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('[DEBUG] HomeScreen._loadData: starting');
     // Show cached data first for instant response
     final cached = await LocalDbService.getCachedHomeData();
-    debugPrint('[DEBUG] HomeScreen._loadData: cached=${cached == null ? 'null' : 'present'}');
+    debugPrint(
+        '[DEBUG] HomeScreen._loadData: cached=${cached == null ? 'null' : 'present'}');
     if (cached != null && mounted) {
       setState(() {
         _homeData = cached;
@@ -74,7 +75,8 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.wifi_off, size: 48, color: Colors.grey),
             const SizedBox(height: 12),
-            Text(l10n.serverUnreachableNoCache, style: const TextStyle(color: Colors.grey)),
+            Text(l10n.serverUnreachableNoCache,
+                style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             ElevatedButton(
                 onPressed: () {
@@ -131,14 +133,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 8),
                 Text(
                   l10n.homeWelcomeTitle,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            Text(l10n.homeWelcomeBody,
-                style: const TextStyle(fontSize: 14)),
+            Text(l10n.homeWelcomeBody, style: const TextStyle(fontSize: 14)),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
@@ -186,7 +189,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(l10n.homeProgress, style: Theme.of(context).textTheme.titleMedium),
+            Text(l10n.homeProgress,
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             _progressRow(
               label: l10n.homeMastered,
@@ -251,7 +255,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final variant = rec['variant'] as String? ?? 'original';
     final reason = rec['reason'] as String? ?? '';
     final l10n = AppLocalizations.of(context);
-    final reasonLabel = reason == 'due_for_review' ? l10n.dueForReview : l10n.newLesson;
+    final reasonLabel =
+        reason == 'due_for_review' ? l10n.dueForReview : l10n.newLesson;
 
     return InkWell(
       onTap: () {
@@ -306,19 +311,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
-                    position: PopupMenuPosition.under, // closest to dropup, but Flutter default is dropdown
+                    position: PopupMenuPosition
+                        .under, // closest to dropup, but Flutter default is dropdown
                     // For true dropup, a custom widget is needed; this is visually consistent
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(title,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w500)),
               const SizedBox(height: 4),
               Text(
                 '$variant · $reasonLabel',
                 style: TextStyle(
-                    fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer),
               ),
             ],
           ),
@@ -329,7 +337,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildRecentLessonsCard() {
     final recent =
-        (_homeData?['recent_lessons'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        (_homeData?['recent_lessons'] as List?)?.cast<Map<String, dynamic>>() ??
+            [];
 
     final l10n = AppLocalizations.of(context);
     return Card(
@@ -384,12 +393,12 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.play_circle_outline, color: Colors.blue, size: 20),
+      leading:
+          const Icon(Icons.play_circle_outline, color: Colors.blue, size: 20),
       title: Text(title, style: const TextStyle(fontSize: 13)),
       subtitle: Text(
-        '$date${timeAgo.isNotEmpty ? ' • $timeAgo' : ''}${entryCount > 0 ? ' • $entryCount sentences' : ''}',
-        style: const TextStyle(fontSize: 11, color: Colors.grey)
-      ),
+          '$date${timeAgo.isNotEmpty ? ' • $timeAgo' : ''}${entryCount > 0 ? ' • $entryCount sentences' : ''}',
+          style: const TextStyle(fontSize: 11, color: Colors.grey)),
       trailing: const Icon(Icons.chevron_right, size: 18),
       onTap: () => _openFromRecent(item),
     );
@@ -397,25 +406,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openFromRecent(Map<String, dynamic> item) async {
     try {
-      // Load from cache first for offline support
       List<Map<String, dynamic>> lessons = await LocalDbService.getLessons();
 
-      // Try server as fallback if cache is empty
       if (lessons.isEmpty) {
         lessons = await ApiService.getLessons();
       }
 
       final date = (item['date'] as String? ?? '').replaceAll('/', '-');
+      final title = item['title'] as String? ?? '';
+
       final match = lessons.cast<Map<String, dynamic>?>().firstWhere(
-        (l) => (l?['base'] as String? ?? '').contains(date),
+        (l) {
+          final base = l?['base'] as String? ?? '';
+          final display = l?['display'] as String? ?? '';
+          // Match by date string in the base ID, or match by the lesson's display title
+          return base.contains(date) || (title.isNotEmpty && display == title);
+        },
         orElse: () => null,
       );
+
       if (match != null && mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => PlayerScreen(lesson: match)),
         );
+      } else {
+        debugPrint(
+            '[DEBUG] Could not find a matching cached lesson for $date / $title');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[DEBUG] Error opening recent lesson: $e');
+    }
   }
 }
