@@ -56,7 +56,7 @@ class _PlaylistItem {
   final int entryIndex;
   final int qaIndex; // -1 = sentence
   final bool isInput; // true = Input Language audio
-  final bool isQuestion; // only meaningful when qaIndex >= 0
+  final bool isQuestion; // only meaningful when qaInd_playOneex >= 0
   final String audioPath; // relative path served by server
   final String text; // text to bold when this item is playing
 
@@ -344,32 +344,33 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     String? src;
     try {
-      // On web `forceRefresh` is a no-op (server URL, no local file).
       final isFirstPlay = _refreshedPaths.add(item.audioPath);
-
-      // Only force a network refresh check if we aren't trying to run offline
       final shouldRefresh = !kIsWeb && isFirstPlay;
 
+      // Ensure the canonical prefix 'TPRS/' exists before passing to storage lookup
+      final targetPath = item.audioPath.startsWith('TPRS/')
+          ? item.audioPath
+          : 'TPRS/${item.audioPath}';
+
       final uri = await SyncService.ensureLocalAndGetUri(
-        item.audioPath,
+        targetPath,
         forceRefresh: shouldRefresh,
       ).catchError((e) {
-        // Fallback fallback: if network validation throws because you are offline,
-        // try to see if SyncService can still give you the local path directly.
         debugPrint(
-            '[DriveMode] Offline fallback triggered for ${item.audioPath}');
-        return Uri.parse(item.audioPath);
+            '[DriveMode] Offline fallback triggered for $targetPath: $e');
+        return Uri.parse(targetPath);
       });
+
       if (uri == null) {
-        debugPrint('[DriveMode] ERROR: audio path resolved to null '
-            '(${item.audioPath}) — upstream bug');
+        debugPrint(
+            '[DriveMode] ERROR: audio path resolved to null ($targetPath)');
         if (!completer.isCompleted) completer.complete(_ItemResult.error);
         return completer.future;
       }
       src = uri.toString();
     } catch (e) {
-      debugPrint('[DriveMode] ERROR: ensureLocalAndGetUri threw for '
-          '${item.audioPath}: $e');
+      debugPrint(
+          '[DriveMode] ERROR: ensureLocalAndGetUri threw for ${item.audioPath}: $e');
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
       return completer.future;
     }
@@ -383,6 +384,58 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     final result = await completer.future;
     if (identical(_currentItem, completer)) _currentItem = null;
     return result;
+  }
+
+  // ── APK / native playback ───────────────────────────────────────────────────
+
+  Future<void> _playOneNative(
+      String src, Completer<_ItemResult> completer) async {
+    final player = _player!;
+    StreamSubscription<ProcessingState>? sub;
+
+    try {
+      // Safe Native URI Parsing
+      Uri audioUri;
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        audioUri = Uri.parse(src);
+      } else if (src.startsWith('file://')) {
+        // If it's already a full file URI string, parse it cleanly directly
+        audioUri = Uri.parse(src);
+      } else {
+        // Fallback for absolute filesystem paths
+        audioUri = Uri.file(src);
+      }
+
+      debugPrint('[DriveMode] Native Player loading URI: $audioUri');
+
+      // Set the local source and completely await processing/buffering
+      await player.setAudioSource(AudioSource.uri(audioUri));
+
+      // If manual navigation bumped the generation counter while we loaded, exit.
+      if (completer.isCompleted) return;
+
+      // Bind the state listener ONLY after loading is fully completed
+      sub = player.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          sub?.cancel();
+          if (!completer.isCompleted) completer.complete(_ItemResult.ok);
+        }
+      }, onError: (Object e) {
+        debugPrint('[DriveMode] ERROR: native processingState error: $e');
+        sub?.cancel();
+        if (!completer.isCompleted) completer.complete(_ItemResult.error);
+      });
+
+      // Play the track smoothly from local storage
+      await player.play();
+    } catch (e) {
+      debugPrint('[DriveMode] ERROR: native playback threw for $src: $e');
+      sub?.cancel();
+      if (!completer.isCompleted) completer.complete(_ItemResult.error);
+    }
+
+    // Guard against manual navigation cancellations resetting lifecycle hooks
+    completer.future.whenComplete(() => sub?.cancel());
   }
 
   // ── Web playback ────────────────────────────────────────────────────────────
