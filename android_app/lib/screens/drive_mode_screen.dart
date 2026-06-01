@@ -87,6 +87,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   bool _repeatBlock = false;
   bool _playing = false;
 
+  // ── Auto-scroll mechanics ──
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _blockKeys = {};
+
   // ── Loop control ──
   /// Bumped every time the loop must be invalidated (manual navigation,
   /// dispose).  The running loop checks this after every await.
@@ -131,7 +135,28 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     _webAudio?.pause();
     _webAudio?.removeAttribute('src');
     _player?.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  // ── Auto-scroll Helper ──────────────────────────────────────────────────────
+
+  void _scrollToBlock(int idx) {
+    // Post frame to make sure keys are drawn and layout bounds are updated
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _blockKeys[idx];
+      if (key == null) return;
+      final ctx = key.currentContext;
+      if (ctx == null) return;
+
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+        alignment: 0.3, // Anchor the item into the upper-middle frame view
+      );
+    });
   }
 
   // ── Build playlist ──────────────────────────────────────────────────────────
@@ -216,6 +241,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     final gen = ++_generation;
     if (mounted) setState(() => _playing = true);
 
+    if (_blocks.isNotEmpty) {
+      _scrollToBlock(_blockIndex);
+    }
+
     while (mounted && gen == _generation && _blockIndex < _blocks.length) {
       final block = _blocks[_blockIndex];
       int playCount = 0;
@@ -270,6 +299,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             _blockIndex++;
             _itemIndex = 0;
           });
+          _scrollToBlock(_blockIndex);
         } else {
           // Reached end of lesson.
           if (mounted) setState(() => _playing = false);
@@ -437,6 +467,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       _blockIndex = prev;
       _itemIndex = 0;
     });
+    _scrollToBlock(_blockIndex);
     _runDriveMode();
   }
 
@@ -450,6 +481,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       _blockIndex++;
       _itemIndex = 0;
     });
+    _scrollToBlock(_blockIndex);
     _runDriveMode();
   }
 
@@ -459,6 +491,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       _blockIndex = 0;
       _itemIndex = 0;
     });
+    _scrollToBlock(_blockIndex);
     _runDriveMode();
   }
 
@@ -507,7 +540,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             child: Text(
               totalBlocks > 0
                   ? l10n.driveModeBlockOf(blockNum, totalBlocks)
-                  : '\u2014',
+                  : '—',
               style: const TextStyle(color: Colors.white70, fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -520,7 +553,29 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                       style: const TextStyle(color: Colors.white54),
                     ),
                   )
-                : _buildBlockText(context),
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(20),
+                    itemCount: _blocks.length,
+                    itemBuilder: (context, i) {
+                      _blockKeys[i] ??= GlobalKey();
+                      return Container(
+                        key: _blockKeys[i],
+                        margin: const EdgeInsets.only(bottom: 24),
+                        padding: const EdgeInsets.all(12),
+                        decoration: i == _blockIndex
+                            ? BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                ),
+                              )
+                            : null,
+                        child: _buildBlockTextContent(i),
+                      );
+                    },
+                  ),
           ),
           _buildControls(context, l10n),
         ],
@@ -528,38 +583,42 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     );
   }
 
-  Widget _buildBlockText(BuildContext context) {
-    if (_blocks.isEmpty || _blockIndex >= _blocks.length) {
+  Widget _buildBlockTextContent(int index) {
+    if (_blocks.isEmpty || index >= _blocks.length) {
       return const SizedBox();
     }
-    final block = _blocks[_blockIndex];
-    final currentItem = _itemIndex < block.length ? block[_itemIndex] : null;
-    final entry = widget.entries[_blockIndex];
+    final block = _blocks[index];
+    final isCurrentBlock = index == _blockIndex;
+    final currentItem = (isCurrentBlock && _itemIndex < block.length) ? block[_itemIndex] : null;
+    final entry = widget.entries[index];
 
     final sentenceInputText = (entry['sentence_input'] as String?) ?? '';
     final sentenceText = (entry['sentence'] as String?) ?? '';
     final qaList = (entry['qa'] as List<dynamic>?) ?? [];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _styledText(
-            sentenceInputText,
-            bold: currentItem != null && currentItem.qaIndex == -1 && currentItem.isInput,
-            isInput: true,
-          ),
-          const SizedBox(height: 4),
-          _styledText(
-            sentenceText,
-            bold: currentItem != null && currentItem.qaIndex == -1 && !currentItem.isInput,
-            isInput: false,
-          ),
-          const SizedBox(height: 16),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _styledText(
+          sentenceInputText,
+          bold: currentItem != null && currentItem.qaIndex == -1 && currentItem.isInput,
+          isInput: true,
+          dimmed: !isCurrentBlock,
+        ),
+        const SizedBox(height: 4),
+        _styledText(
+          sentenceText,
+          bold: currentItem != null && currentItem.qaIndex == -1 && !currentItem.isInput,
+          isInput: false,
+          dimmed: !isCurrentBlock,
+        ),
+        if (qaList.isNotEmpty) ...[
           for (var j = 0; j < qaList.length; j++) ...[
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Divider(color: Colors.white24, height: 1),
+            ),
+            const SizedBox(height: 4),
             _styledText(
               (qaList[j] as Map<String, dynamic>)['question_input'] as String? ?? '',
               bold: currentItem != null &&
@@ -567,6 +626,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                   currentItem.isQuestion &&
                   currentItem.isInput,
               isInput: true,
+              dimmed: !isCurrentBlock,
             ),
             const SizedBox(height: 4),
             _styledText(
@@ -576,6 +636,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                   currentItem.isQuestion &&
                   !currentItem.isInput,
               isInput: false,
+              dimmed: !isCurrentBlock,
             ),
             const SizedBox(height: 8),
             _styledText(
@@ -585,6 +646,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                   !currentItem.isQuestion &&
                   currentItem.isInput,
               isInput: true,
+              dimmed: !isCurrentBlock,
             ),
             const SizedBox(height: 4),
             _styledText(
@@ -594,24 +656,31 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                   !currentItem.isQuestion &&
                   !currentItem.isInput,
               isInput: false,
+              dimmed: !isCurrentBlock,
             ),
           ],
         ],
-      ),
+      ],
     );
   }
 
-  Widget _styledText(String text, {required bool bold, required bool isInput}) {
+  Widget _styledText(String text, {required bool bold, required bool isInput, required bool dimmed}) {
     if (text.isEmpty) return const SizedBox.shrink();
+
+    Color textColor;
+    if (bold) {
+      textColor = Colors.white;
+    } else if (dimmed) {
+      textColor = isInput ? Colors.white24 : Colors.white30;
+    } else {
+      textColor = isInput ? Colors.white54 : Colors.white70;
+    }
+
     return Text(
       text,
       style: TextStyle(
         fontSize: _fontSize,
-        color: bold
-            ? Colors.white
-            : isInput
-                ? Colors.white54
-                : Colors.white70,
+        color: textColor,
         fontWeight: bold ? FontWeight.bold : FontWeight.normal,
         height: 1.4,
       ),

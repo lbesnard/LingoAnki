@@ -16,28 +16,28 @@ ENV PYTHONUNBUFFERED=1
 
 # System tools + ffmpeg + Poetry binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl \
-        espeak-ng \
-        ffmpeg \
-    && curl -sSL https://install.python-poetry.org | python3 - \
-    && ln -s ${POETRY_HOME}/bin/poetry /usr/local/bin/poetry \
-    && rm -rf /var/lib/apt/lists/*
+  curl \
+  espeak-ng \
+  ffmpeg \
+  && curl -sSL https://install.python-poetry.org | python3 - \
+  && ln -s ${POETRY_HOME}/bin/poetry /usr/local/bin/poetry \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Heavy ML packages installed into system Python — pinned so this layer
 # is only invalidated when YOU deliberately change one of these lines.
 RUN pip install --no-cache-dir \
-    "torch==2.6.0" \
-    "torchaudio==2.6.0" \
-    --index-url https://download.pytorch.org/whl/cpu
+  "torch==2.6.0" \
+  "torchaudio==2.6.0" \
+  --index-url https://download.pytorch.org/whl/cpu
 
 RUN pip install --no-cache-dir \
-    "openai-whisper @ git+https://github.com/openai/whisper.git@main"
+  "openai-whisper @ git+https://github.com/openai/whisper.git@main"
 
 RUN pip install --no-cache-dir \
-    "spacy==3.7.5" \
-    "ovos-tts-plugin-piper==0.2.5"
+  "spacy==3.7.5" \
+  "ovos-tts-plugin-piper==0.2.5"
 
 RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 
@@ -48,28 +48,28 @@ RUN mkdir -p /app/.local && chown -R 1000:1000 /app/.local
 FROM debian:bookworm-slim AS flutter-web
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        unzip \
-        xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+  ca-certificates \
+  curl \
+  git \
+  unzip \
+  xz-utils \
+  && rm -rf /var/lib/apt/lists/*
 
 # Install Flutter as root into /opt/flutter (pinned to the same version used in CI)
-ENV FLUTTER_VERSION=3.41.9
+ENV FLUTTER_VERSION=3.44.0
 RUN git config --global --add safe.directory /opt/flutter && \
-    curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
-    | tar -xJ -C /opt && \
-    git config --global --add safe.directory /opt/flutter && \
-    /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
-    /opt/flutter/bin/flutter precache --web
+  curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+  | tar -xJ -C /opt && \
+  git config --global --add safe.directory /opt/flutter && \
+  /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
+  /opt/flutter/bin/flutter precache --web
 
 ENV PATH="/opt/flutter/bin:$PATH"
 ENV FLUTTER_SUPPRESS_ANALYTICS=true
 
 # Run Flutter as a non-root user to suppress the "running as root" warning
 RUN useradd -m -u 1000 flutteruser && \
-    chown -R flutteruser:flutteruser /opt/flutter
+  chown -R flutteruser:flutteruser /opt/flutter
 ENV GIT_GLOBAL_CONFIG_DIR=/home/flutteruser
 USER flutteruser
 
@@ -82,7 +82,7 @@ COPY --chown=flutteruser:flutteruser android_app/lib/ ./lib/
 COPY --chown=flutteruser:flutteruser android_app/web/ ./web/
 
 RUN git config --global --add safe.directory /opt/flutter && \
-    flutter build web --release
+  flutter build web --release
 
 # ── Stage 3: app — lightweight deps + source code ────────────────────────────
 # Rebuilt on every poetry.lock or source change, but stays fast because
@@ -100,17 +100,17 @@ FROM base AS app
 # CREATE=true + IN_PROJECT=true: venv at project root (/app/.venv).
 # SYSTEM_SITE_PACKAGES=true: venv inherits system Python's ML packages.
 ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=true \
-    POETRY_VIRTUALENVS_IN_PROJECT=true \
-    POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true \
-    VIRTUAL_ENV=/app/.venv \
-    PATH="/app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  POETRY_VIRTUALENVS_CREATE=true \
+  POETRY_VIRTUALENVS_IN_PROJECT=true \
+  POETRY_VIRTUALENVS_OPTIONS_SYSTEM_SITE_PACKAGES=true \
+  VIRTUAL_ENV=/app/.venv \
+  PATH="/app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Container-level defaults — consistent with the volume mounts in docker-compose.yml
 ENV CONFIG_ROOT=/app/.config/lingoDiary \
-    USER_DB_FILE=/app/.config/lingoDiary/users.yaml \
-    DATA_ROOT=/data \
-    XDG_DATA_HOME=/app/.local
+  USER_DB_FILE=/app/.config/lingoDiary/users.yaml \
+  DATA_ROOT=/data \
+  XDG_DATA_HOME=/app/.local
 
 # ✅ Copy only dependency manifests first — cached unless they change
 COPY --chown=1000:1000 pyproject.toml poetry.lock* /app/

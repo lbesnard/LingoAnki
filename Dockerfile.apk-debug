@@ -8,30 +8,30 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies: Java 17, git, curl, unzip
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    git \
-    openjdk-17-jdk \
-    unzip \
-    xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+  ca-certificates \
+  curl \
+  git \
+  openjdk-17-jdk \
+  unzip \
+  xz-utils \
+  && rm -rf /var/lib/apt/lists/*
 
 # Set Java 17 as default
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Install Flutter SDK (pinned to match CI and Dockerfile)
-ENV FLUTTER_VERSION=3.41.9
+ENV FLUTTER_VERSION=3.44.0
 ENV FLUTTER_HOME=/opt/flutter
 ENV PATH="${FLUTTER_HOME}/bin:${PATH}"
 ENV FLUTTER_SUPPRESS_ANALYTICS=true
 
 RUN git config --global --add safe.directory /opt/flutter && \
-    curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
-    | tar -xJ -C /opt && \
-    git config --global --add safe.directory /opt/flutter && \
-    /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
-    /opt/flutter/bin/flutter precache
+  curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+  | tar -xJ -C /opt && \
+  git config --global --add safe.directory /opt/flutter && \
+  /opt/flutter/bin/flutter config --no-analytics --suppress-analytics && \
+  /opt/flutter/bin/flutter precache
 
 # Install Android SDK
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
@@ -39,16 +39,16 @@ ENV ANDROID_HOME=/opt/android-sdk
 ENV PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
 
 RUN mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools" && \
-    curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip && \
-    unzip -q /tmp/cmdline-tools.zip -d /tmp/ && \
-    mv /tmp/cmdline-tools "${ANDROID_SDK_ROOT}/cmdline-tools/latest" && \
-    rm /tmp/cmdline-tools.zip && \
-    yes | sdkmanager --licenses > /dev/null 2>&1 || true && \
-    sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+  curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip && \
+  unzip -q /tmp/cmdline-tools.zip -d /tmp/ && \
+  mv /tmp/cmdline-tools "${ANDROID_SDK_ROOT}/cmdline-tools/latest" && \
+  rm /tmp/cmdline-tools.zip && \
+  yes | sdkmanager --licenses > /dev/null 2>&1 || true && \
+  sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
 # Create non-root user for builds
 RUN useradd -m -u 1000 builder && \
-    chown -R builder:builder /opt/flutter /opt/android-sdk
+  chown -R builder:builder /opt/flutter /opt/android-sdk
 
 USER builder
 WORKDIR /workspace
