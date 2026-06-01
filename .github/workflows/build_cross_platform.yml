@@ -1,4 +1,4 @@
-name: Android APK build
+name: Cross-Platform Build Validation
 
 on:
   push:
@@ -80,3 +80,34 @@ jobs:
         with:
           name: lingodiary-apk-${{ github.run_number }}
           path: android_app/build/app/outputs/flutter-apk/app-debug.apk
+
+  # --- New Parallel Web Build Job ---
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          channel: "stable"
+
+      - name: Regenerate Flutter project scaffold
+        run: bash scripts/setup_flutter_app.sh
+
+      - name: Install dependencies
+        working-directory: android_app
+        run: flutter pub get
+
+      - name: Build Web Application
+        working-directory: android_app
+        # We explicitly include our magic flag here to block the engine's internal Wasm bug
+        run: flutter build web --release --no-wasm-dry-run
+
+      - name: Upload Web Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingodiary-web-${{ github.run_number }}
+          path: android_app/build/web/
