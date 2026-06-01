@@ -483,55 +483,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     _webErrorListener = null;
   }
 
-  // ── APK / native playback ───────────────────────────────────────────────────
-
-// ── APK / native playback ───────────────────────────────────────────────────
-
-  Future<void> _playOneNative(
-      String src, Completer<_ItemResult> completer) async {
-    final player = _player!;
-    StreamSubscription<ProcessingState>? sub;
-
-    try {
-      // 1. Safe Native URI Parsing
-      // If the path is a local file path (cached by SyncService), package it safely.
-      Uri audioUri;
-      if (src.startsWith('http://') || src.startsWith('https://')) {
-        audioUri = Uri.parse(src);
-      } else {
-        audioUri = Uri.file(
-            src); // Ensure local storage paths are treated as file:// schemes
-      }
-
-      // 2. Set the local source and completely await processing/buffering
-      await player.setAudioSource(AudioSource.uri(audioUri));
-
-      // If manual navigation bumped the generation counter while we loaded, exit.
-      if (completer.isCompleted) return;
-
-      // 3. Bind the state listener ONLY after loading is fully completed
-      sub = player.processingStateStream.listen((state) {
-        if (state == ProcessingState.completed) {
-          sub?.cancel();
-          if (!completer.isCompleted) completer.complete(_ItemResult.ok);
-        }
-      }, onError: (Object e) {
-        debugPrint('[DriveMode] ERROR: native processingState error: $e');
-        sub?.cancel();
-        if (!completer.isCompleted) completer.complete(_ItemResult.error);
-      });
-
-      // 4. Play the track smoothly from local storage
-      await player.play();
-    } catch (e) {
-      debugPrint('[DriveMode] ERROR: native playback threw for $src: $e');
-      sub?.cancel();
-      if (!completer.isCompleted) completer.complete(_ItemResult.error);
-    }
-
-    // Guard against manual navigation cancellations resetting lifecycle hooks
-    completer.future.whenComplete(() => sub?.cancel());
-  }
   // ── Controls ────────────────────────────────────────────────────────────────
 
   Future<void> _pauseAudio() async {
