@@ -50,6 +50,10 @@ RUN mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools" && \
 RUN useradd -m -u 1000 builder && \
   chown -R builder:builder /opt/flutter /opt/android-sdk
 
+# Pre-create the directory as root, then change ownership to your builder user
+RUN mkdir -p /workspace/android_app/.dart_tool && \
+  chown -R builder:builder /workspace/android_app/.dart_tool
+
 USER builder
 WORKDIR /workspace
 

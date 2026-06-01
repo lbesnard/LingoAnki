@@ -14,13 +14,20 @@ services:
       # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
       # IMPORTANT: rotate this key — do not commit real secrets to source control.
       SECRET_KEY: "4dea2020568dca5f8ad784e3110283fcf82f87c50c12f47b9a56ae95f572b0d2"
-  # docker compose run --rm apk-debug
+  # docker compose run --build --rm apk-debug
   apk-debug:
-    profiles: ["tools"]  # Only runs when explicitly requested
+    profiles: ["tools"] # Only runs when explicitly requested
     build:
       context: .
       dockerfile: Dockerfile.apk-debug
+    user: "1000:1000"
     volumes:
       - .:/workspace
+      - repo_root_cache:/workspace/.dart_tool/ # 👈 ADD THIS LINE (Masks repo root)
+      - app_dart_tool:/workspace/android_app/.dart_tool/ # 👈 CHANGED TO NAMED VOLUME
     working_dir: /workspace
     # Output: android_app/build/app/outputs/flutter-apk/app-debug.apk
+
+volumes:
+  repo_root_cache: # 👈 ADD THIS LINE HERE
+  app_dart_tool:
