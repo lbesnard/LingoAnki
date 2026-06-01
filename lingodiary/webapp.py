@@ -741,11 +741,16 @@ def api_sync_file(rel_path):
 @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
 @_jwt_required
 def api_sync_lesson_manifest(base):
-    """Return manifest filtered to files belonging to a single lesson (by base name)."""
+    """Return manifest filtered to files belonging to a single lesson (by base name),
+    including all primary variants and nested Drive Mode assets.
+    """
     from flask import g as _g
+    from lingodiary.diary_json import load_diary_json
 
     output_folder = _g.api_output_folder
-    manifest = []
+
+    # 1. Collect your core files via the existing folder-scan fallback rule
+    matched_paths = set()
     for root, _, files in os.walk(output_folder):
         for fname in files:
             if (
@@ -756,17 +761,117 @@ def api_sync_lesson_manifest(base):
                 continue
             full = os.path.join(root, fname)
             rel = os.path.relpath(full, output_folder)
-            if base not in rel:
-                continue
-            stat = os.stat(full)
+            if base in rel:
+                matched_paths.add(rel)
+
+    # 2. Extract nested Drive Mode/Q&A tracks explicitly from diary.json data
+    try:
+        diary = load_diary_json(_g.api_json_diary_path)
+
+        # Helper to clean path names for manifest list
+        def clean_rel_path(raw_path):
+            if not raw_path:
+                return ""
+            # Strip folder prefixes if your json stores full paths (e.g. "TPRS/file.mp3")
+            # to make sure it matches your raw filesystem walk output layout
+            return raw_path
+
+        for day in diary.diaries:
+            # Locate the target day configuration matching this specific base name
+            original_path = day.lesson_audio_paths.get("original", "")
+            day_base = (
+                os.path.splitext(os.path.basename(original_path))[0]
+                if original_path
+                else ""
+            )
+
+            if day_base == base or base in day_base:
+                for entry in day.entries:
+                    # Look inside all variants (original, enhanced, present, future)
+                    for variant_name in ["original", "enhanced", "present", "future"]:
+                        v_obj = entry.lessons.get_variant(variant_name)
+                        if not v_obj:
+                            continue
+
+                        # Gather the 2 core sentence paths
+                        if v_obj.sentence_audio_path:
+                            matched_paths.add(clean_rel_path(v_obj.sentence_audio_path))
+                        if v_obj.sentence_input_language_audio_path:
+                            matched_paths.add(
+                                clean_rel_path(v_obj.sentence_input_language_audio_path)
+                            )
+
+                        # Deep dive into the 4 types inside your interactive Q&A loops
+                        for qa in v_obj.qa:
+                            if qa.question_audio_path:
+                                matched_paths.add(
+                                    clean_rel_path(qa.question_audio_path)
+                                )
+                            if qa.question_input_language_audio_path:
+                                matched_paths.add(
+                                    clean_rel_path(
+                                        qa.question_input_language_audio_path
+                                    )
+                                )
+                            if qa.answer_audio_path:
+                                matched_paths.add(clean_rel_path(qa.answer_audio_path))
+                            if qa.answer_input_language_audio_path:
+                                matched_paths.add(
+                                    clean_rel_path(qa.answer_input_language_audio_path)
+                                )
+    except Exception as exc:
+        app.logger.warning(
+            f"Failed parsing diary.json context inside manifest route: {exc}"
+        )
+
+    # 3. Formulate the precise file objects expected by sync_manager.dart
+    manifest = []
+    for rel_path in matched_paths:
+        full_path = os.path.join(output_folder, rel_path)
+        if os.path.exists(full_path):
+            stat = os.stat(full_path)
             manifest.append(
                 {
-                    "path": rel,
+                    "path": rel_path,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
                 }
             )
+
     return jsonify({"manifest": manifest})
+
+
+#
+# @app.route("/api/sync/manifest/<path:base>", methods=["GET"])
+# @_jwt_required
+# def api_sync_lesson_manifest(base):
+#     """Return manifest filtered to files belonging to a single lesson (by base name)."""
+#     from flask import g as _g
+#
+#     output_folder = _g.api_output_folder
+#     manifest = []
+#     for root, _, files in os.walk(output_folder):
+#         for fname in files:
+#             if (
+#                 fname.startswith(".")
+#                 or fname.endswith(".zip")
+#                 or fname.endswith(".log")
+#             ):
+#                 continue
+#             full = os.path.join(root, fname)
+#             rel = os.path.relpath(full, output_folder)
+#             if base not in rel:
+#                 continue
+#             stat = os.stat(full)
+#             manifest.append(
+#                 {
+#                     "path": rel,
+#                     "size": stat.st_size,
+#                     "mtime": stat.st_mtime,
+#                 }
+#             )
+#     return jsonify({"manifest": manifest})
+#
 
 
 @app.route("/api/diary/json", methods=["GET"])
