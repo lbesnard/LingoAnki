@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:js_interop';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:web/web.dart' as web;
 
 import '../l10n/app_localizations.dart';
 import '../services/sync_service.dart';
+
+import '../utils/web_audio.dart' as web;
 
 /// Drive Mode screen: audio-first hands-free lesson playback.
 ///
@@ -101,10 +101,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   /// navigation (cancellation).
   Completer<_ItemResult>? _currentItem;
 
-  /// Active web `ended`/`error` JS listeners (so we can remove them on
-  /// each new item — `addEventListener` does not de-duplicate).
-  JSFunction? _webEndedListener;
-  JSFunction? _webErrorListener;
+  /// Active web listeners typed dynamically to satisfy both implementations
+  dynamic _webEndedListener;
+  dynamic _webErrorListener;
 
   // ── APK only ──
   /// Track which audio paths have been freshly downloaded this session.
@@ -354,12 +353,12 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     final audio = _webAudio!;
     _detachWebListeners();
 
-    void onEnded(web.Event _) {
+    void onEnded(web.Event _) { // Changed to proxy web.Event
       _detachWebListeners();
       if (!completer.isCompleted) completer.complete(_ItemResult.ok);
     }
 
-    void onError(web.Event _) {
+    void onError(web.Event _) { // Changed to proxy web.Event
       final err = audio.error;
       debugPrint('[DriveMode] ERROR: HTMLAudioElement error '
           'code=${err?.code} msg="${err?.message}" src=$src');
@@ -367,6 +366,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
     }
 
+    // .toJS works natively on web, and safe-stubs out to null on APK
     final endedCb = onEnded.toJS;
     final errorCb = onError.toJS;
     _webEndedListener = endedCb;
@@ -375,9 +375,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     audio.addEventListener('error', errorCb);
 
     audio.src = src;
-    // Calling play() returns a Promise.  Ignoring its result is fine —
-    // success continues asynchronously, failure surfaces via the `error`
-    // event listener above.
     audio.play();
   }
 
