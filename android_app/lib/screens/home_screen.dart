@@ -397,7 +397,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openFromRecent(Map<String, dynamic> item) async {
     try {
-      final lessons = await ApiService.getLessons();
+      // Load from cache first for offline support
+      List<Map<String, dynamic>> lessons = await LocalDbService.getLessons();
+
+      // Try server as fallback if cache is empty
+      if (lessons.isEmpty) {
+        lessons = await ApiService.getLessons();
+      }
+
       final date = (item['date'] as String? ?? '').replaceAll('/', '-');
       final match = lessons.cast<Map<String, dynamic>?>().firstWhere(
         (l) => (l?['base'] as String? ?? '').contains(date),

@@ -152,6 +152,38 @@ class ApiService {
     };
   }
 
+  /// Fetch app config including Drive Mode availability.
+  static Future<Map<String, dynamic>> fetchAppConfig() async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp =
+        await http.get(Uri.parse('$base/api/config'), headers: headers).timeout(_timeout);
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Failed to get config');
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  /// Trigger Drive Mode audio backfill on the server.
+  /// [date] is optional YYYY-MM-DD; if null, all days are processed.
+  static Future<void> triggerDriveModeAudioBackfill({String? date}) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final path = date != null
+        ? '$base/api/backfill/drive_mode_audio/${date.replaceAll('/', '-')}'
+        : '$base/api/backfill/drive_mode_audio';
+    await http.post(Uri.parse(path), headers: headers).timeout(_timeout);
+  }
+
+  /// Poll the generate status endpoint for Drive Mode generation progress.
+  static Future<Map<String, dynamic>> pollGenerateStatus(int offset) async {
+    final base = await _baseUrl();
+    final headers = await _authHeaders();
+    final resp = await http
+        .get(Uri.parse('$base/api/generate/status?offset=$offset'), headers: headers)
+        .timeout(_timeout);
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, 'Status check failed');
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
   // ── Diary JSON / SRS endpoints ──────────────────────────────────────────────
 
   /// Fetch all lesson entries (with audio timings) for a date + variant.

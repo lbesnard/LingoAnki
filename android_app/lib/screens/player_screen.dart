@@ -9,6 +9,7 @@ import '../services/local_db_service.dart';
 import '../services/sync_manager.dart';
 import '../services/sync_service.dart';
 import '../l10n/app_localizations.dart';
+import 'drive_mode_screen.dart';
 
 /// Synthetic tab name for the "Input Diary" view (no audio).
 const _kInputDiaryTab = 'Input Diary';
@@ -60,6 +61,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _cycleVariants = false;
   // Guard: prevent _onPlaybackCompleted from firing multiple times per completion
   bool _cycleTriggered = false;
+  // Drive Mode
+  bool _driveModeAvailable = false;
+  int _driveModePauseMs = 600;
   // Canonical variant order — must match the capitalized keys from the API
   // (variant_display = variant.lstrip("_").title() in webapp.py)
   static const _kCanonicalOrder = ['Original', 'Enhanced', 'Present', 'Future'];
@@ -166,6 +170,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _cycleVariants = prefs.getBool('lesson_cycle_variants') ?? false;
     });
     _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
+    // Fetch app config for Drive Mode availability
+    try {
+      final cfg = await ApiService.fetchAppConfig();
+      if (mounted) {
+        setState(() {
+          _driveModeAvailable = cfg['drive_mode_available'] as bool? ?? false;
+          _driveModePauseMs = (cfg['pause_between_sentences_duration'] as num?)?.toInt() ?? 600;
+        });
+      }
+    } catch (_) {
+      // Drive Mode unavailable if config fetch fails
+    }
   }
 
   void _cycleFontSize() async {
@@ -264,6 +280,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         'index': em['index'],
         'sentence': lesson['sentence'] ?? '',
         'sentence_input': lesson['sentence_input'] ?? '',
+        'sentence_audio_path': lesson['sentence_audio_path'] ?? '',
+        'sentence_input_language_audio_path': lesson['sentence_input_language_audio_path'] ?? '',
         'input_language_sentence': em['input_language_sentence'] ?? '',
         'output_language_translation': em['output_language_translation'] ?? '',
         'audio_timing': lesson['audio_timing'],
@@ -300,6 +318,106 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   String _variantToApiKey(String variantName) {
     return variantName.toLowerCase();
+  }
+
+  Future<void> _enterDriveMode() async {
+    if (_sentenceEntries.isEmpty) return;
+    final l10n = AppLocalizations.of(context);
+
+    // Check if Input Language audio paths are present in loaded entries
+    final hasInputAudio = _sentenceEntries.any((e) =>
+        (e['sentence_input_language_audio_path'] as String?)?.isNotEmpty == true);
+
+    if (!hasInputAudio) {
+      // Check if drive mode is even configured on server
+      if (!_driveModeAvailable) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.driveModeConfigMissing)),
+          );
+        }
+        return;
+      }
+
+      // Offer to trigger generation
+      bool confirmed = false;
+      if (mounted) {
+        confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text(l10n.driveModeGenerateTitle),
+                content: Text(l10n.driveModeGenerateBody),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: Text(l10n.driveModeGenerateConfirm),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      }
+
+      if (!confirmed || !mounted) return;
+
+      // Trigger generation
+      try {
+        await ApiService.triggerDriveModeAudioBackfill(date: _lessonDate);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.driveModeOfflineError)),
+          );
+        }
+        return;
+      }
+
+      // Poll for completion via /api/generate/status — show progress dialog
+      if (mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => _DriveModeGeneratingDialog(
+            onDone: () => Navigator.pop(ctx),
+          ),
+        );
+      }
+
+      // Re-sync this day's entries to get the new audio paths.
+      // Must use getDayData (full day object with nested lessons) because
+      // _applyEntriesFromDayData expects the getDayData format.
+      if (_lessonDate != null) {
+        try {
+          final variantKey = _variantToApiKey(_currentTab);
+          final data = await ApiService.getDayData(_lessonDate!);
+          if (mounted) {
+            _applyEntriesFromDayData(data, variantKey);
+            await LocalDbService.saveDayCache(_lessonDate!, data).catchError((_) {});
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!mounted || _sentenceEntries.isEmpty) return;
+
+    // Navigate to Drive Mode screen
+    final variantKey = _variantToApiKey(_currentTab);
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DriveModeScreen(
+          entries: List.unmodifiable(_sentenceEntries),
+          variantKey: variantKey,
+          lessonTitle: widget.lesson['display'] as String? ?? '',
+          pauseMs: _driveModePauseMs,
+        ),
+      ),
+    );
   }
 
   void _buildSegmentList() {
@@ -1030,6 +1148,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
             icon: const Icon(Icons.text_fields),
             onPressed: _cycleFontSize,
           ),
+          // Drive Mode
+          IconButton(
+            tooltip: l10n.driveModeTooltip,
+            icon: const Icon(Icons.directions_car_outlined),
+            onPressed: _enterDriveMode,
+          ),
           // Loop toggle
           IconButton(
             tooltip: _loopEnabled ? l10n.loopOn : l10n.loopOff,
@@ -1362,6 +1486,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ? _buildDiaryContent()
                 : _buildTprsContent(),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriveModeGeneratingDialog extends StatefulWidget {
+  final VoidCallback onDone;
+  const _DriveModeGeneratingDialog({required this.onDone});
+
+  @override
+  State<_DriveModeGeneratingDialog> createState() => _DriveModeGeneratingDialogState();
+}
+
+class _DriveModeGeneratingDialogState extends State<_DriveModeGeneratingDialog> {
+  String _status = '';
+  bool _done = false;
+  int _offset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+  }
+
+  Future<void> _poll() async {
+    while (!_done && mounted) {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) break;
+      try {
+        final result = await ApiService.pollGenerateStatus(_offset);
+        final log = result['log'] as String? ?? '';
+        final done = result['done'] as bool? ?? false;
+        final newOffset = result['offset'] as int? ?? _offset;
+        if (mounted) {
+          setState(() {
+            _offset = newOffset;
+            if (log.isNotEmpty) {
+              final lines = log.split('\n').where((l) => l.trim().isNotEmpty).toList();
+              if (lines.isNotEmpty) _status = lines.last;
+            }
+            _done = done;
+          });
+        }
+        if (done) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) widget.onDone();
+          break;
+        }
+      } catch (_) {
+        await Future.delayed(const Duration(seconds: 5));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Generating Drive Mode audio\u2026'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          if (_status.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(_status, style: const TextStyle(fontSize: 11), textAlign: TextAlign.center),
+          ],
         ],
       ),
     );

@@ -650,7 +650,166 @@ def backfill_audio_timings(
     logger.info(f"Audio timing backfill complete: {diary_json_path}")
 
 
-def _setup_logging() -> None:
+def process_day_drive_mode_audio(
+    day,
+    tts_plugin,
+    lang: str,
+    voice: str,
+    output_dir: str,
+) -> bool:
+    """Generate missing Input Language TTS segments for Drive Mode for one DiaryDay.
+
+    For each SentenceBlock variant, generates:
+      {idx}_s_input.mp3  — from SentenceBlock.sentence_input
+      {idx}_q{j}_input.mp3 — from QA.question_input
+      {idx}_a{j}_input.mp3 — from QA.answer_input
+
+    Only generates files whose audio path is currently empty.
+    Skips items where the source text is empty (text backfill must run first).
+    Returns True if any new files were generated.
+    """
+    from lingodiary.diary_json import VARIANTS
+
+    day_modified = False
+
+    for entry in day.entries:
+        for variant_key in VARIANTS:
+            vl = entry.lessons.get_variant(variant_key)
+            if vl is None:
+                continue
+
+            segs_dir = _segments_dir(output_dir, day.date, variant_key)
+            os.makedirs(segs_dir, exist_ok=True)
+
+            # Sentence Input Language audio.
+            # For the 'original' variant, sentence_input may be empty because the
+            # original sentence is in the target language; fall back to
+            # input_language_sentence which is already stored on the entry.
+            sentence_text = vl.sentence_input
+            if not sentence_text and variant_key == "original":
+                sentence_text = entry.input_language_sentence
+                if sentence_text:
+                    vl.sentence_input = sentence_text  # persist for consistency
+
+            if sentence_text and not vl.sentence_input_language_audio_path:
+                s_path = os.path.join(segs_dir, f"{entry.index}_s_input.mp3")
+                dur = _generate_segment(sentence_text, s_path, tts_plugin, lang, voice)
+                if dur > 0:
+                    vl.sentence_input_language_audio_path = os.path.relpath(
+                        s_path, output_dir
+                    )
+                    day_modified = True
+                    logger.info(
+                        f"  [{day.date}] {variant_key} entry {entry.index}: sentence_input audio generated"
+                    )
+
+            # Q&A Input Language audio
+            for j, qa in enumerate(vl.qa):
+                if qa.question_input and not qa.question_input_language_audio_path:
+                    q_path = os.path.join(segs_dir, f"{entry.index}_q{j}_input.mp3")
+                    dur = _generate_segment(
+                        qa.question_input, q_path, tts_plugin, lang, voice
+                    )
+                    if dur > 0:
+                        qa.question_input_language_audio_path = os.path.relpath(
+                            q_path, output_dir
+                        )
+                        day_modified = True
+
+                if qa.answer_input and not qa.answer_input_language_audio_path:
+                    a_path = os.path.join(segs_dir, f"{entry.index}_a{j}_input.mp3")
+                    dur = _generate_segment(
+                        qa.answer_input, a_path, tts_plugin, lang, voice
+                    )
+                    if dur > 0:
+                        qa.answer_input_language_audio_path = os.path.relpath(
+                            a_path, output_dir
+                        )
+                        day_modified = True
+
+    return day_modified
+
+
+def backfill_drive_mode_audio(
+    config_path: str | Path,
+    diary_json_path: str | Path,
+    date: str | None = None,
+) -> None:
+    """Generate missing Input Language audio segments for Drive Mode.
+
+    Args:
+        config_path:      Path to the user's config.yaml.
+        diary_json_path:  Path to diary.json (updated in-place).
+        date:             Optional YYYY/MM/DD or YYYY-MM-DD; if given, only that day
+                          is processed.  Otherwise all days are processed.
+
+    Requires ``tts.piper_input_language.voice`` in config; logs an error and
+    returns early if absent.
+    """
+    import yaml  # type: ignore
+    from ovos_tts_plugin_piper import PiperTTSPlugin  # type: ignore
+
+    from lingodiary.diary_json import load_diary_json, save_diary_json
+
+    diary_json_path = Path(diary_json_path)
+    if not diary_json_path.exists():
+        logger.error(f"diary.json not found at {diary_json_path}")
+        return
+
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    tts_cfg = config.get("tts", {})
+    piper_input_cfg = tts_cfg.get("piper_input_language", {})
+    voice = piper_input_cfg.get("voice", "")
+    if not voice:
+        logger.error(
+            "Drive Mode audio backfill requires tts.piper_input_language.voice in config"
+        )
+        return
+
+    lang = config["languages"]["primary_language_code"]
+    output_dir = config.get("output_dir", "")
+
+    logger.info(f"Drive Mode audio backfill: voice={voice}, lang={lang}")
+
+    tts_plugin = PiperTTSPlugin({"lang": lang, "voice": voice})
+
+    diary = load_diary_json(diary_json_path)
+
+    if date:
+        date_slash = date.replace("-", "/")
+        days = [d for d in diary.diaries if d.date == date_slash]
+        if not days:
+            logger.warning(f"No diary day found for date {date}")
+            return
+    else:
+        days = diary.diaries
+
+    total = len(days)
+    logger.info(f"Processing {total} diary day(s) for Drive Mode audio...")
+
+    try:
+        for i, day in enumerate(days, 1):
+            logger.info(f"Day {i}/{total}: {day.date} -- {day.title}")
+            day_modified = process_day_drive_mode_audio(
+                day=day,
+                tts_plugin=tts_plugin,
+                lang=lang,
+                voice=voice,
+                output_dir=output_dir,
+            )
+            if day_modified:
+                save_diary_json(diary, diary_json_path)
+                logger.info(f"  Saved Drive Mode audio paths for {day.date}")
+    finally:
+        try:
+            tts_plugin.stop()
+        except Exception:
+            pass
+
+    logger.info("Drive Mode audio backfill complete.")
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(message)s",

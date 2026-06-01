@@ -79,14 +79,32 @@ android {
                 }
             }
 
+            // if (!signingConfigured) {
+                // println("ERROR: Release signing not configured! APK will be unsigned or debug-signed.")
+                // throw GradleException("Release signing configuration is required but not found. Please ensure key.properties exists or environment variables are set.")
+            // }
+            // Replace the strict throwing logic with a dynamic check
             if (!signingConfigured) {
-                println("ERROR: Release signing not configured! APK will be unsigned or debug-signed.")
-                throw GradleException("Release signing configuration is required but not found. Please ensure key.properties exists or environment variables are set.")
+                // Check if the current Gradle task path contains "Release"
+                val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+
+                if (isReleaseTask) {
+                    println("ERROR: Release signing not configured!")
+                    throw GradleException("Release signing configuration is required for release builds. Please ensure key.properties exists or environment variables are set.")
+                } else {
+                    println("WARNING: Release signing not configured. Skipping validation since this is not a release task.")
+                }
             }
         }
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-DEBUG"
+            isDebuggable = true
+            // Uses auto-generated debug keystore (~/.android/debug.keystore)
+        }
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true

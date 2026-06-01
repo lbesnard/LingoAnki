@@ -32,7 +32,6 @@ from lingodiary.diary import (
     main as main_diary_tprs,
 )
 
-
 app = Flask(__name__)
 _secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 if _secret_key == "super-secret-key":
@@ -276,6 +275,14 @@ def api_generate():
     def _run():
         log_file = os.path.join(output_folder, "output.log")
 
+        # Truncate log from any previous run so the client always starts fresh
+        # and never mistakes an old "=== Generation finished ===" marker for the
+        # current run completing immediately.
+        try:
+            open(log_file, "w", encoding="utf-8").close()
+        except Exception:
+            pass
+
         def _log_to_file(msg):
             try:
                 with open(log_file, "a", encoding="utf-8") as lf:
@@ -339,6 +346,22 @@ def api_generate():
         except Exception as exc:
             app.logger.warning(f"sentence_input backfill failed: {exc}")
             _log_to_file(f"WARNING: sentence_input backfill failed: {exc}")
+        # 4. Drive Mode Input Language audio — only if input_voice is configured.
+        try:
+            import yaml as _yaml
+
+            with open(config_path, encoding="utf-8") as _cf:
+                _cfg = _yaml.safe_load(_cf)
+            if _cfg.get("tts", {}).get("piper_input_language", {}).get("voice"):
+                from lingodiary.audio_timing import backfill_drive_mode_audio
+
+                backfill_drive_mode_audio(
+                    config_path=config_path, diary_json_path=json_path
+                )
+        except Exception as exc:
+            tb = traceback.format_exc()
+            app.logger.warning(f"Drive Mode audio backfill failed: {exc}\n{tb}")
+            _log_to_file(f"WARNING: Drive Mode audio backfill failed: {exc}")
         # Write a completion marker so the client can stop polling.
         try:
             with open(log_file, "a", encoding="utf-8") as lf:
@@ -504,6 +527,82 @@ def api_backfill_all():
             "message": "Full backfill started (Q&A translations + audio segments)",
         }
     )
+
+
+@app.route("/api/backfill/drive_mode_audio", methods=["POST"])
+@app.route("/api/backfill/drive_mode_audio/<date>", methods=["POST"])
+@_jwt_required
+def api_backfill_drive_mode_audio(date: str | None = None):
+    """Background job: generate missing Input Language audio segments for Drive Mode.
+
+    Optional URL segment ``<date>`` (YYYY-MM-DD or YYYY/MM/DD) limits processing
+    to a single day.  Without it, all days are processed.
+
+    Requires ``tts.piper_input_language.voice`` in the user config; returns 400 if absent.
+    Progress is written to ``output.log`` and readable via ``GET /api/generate/status``.
+    """
+    from flask import g as _g
+
+    config_path = _g.api_config_path
+    output_folder = _g.api_output_folder
+
+    # Validate that input_voice is configured before queueing the job.
+    try:
+        import yaml as _yaml
+
+        with open(config_path, encoding="utf-8") as _cf:
+            _cfg = _yaml.safe_load(_cf)
+        if not _cfg.get("tts", {}).get("piper_input_language", {}).get("voice"):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Drive Mode requires tts.piper_input_language.voice in config",
+                    }
+                ),
+                400,
+            )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Config read error: {exc}"}), 500
+
+    def _run():
+        log_file = os.path.join(output_folder, "output.log")
+        try:
+            open(log_file, "w", encoding="utf-8").close()
+        except Exception:
+            pass
+        at_logger, at_handler = _attach_output_log(log_file)
+        try:
+            from lingodiary.audio_timing import backfill_drive_mode_audio
+
+            json_path = os.path.join(output_folder, "diary.json")
+            backfill_drive_mode_audio(
+                config_path=config_path,
+                diary_json_path=json_path,
+                date=date,
+            )
+        except Exception as exc:
+            tb = traceback.format_exc()
+            app.logger.error(f"Drive Mode audio backfill error: {exc}\n{tb}")
+        finally:
+            _detach_output_log(at_logger, at_handler)
+        try:
+            with open(log_file, "a", encoding="utf-8") as lf:
+                lf.write("=== Generation finished ===\n")
+        except Exception:
+            pass
+
+    try:
+        _job_queue.put_nowait(_run)
+    except queue.Full:
+        return (
+            jsonify(
+                {"ok": False, "error": "A job is already queued. Try again later."}
+            ),
+            409,
+        )
+    scope = f" for {date}" if date else ""
+    return jsonify({"ok": True, "message": f"Drive Mode audio backfill started{scope}"})
 
 
 @app.route("/api/generate/status", methods=["GET"])
@@ -755,6 +854,8 @@ def api_lesson_entries(date, variant):
                 "output_language_translation": entry.output_language_translation,
                 "sentence": v_obj.sentence,
                 "sentence_input": v_obj.sentence_input,
+                "sentence_audio_path": v_obj.sentence_audio_path,
+                "sentence_input_language_audio_path": v_obj.sentence_input_language_audio_path,
                 "audio_timing": v_obj.audio_timing.to_dict(),
                 "qa": [q.to_dict() for q in v_obj.qa],
                 "reviewing": entry.lessons.reviewing.to_dict(),
@@ -1015,14 +1116,32 @@ def api_save_trials(date):
 @app.route("/api/config", methods=["GET"])
 @_jwt_required
 def api_get_config():
-    """Return user config values relevant to the mobile app (TPRS keywords)."""
+    """Return user config values relevant to the mobile app."""
+    from flask import g as _g
+    import yaml as _yaml
+
+    config_path = _g.api_config_path
+    try:
+        with open(config_path, encoding="utf-8") as _cf:
+            cfg = _yaml.safe_load(_cf)
+    except Exception:
+        cfg = {}
+
+    tts_cfg = cfg.get("tts", {})
+    drive_mode_available = bool(
+        tts_cfg.get("piper_input_language", {}).get("voice", "")
+    )
+    pause_ms = int(tts_cfg.get("pause_between_sentences_duration", 600))
+
     return jsonify(
         {
             "tprs": {
                 "sentence": "SETNING:",
                 "question": "SPØRSMÅL:",
                 "answer": "SVAR:",
-            }
+            },
+            "drive_mode_available": drive_mode_available,
+            "pause_between_sentences_duration": pause_ms,
         }
     )
 

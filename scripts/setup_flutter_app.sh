@@ -29,7 +29,7 @@ echo "==> Running flutter create …"
 flutter create \
   --org com.lingodiary \
   --project-name lingodiary_app \
-  --platforms android \
+  --platforms android,web \
   "$APP_DIR"
 
 echo "==> Restoring custom lib/ …"
