@@ -74,7 +74,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   late List<_PlaylistItem> _flatPlaylist;
   int _playlistIndex = 0;
+  int _blockStartIndex = 0; // Start of current block for proper block-level repeating
   bool _repeatBlock = false;
+  bool _loopLesson = false; // Repeat entire lesson from start when finished
   bool _playing = false;
 
   // ── Auto-scroll mechanics ──
@@ -282,6 +284,12 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       int playCount = 0;
 
       while (mounted && gen == _generation) {
+        // Wait if paused
+        while (!_playing && gen == _generation && mounted) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        if (!mounted || gen != _generation) return;
+
         debugPrint(
             '[DriveMode] play flat track[$_playlistIndex] ${item.audioPath}');
 
@@ -307,12 +315,19 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
       if (!mounted || gen != _generation) return;
 
-      if (_repeatBlock) {
-        await Future.delayed(Duration(milliseconds: widget.pauseMs));
-      } else {
-        if (_playlistIndex + 1 < _flatPlaylist.length) {
-          final nextItem = _flatPlaylist[_playlistIndex + 1];
-          final isNewBlock = nextItem.entryIndex != item.entryIndex;
+      // Check if we're at the end of the current block
+      if (_playlistIndex + 1 < _flatPlaylist.length) {
+        final nextItem = _flatPlaylist[_playlistIndex + 1];
+        final isNewBlock = nextItem.entryIndex != item.entryIndex;
+
+        // If we're about to move to a new block and repeat is enabled, jump back to block start
+        if (isNewBlock && _repeatBlock) {
+          await Future.delayed(Duration(milliseconds: widget.pauseMs));
+          if (mounted) {
+            setState(() => _playlistIndex = _blockStartIndex);
+          }
+        } else {
+          // Normal advancement to next item
           final dynamicDelay = isNewBlock ? widget.pauseMs * 2 : widget.pauseMs;
 
           await Future.delayed(Duration(milliseconds: dynamicDelay));
@@ -320,13 +335,31 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
           setState(() {
             _playlistIndex++;
+            // Track block start when entering a new block
+            if (isNewBlock) {
+              _blockStartIndex = _playlistIndex;
+            }
           });
           _scrollToBlock(_playlistIndex);
-        } else {
-          // Reached end of lesson.
-          if (mounted) setState(() => _playing = false);
-          return;
         }
+      } else {
+        // Reached end of lesson
+        if (mounted) {
+          setState(() => _playing = false);
+          // If lesson loop is enabled, restart from beginning
+          if (_loopLesson) {
+            setState(() {
+              _playlistIndex = 0;
+              _blockStartIndex = 0;
+              _playing = true;
+            });
+            await Future.delayed(Duration(milliseconds: widget.pauseMs * 2));
+            if (!mounted || gen != _generation) return;
+            _runDriveMode();
+            return;
+          }
+        }
+        return;
       }
     }
   }
@@ -515,6 +548,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     setState(() {
       _playlistIndex = targetIdx;
+      _blockStartIndex = targetIdx; // Update block start for repeat functionality
     });
     _scrollToBlock(_playlistIndex);
     _runDriveMode();
@@ -540,6 +574,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     setState(() {
       _playlistIndex = targetIdx;
+      _blockStartIndex = targetIdx; // Update block start for repeat functionality
     });
     _scrollToBlock(_playlistIndex);
     _runDriveMode();
@@ -549,6 +584,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     await _interruptForNavigation();
     setState(() {
       _playlistIndex = 0;
+      _blockStartIndex = 0;
     });
     _scrollToBlock(_playlistIndex);
     _runDriveMode();
@@ -556,6 +592,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   void _toggleRepeatBlock() {
     setState(() => _repeatBlock = !_repeatBlock);
+  }
+
+  void _toggleLoopLesson() {
+    setState(() => _loopLesson = !_loopLesson);
   }
 
   void _cycleFontSize() {
@@ -592,6 +632,14 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             tooltip: l10n.fontSizeTooltip(_fontSize.toStringAsFixed(0)),
             icon: const Icon(Icons.text_fields, color: Colors.white),
             onPressed: _cycleFontSize,
+          ),
+          IconButton(
+            tooltip: _loopLesson ? 'Loop lesson ON' : 'Loop lesson OFF',
+            icon: Icon(
+              Icons.repeat,
+              color: _loopLesson ? Colors.blue.shade300 : Colors.white,
+            ),
+            onPressed: _toggleLoopLesson,
           ),
         ],
       ),
@@ -710,11 +758,11 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             onPressed: _playing
                 ? () async {
                     await _pauseAudio();
-                    setState(() => _playing = false);
+                    if (mounted) setState(() => _playing = false);
                   }
                 : () async {
                     await _resumeAudio();
-                    setState(() => _playing = true);
+                    if (mounted) setState(() => _playing = true);
                   },
           ),
           IconButton(
