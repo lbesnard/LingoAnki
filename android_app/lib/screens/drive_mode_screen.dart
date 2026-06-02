@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_background/flutter_background.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart'; // 🟢 Add this import
 
 import '../l10n/app_localizations.dart';
 import '../services/sync_service.dart';
@@ -91,8 +92,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   bool _playing = false;
 
   // ── Auto-scroll mechanics ──
-  final ScrollController _scrollController = ScrollController();
-  final Map<int, GlobalKey> _blockKeys = {};
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
 
   // ── Loop control ──
   /// Bumped every time the loop must be invalidated (manual navigation,
@@ -165,7 +167,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     _webAudio?.pause();
     _webAudio?.removeAttribute('src');
     _player?.dispose();
-    _scrollController.dispose();
     // 🟢 Disable foreground execution when leaving the screen
     if (!kIsWeb) {
       FlutterBackground.disableBackgroundExecution();
@@ -176,20 +177,19 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   // ── Auto-scroll Helper ──────────────────────────────────────────────────────
 
-  void _scrollToBlock(int idx) {
-    // Post frame to make sure keys are drawn and layout bounds are updated
+  void _scrollToBlock(int index) {
+    if (!mounted) return;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final key = _blockKeys[idx];
-      if (key == null) return;
-      final ctx = key.currentContext;
-      if (ctx == null) return;
 
-      Scrollable.ensureVisible(
-        ctx,
-        duration: const Duration(milliseconds: 400),
+      // 🟢 Safely scrolls directly to any index, even if it hasn't been built yet!
+      _itemScrollController.scrollTo(
+        index: index,
+        duration: const Duration(milliseconds: 350),
         curve: Curves.easeInOut,
-        alignment: 0.3, // Anchor the item into the upper-middle frame view
+        alignment:
+            0.3, // Centers the active bold sentence 30% from the top edge
       );
     });
   }
@@ -648,14 +648,14 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                       style: const TextStyle(color: Colors.white54),
                     ),
                   )
-                : ListView.builder(
-                    controller: _scrollController,
+                : ScrollablePositionedList.builder(
+                    itemScrollController: _itemScrollController,
+                    itemPositionsListener: _itemPositionsListener,
                     padding: const EdgeInsets.all(20),
                     itemCount: _blocks.length,
                     itemBuilder: (context, i) {
-                      _blockKeys[i] ??= GlobalKey();
+                      // You can safely remove the old _blockKeys[i] assignment line here!
                       return Container(
-                        key: _blockKeys[i],
                         margin: const EdgeInsets.only(bottom: 24),
                         padding: const EdgeInsets.all(12),
                         decoration: i == _blockIndex
