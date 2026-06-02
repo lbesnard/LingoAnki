@@ -92,8 +92,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   dynamic _webEndedListener;
   dynamic _webErrorListener;
 
-  // ── APK only ──
-  final Set<String> _refreshedPaths = {};
 
   @override
   void initState() {
@@ -340,17 +338,11 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     String? src;
     try {
-      final isFirstPlay = _refreshedPaths.add(item.audioPath);
-      final shouldRefresh = !kIsWeb && isFirstPlay;
-
       final targetPath = item.audioPath.startsWith('TPRS/')
           ? item.audioPath
           : 'TPRS/${item.audioPath}';
 
-      final uri = await SyncService.ensureLocalAndGetUri(
-        targetPath,
-        forceRefresh: shouldRefresh,
-      );
+      final uri = await SyncService.ensureLocalAndGetUri(targetPath);
 
       if (uri == null) {
         debugPrint(
