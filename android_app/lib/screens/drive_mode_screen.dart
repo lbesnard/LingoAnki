@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_background/flutter_background.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart'; // 🟢 Add this import
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/sync_service.dart';
@@ -15,21 +15,8 @@ import '../utils/web_audio.dart' as web;
 /// Drive Mode screen: audio-first hands-free lesson playback.
 ///
 /// Plays a sequential playlist of individual audio segment files per
-/// **Sentence Block** (called "Block" in the UI).  Bold-highlights the
-/// currently playing item.  Highlighting is driven by playlist index — no
-/// pre-assembled MP3 or audio_timing values needed.
-///
-/// Playback engine:
-/// * Web (Firefox / Chrome): a single persistent `HTMLAudioElement` driven
-///   directly via `package:web`.  Each item is awaited via a per-item
-///   `Completer` resolved on the `ended` DOM event.  This avoids
-///   `just_audio_web`'s fire-and-forget auto-start inside `load()` which
-///   loses the user-gesture authorisation between items.
-/// * APK (Android / iOS): existing `just_audio` `AudioPlayer`, awaited
-///   per-item via `processingStateStream.firstWhere(completed)`.
-///
-/// Both paths share a single linear async loop (`_runDriveMode`).  Manual
-/// navigation cancels the loop via a generation counter.
+/// **Sentence Block** (flattened for granular scroll alignment). Bold-highlights
+/// the currently playing item. Highlighting is driven by playlist index.
 class DriveModeScreen extends StatefulWidget {
   /// Lesson entries from PlayerScreen._sentenceEntries (already loaded).
   final List<Map<String, dynamic>> entries;
@@ -54,14 +41,14 @@ class DriveModeScreen extends StatefulWidget {
   State<DriveModeScreen> createState() => _DriveModeScreenState();
 }
 
-/// One playable item inside a Sentence Block.
+/// One playable item inside the flattened playlist layout structure.
 class _PlaylistItem {
   final int entryIndex;
   final int qaIndex; // -1 = sentence
   final bool isInput; // true = Input Language audio
-  final bool isQuestion; // only meaningful when qaInd_playOneex >= 0
+  final bool isQuestion; // only meaningful when qaIndex >= 0
   final String audioPath; // relative path served by server
-  final String text; // text to bold when this item is playing
+  final String text; // text to display on this row
 
   const _PlaylistItem({
     required this.entryIndex,
@@ -75,19 +62,18 @@ class _PlaylistItem {
 
 class _DriveModeScreenState extends State<DriveModeScreen> {
   // ── Playback engines ──
-  /// APK only: just_audio player.  Null on web.
+  /// APK only: just_audio player. Null on web.
   AudioPlayer? _player;
 
-  /// Web only: bare HTMLAudioElement.  Null on APK.
+  /// Web only: bare HTMLAudioElement. Null on APK.
   web.HTMLAudioElement? _webAudio;
 
   // ── UI state ──
   static const List<double> _fontSizes = [12.0, 14.0, 20.0, 26.0];
   double _fontSize = 26.0;
 
-  late List<List<_PlaylistItem>> _blocks;
-  int _blockIndex = 0;
-  int _itemIndex = 0;
+  late List<_PlaylistItem> _flatPlaylist;
+  int _playlistIndex = 0;
   bool _repeatBlock = false;
   bool _playing = false;
 
@@ -97,13 +83,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       ItemPositionsListener.create();
 
   // ── Loop control ──
-  /// Bumped every time the loop must be invalidated (manual navigation,
-  /// dispose).  The running loop checks this after every await.
   int _generation = 0;
 
   /// Completer for the item currently being awaited inside `_playOne`.
-  /// Completed by `ended` (success), by `error` (failure), or by manual
-  /// navigation (cancellation).
   Completer<_ItemResult>? _currentItem;
 
   /// Active web listeners typed dynamically to satisfy both implementations
@@ -111,15 +93,12 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   dynamic _webErrorListener;
 
   // ── APK only ──
-  /// Track which audio paths have been freshly downloaded this session.
-  /// On first play of each path, force a re-download to flush stale cache.
-  /// Not used on web (server URLs, no local cache).
   final Set<String> _refreshedPaths = {};
 
   @override
   void initState() {
     super.initState();
-    _blocks = _buildBlocks();
+    _flatPlaylist = _buildFlatPlaylist();
 
     // Call an async initialization method
     _initializeScreenPlayback();
@@ -130,44 +109,41 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       _webAudio = web.HTMLAudioElement();
       _webAudio!.preload = 'auto';
     } else {
-      // 🟢 Configure the audio session natively for background/speech playbacks
       final session = await AudioSession.instance;
       await session.configure(AudioSessionConfiguration.speech());
 
       _player = AudioPlayer();
     }
 
-    if (_blocks.isNotEmpty && mounted) {
+    if (_flatPlaylist.isNotEmpty && mounted) {
       _runDriveMode();
     }
-    // 2. 🟢 Configure Foreground Execution parameters for Android
+
     final androidConfig = FlutterBackgroundAndroidConfig(
       notificationTitle: "LingoDiary Drive Mode",
       notificationText: "Playing your lesson in the background",
       notificationImportance: AndroidNotificationImportance.normal,
-      notificationIcon: AndroidResource(
-          name: 'background_icon',
-          defType: 'drawable'), // Default fallback fallback
+      notificationIcon:
+          AndroidResource(name: 'background_icon', defType: 'drawable'),
     );
 
     bool hasPermissions =
         await FlutterBackground.initialize(androidConfig: androidConfig);
 
     if (hasPermissions) {
-      // 🟢 Force the Android OS to keep your Dart async loop execution thread alive
       await FlutterBackground.enableBackgroundExecution();
     }
   }
 
   @override
   void dispose() {
-    _generation++; // invalidate any in-flight loop
+    _generation++;
     _currentItem?.complete(_ItemResult.cancelled);
     _detachWebListeners();
     _webAudio?.pause();
     _webAudio?.removeAttribute('src');
     _player?.dispose();
-    // 🟢 Disable foreground execution when leaving the screen
+
     if (!kIsWeb) {
       FlutterBackground.disableBackgroundExecution();
     }
@@ -184,7 +160,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       if (!mounted) return;
 
       try {
-        // Double-check that the controller is attached before executing
         if (_itemScrollController.isAttached) {
           _itemScrollController.scrollTo(
             index: index,
@@ -201,11 +176,10 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   // ── Build playlist ──────────────────────────────────────────────────────────
 
-  List<List<_PlaylistItem>> _buildBlocks() {
-    final blocks = <List<_PlaylistItem>>[];
+  List<_PlaylistItem> _buildFlatPlaylist() {
+    final playlist = <_PlaylistItem>[];
     for (var i = 0; i < widget.entries.length; i++) {
       final entry = widget.entries[i];
-      final items = <_PlaylistItem>[];
 
       final sentencePath = (entry['sentence_audio_path'] as String?) ?? '';
       final sentenceInputPath =
@@ -214,7 +188,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       final sentenceInputText = (entry['sentence_input'] as String?) ?? '';
 
       if (sentenceInputPath.isNotEmpty) {
-        items.add(_PlaylistItem(
+        playlist.add(_PlaylistItem(
           entryIndex: i,
           qaIndex: -1,
           isInput: true,
@@ -224,7 +198,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
         ));
       }
       if (sentencePath.isNotEmpty) {
-        items.add(_PlaylistItem(
+        playlist.add(_PlaylistItem(
           entryIndex: i,
           qaIndex: -1,
           isInput: false,
@@ -249,7 +223,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
         final aInputText = (qa['answer_input'] as String?) ?? '';
 
         if (qInputPath.isNotEmpty) {
-          items.add(_PlaylistItem(
+          playlist.add(_PlaylistItem(
             entryIndex: i,
             qaIndex: j,
             isInput: true,
@@ -259,7 +233,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
           ));
         }
         if (qPath.isNotEmpty) {
-          items.add(_PlaylistItem(
+          playlist.add(_PlaylistItem(
             entryIndex: i,
             qaIndex: j,
             isInput: false,
@@ -269,7 +243,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
           ));
         }
         if (aInputPath.isNotEmpty) {
-          items.add(_PlaylistItem(
+          playlist.add(_PlaylistItem(
             entryIndex: i,
             qaIndex: j,
             isInput: true,
@@ -279,7 +253,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
           ));
         }
         if (aPath.isNotEmpty) {
-          items.add(_PlaylistItem(
+          playlist.add(_PlaylistItem(
             entryIndex: i,
             qaIndex: j,
             isInput: false,
@@ -289,37 +263,29 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
           ));
         }
       }
-
-      if (items.isEmpty) {
-        debugPrint('[DriveMode] entry[$i] produced no playable items — '
-            'upstream bug? all audio paths empty');
-      } else {
-        blocks.add(items);
-      }
     }
-    return blocks;
+    return playlist;
   }
 
   // ── Main loop ───────────────────────────────────────────────────────────────
 
-  /// Linear advancement loop.  Cancelled by bumping `_generation` and
-  /// completing `_currentItem`.
   Future<void> _runDriveMode() async {
     final gen = ++_generation;
     if (mounted) setState(() => _playing = true);
 
-    if (_blocks.isNotEmpty) {
-      _scrollToBlock(_blockIndex);
+    if (_flatPlaylist.isNotEmpty) {
+      _scrollToBlock(_playlistIndex);
     }
 
-    while (mounted && gen == _generation && _blockIndex < _blocks.length) {
-      final block = _blocks[_blockIndex];
+    while (mounted &&
+        gen == _generation &&
+        _playlistIndex < _flatPlaylist.length) {
+      final item = _flatPlaylist[_playlistIndex];
       int playCount = 0;
 
-      while (mounted && gen == _generation && _itemIndex < block.length) {
-        final item = block[_itemIndex];
-        debugPrint('[DriveMode] play block[$_blockIndex] item[$_itemIndex] '
-            '${item.audioPath}');
+      while (mounted && gen == _generation) {
+        debugPrint(
+            '[DriveMode] play flat track[$_playlistIndex] ${item.audioPath}');
 
         final result = await _playOne(item);
         if (!mounted || gen != _generation) return;
@@ -331,45 +297,33 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
         playCount++;
 
-        // Only repeat if it's NOT an input language file (meaning it's a target
-        // sentence, question, or answer) and it hasn't played twice yet.
+        // Only repeat if it's NOT an input language file and it hasn't played twice yet.
         if (!item.isInput && playCount < 2) {
           await Future.delayed(Duration(milliseconds: widget.pauseMs));
           if (!mounted || gen != _generation) return;
-          continue; // Loop again for the second play of this target audio
+          continue;
         }
 
-        // Reset the count for the next playlist item
-        playCount = 0;
-
-        // Inter-segment pause. Skip after last item — _nextBlock has its own.
-        if (_itemIndex + 1 < block.length) {
-          await Future.delayed(Duration(milliseconds: widget.pauseMs));
-          if (!mounted || gen != _generation) return;
-          setState(() => _itemIndex++);
-          // 🟢 FIX: Force the list to re-center on the current block
-          // when moving between individual Q/A tracks!
-          _scrollToBlock(_blockIndex);
-        } else {
-          break; // exit inner loop, handle block transition below
-        }
+        break;
       }
 
       if (!mounted || gen != _generation) return;
 
       if (_repeatBlock) {
         await Future.delayed(Duration(milliseconds: widget.pauseMs));
-        if (!mounted || gen != _generation) return;
-        setState(() => _itemIndex = 0);
       } else {
-        if (_blockIndex + 1 < _blocks.length) {
-          await Future.delayed(Duration(milliseconds: widget.pauseMs * 2));
+        if (_playlistIndex + 1 < _flatPlaylist.length) {
+          final nextItem = _flatPlaylist[_playlistIndex + 1];
+          final isNewBlock = nextItem.entryIndex != item.entryIndex;
+          final dynamicDelay = isNewBlock ? widget.pauseMs * 2 : widget.pauseMs;
+
+          await Future.delayed(Duration(milliseconds: dynamicDelay));
           if (!mounted || gen != _generation) return;
+
           setState(() {
-            _blockIndex++;
-            _itemIndex = 0;
+            _playlistIndex++;
           });
-          _scrollToBlock(_blockIndex);
+          _scrollToBlock(_playlistIndex);
         } else {
           // Reached end of lesson.
           if (mounted) setState(() => _playing = false);
@@ -379,8 +333,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     }
   }
 
-  /// Plays one item to completion.  Returns when audio fires `ended`,
-  /// fails with `error`, or is cancelled by manual navigation.
+  /// Plays one item to completion.
   Future<_ItemResult> _playOne(_PlaylistItem item) async {
     final completer = Completer<_ItemResult>();
     _currentItem = completer;
@@ -390,7 +343,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       final isFirstPlay = _refreshedPaths.add(item.audioPath);
       final shouldRefresh = !kIsWeb && isFirstPlay;
 
-      // Ensure the canonical prefix 'TPRS/' exists before passing to storage lookup
       final targetPath = item.audioPath.startsWith('TPRS/')
           ? item.audioPath
           : 'TPRS/${item.audioPath}';
@@ -437,27 +389,21 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     StreamSubscription<ProcessingState>? sub;
 
     try {
-      // Safe Native URI Parsing
       Uri audioUri;
       if (src.startsWith('http://') || src.startsWith('https://')) {
         audioUri = Uri.parse(src);
       } else if (src.startsWith('file://')) {
-        // If it's already a full file URI string, parse it cleanly directly
         audioUri = Uri.parse(src);
       } else {
-        // Fallback for absolute filesystem paths
         audioUri = Uri.file(src);
       }
 
       debugPrint('[DriveMode] Native Player loading URI: $audioUri');
 
-      // Set the local source and completely await processing/buffering
       await player.setAudioSource(AudioSource.uri(audioUri));
 
-      // If manual navigation bumped the generation counter while we loaded, exit.
       if (completer.isCompleted) return;
 
-      // Bind the state listener ONLY after loading is fully completed
       sub = player.processingStateStream.listen((state) {
         if (state == ProcessingState.completed) {
           sub?.cancel();
@@ -469,7 +415,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
         if (!completer.isCompleted) completer.complete(_ItemResult.error);
       });
 
-      // Play the track smoothly from local storage
       await player.play();
     } catch (e) {
       debugPrint('[DriveMode] ERROR: native playback threw for $src: $e');
@@ -477,7 +422,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
     }
 
-    // Guard against manual navigation cancellations resetting lifecycle hooks
     completer.future.whenComplete(() => sub?.cancel());
   }
 
@@ -488,13 +432,11 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     _detachWebListeners();
 
     void onEnded(web.Event _) {
-      // Changed to proxy web.Event
       _detachWebListeners();
       if (!completer.isCompleted) completer.complete(_ItemResult.ok);
     }
 
     void onError(web.Event _) {
-      // Changed to proxy web.Event
       final err = audio.error;
       debugPrint('[DriveMode] ERROR: HTMLAudioElement error '
           'code=${err?.code} msg="${err?.message}" src=$src');
@@ -502,7 +444,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       if (!completer.isCompleted) completer.complete(_ItemResult.error);
     }
 
-    // Convert callbacks using the strict top-level wrapper functions
     final endedCb = web.convertEndedCallback(onEnded);
     final errorCb = web.convertErrorCallback(onError);
 
@@ -552,9 +493,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     }
   }
 
-  /// Cancels the in-flight loop iteration so a fresh `_runDriveMode` can
-  /// start at a new position.  Caller must update `_blockIndex` /
-  /// `_itemIndex` before invoking `_runDriveMode` again.
   Future<void> _interruptForNavigation() async {
     _generation++;
     _currentItem?.complete(_ItemResult.cancelled);
@@ -565,36 +503,66 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   Future<void> _prevBlock() async {
     await _interruptForNavigation();
-    final prev = _blockIndex > 0 ? _blockIndex - 1 : 0;
+    if (_flatPlaylist.isEmpty) return;
+    if (_playlistIndex == 0) {
+      _runDriveMode();
+      return;
+    }
+
+    final currentEntryIdx = _flatPlaylist[_playlistIndex].entryIndex;
+    int targetIdx = _playlistIndex;
+
+    // 1. Move out of the current block to the previous track context segment
+    while (targetIdx > 0 &&
+        _flatPlaylist[targetIdx].entryIndex == currentEntryIdx) {
+      targetIdx--;
+    }
+
+    // 2. Snap backwards to the first track layout element of that upstream block
+    final targetEntryIdx = _flatPlaylist[targetIdx].entryIndex;
+    while (targetIdx > 0 &&
+        _flatPlaylist[targetIdx - 1].entryIndex == targetEntryIdx) {
+      targetIdx--;
+    }
+
     setState(() {
-      _blockIndex = prev;
-      _itemIndex = 0;
+      _playlistIndex = targetIdx;
     });
-    _scrollToBlock(_blockIndex);
+    _scrollToBlock(_playlistIndex);
     _runDriveMode();
   }
 
   Future<void> _goNextBlock() async {
     await _interruptForNavigation();
-    if (_blockIndex + 1 >= _blocks.length) {
+    if (_flatPlaylist.isEmpty) return;
+
+    final currentEntryIdx = _flatPlaylist[_playlistIndex].entryIndex;
+    int targetIdx = _playlistIndex;
+
+    // Scan forward entirely past the current entry block boundary
+    while (targetIdx < _flatPlaylist.length &&
+        _flatPlaylist[targetIdx].entryIndex == currentEntryIdx) {
+      targetIdx++;
+    }
+
+    if (targetIdx >= _flatPlaylist.length) {
       setState(() => _playing = false);
       return;
     }
+
     setState(() {
-      _blockIndex++;
-      _itemIndex = 0;
+      _playlistIndex = targetIdx;
     });
-    _scrollToBlock(_blockIndex);
+    _scrollToBlock(_playlistIndex);
     _runDriveMode();
   }
 
   Future<void> _restartLesson() async {
     await _interruptForNavigation();
     setState(() {
-      _blockIndex = 0;
-      _itemIndex = 0;
+      _playlistIndex = 0;
     });
-    _scrollToBlock(_blockIndex);
+    _scrollToBlock(_playlistIndex);
     _runDriveMode();
   }
 
@@ -613,8 +581,13 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final totalBlocks = _blocks.length;
-    final blockNum = totalBlocks > 0 ? _blockIndex + 1 : 0;
+
+    // Estimate current visual block numbers safely from the flat index tracker
+    final totalBlocks = widget.entries.length;
+    final blockNum =
+        _flatPlaylist.isNotEmpty && _playlistIndex < _flatPlaylist.length
+            ? _flatPlaylist[_playlistIndex].entryIndex + 1
+            : (totalBlocks > 0 ? 1 : 0);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -649,7 +622,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
             ),
           ),
           Expanded(
-            child: _blocks.isEmpty
+            child: _flatPlaylist.isEmpty
                 ? Center(
                     child: Text(
                       l10n.driveModeAudioPending,
@@ -660,142 +633,60 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
                     itemScrollController: _itemScrollController,
                     itemPositionsListener: _itemPositionsListener,
                     padding: const EdgeInsets.all(20),
-                    itemCount: _blocks.length,
+                    itemCount: _flatPlaylist.length,
                     itemBuilder: (context, i) {
-                      // You can safely remove the old _blockKeys[i] assignment line here!
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 24),
-                        padding: const EdgeInsets.all(12),
-                        decoration: i == _blockIndex
-                            ? BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.05),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                ),
-                              )
-                            : null,
-                        child: _buildBlockTextContent(i),
+                      final item = _flatPlaylist[i];
+                      final isCurrent = (i == _playlistIndex);
+
+                      // Draw a visual separator whenever moving into a new grouping block
+                      final showTopDivider = i > 0 &&
+                          _flatPlaylist[i - 1].entryIndex != item.entryIndex;
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (showTopDivider)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Divider(color: Colors.white24, height: 1),
+                            ),
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.all(12),
+                            decoration: isCurrent
+                                ? BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.15),
+                                    ),
+                                  )
+                                : null,
+                            child: Text(
+                              item.text,
+                              style: TextStyle(
+                                fontSize: _fontSize,
+                                color: isCurrent
+                                    ? Colors.white
+                                    : (item.isInput
+                                        ? Colors.white30
+                                        : Colors.white54),
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),
           ),
           _buildControls(context, l10n),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBlockTextContent(int index) {
-    if (_blocks.isEmpty || index >= _blocks.length) {
-      return const SizedBox();
-    }
-    final block = _blocks[index];
-    final isCurrentBlock = index == _blockIndex;
-    final currentItem = (isCurrentBlock && _itemIndex < block.length)
-        ? block[_itemIndex]
-        : null;
-    final entry = widget.entries[index];
-
-    final sentenceInputText = (entry['sentence_input'] as String?) ?? '';
-    final sentenceText = (entry['sentence'] as String?) ?? '';
-    final qaList = (entry['qa'] as List<dynamic>?) ?? [];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _styledText(
-          sentenceInputText,
-          bold: currentItem != null &&
-              currentItem.qaIndex == -1 &&
-              currentItem.isInput,
-          isInput: true,
-          dimmed: !isCurrentBlock,
-        ),
-        const SizedBox(height: 4),
-        _styledText(
-          sentenceText,
-          bold: currentItem != null &&
-              currentItem.qaIndex == -1 &&
-              !currentItem.isInput,
-          isInput: false,
-          dimmed: !isCurrentBlock,
-        ),
-        if (qaList.isNotEmpty) ...[
-          for (var j = 0; j < qaList.length; j++) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: Divider(color: Colors.white24, height: 1),
-            ),
-            const SizedBox(height: 4),
-            _styledText(
-              (qaList[j] as Map<String, dynamic>)['question_input']
-                      as String? ??
-                  '',
-              bold: currentItem != null &&
-                  currentItem.qaIndex == j &&
-                  currentItem.isQuestion &&
-                  currentItem.isInput,
-              isInput: true,
-              dimmed: !isCurrentBlock,
-            ),
-            const SizedBox(height: 4),
-            _styledText(
-              (qaList[j] as Map<String, dynamic>)['question'] as String? ?? '',
-              bold: currentItem != null &&
-                  currentItem.qaIndex == j &&
-                  currentItem.isQuestion &&
-                  !currentItem.isInput,
-              isInput: false,
-              dimmed: !isCurrentBlock,
-            ),
-            const SizedBox(height: 8),
-            _styledText(
-              (qaList[j] as Map<String, dynamic>)['answer_input'] as String? ??
-                  '',
-              bold: currentItem != null &&
-                  currentItem.qaIndex == j &&
-                  !currentItem.isQuestion &&
-                  currentItem.isInput,
-              isInput: true,
-              dimmed: !isCurrentBlock,
-            ),
-            const SizedBox(height: 4),
-            _styledText(
-              (qaList[j] as Map<String, dynamic>)['answer'] as String? ?? '',
-              bold: currentItem != null &&
-                  currentItem.qaIndex == j &&
-                  !currentItem.isQuestion &&
-                  !currentItem.isInput,
-              isInput: false,
-              dimmed: !isCurrentBlock,
-            ),
-          ],
-        ],
-      ],
-    );
-  }
-
-  Widget _styledText(String text,
-      {required bool bold, required bool isInput, required bool dimmed}) {
-    if (text.isEmpty) return const SizedBox.shrink();
-
-    Color textColor;
-    if (bold) {
-      textColor = Colors.white;
-    } else if (dimmed) {
-      textColor = isInput ? Colors.white24 : Colors.white30;
-    } else {
-      textColor = isInput ? Colors.white54 : Colors.white70;
-    }
-
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: _fontSize,
-        color: textColor,
-        fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-        height: 1.4,
       ),
     );
   }
@@ -854,15 +745,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   }
 }
 
-/// Result of awaiting one playlist item.
 enum _ItemResult {
-  /// Audio played through and `ended` fired.
   ok,
-
-  /// HTMLAudioElement / just_audio reported an error.  Loop must stop.
   error,
-
-  /// Manual navigation cancelled the in-flight item.  Loop should bail
-  /// without advancing — a fresh `_runDriveMode` is starting.
   cancelled,
 }
