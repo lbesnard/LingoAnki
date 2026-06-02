@@ -43,17 +43,20 @@ class SyncService {
 
   /// Downloads a single file from the server and caches it locally.
   /// On web, the file is always streamed from the server so this is a no-op.
-  /// Returns true on success, false if the server returned a non-200 status.
+  /// Returns true on success, false on any failure (non-200 status or network
+  /// error such as SocketException or TimeoutException when offline).
   static Future<bool> downloadFile(String relPath) async {
     if (kIsWeb) return true; // web streams directly from server
     final dir = await _localOutputDir();
     final localFile = File('${dir.path}/$relPath');
-    final resp = await ApiService.downloadFile(relPath);
-    if (resp.statusCode == 200) {
-      await localFile.parent.create(recursive: true);
-      await localFile.writeAsBytes(resp.bodyBytes);
-      return true;
-    }
+    try {
+      final resp = await ApiService.downloadFile(relPath);
+      if (resp.statusCode == 200) {
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(resp.bodyBytes);
+        return true;
+      }
+    } catch (_) {}
     return false;
   }
 

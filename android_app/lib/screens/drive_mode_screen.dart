@@ -350,11 +350,7 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
       final uri = await SyncService.ensureLocalAndGetUri(
         targetPath,
         forceRefresh: shouldRefresh,
-      ).catchError((e) {
-        debugPrint(
-            '[DriveMode] Offline fallback triggered for $targetPath: $e');
-        return Uri.parse(targetPath);
-      });
+      );
 
       if (uri == null) {
         debugPrint(
