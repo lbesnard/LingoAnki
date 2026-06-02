@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:flutter_background/flutter_background.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/sync_service.dart';
@@ -115,15 +117,43 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   @override
   void initState() {
     super.initState();
+    _blocks = _buildBlocks();
+
+    // Call an async initialization method
+    _initializeScreenPlayback();
+  }
+
+  Future<void> _initializeScreenPlayback() async {
     if (kIsWeb) {
       _webAudio = web.HTMLAudioElement();
       _webAudio!.preload = 'auto';
     } else {
+      // 🟢 Configure the audio session natively for background/speech playbacks
+      final session = await AudioSession.instance;
+      await session.configure(AudioSessionConfiguration.speech());
+
       _player = AudioPlayer();
     }
-    _blocks = _buildBlocks();
-    if (_blocks.isNotEmpty) {
+
+    if (_blocks.isNotEmpty && mounted) {
       _runDriveMode();
+    }
+    // 2. 🟢 Configure Foreground Execution parameters for Android
+    final androidConfig = FlutterBackgroundAndroidConfig(
+      notificationTitle: "LingoDiary Drive Mode",
+      notificationText: "Playing your lesson in the background",
+      notificationImportance: AndroidNotificationImportance.normal,
+      notificationIcon: AndroidResource(
+          name: 'background_icon',
+          defType: 'drawable'), // Default fallback fallback
+    );
+
+    bool hasPermissions =
+        await FlutterBackground.initialize(androidConfig: androidConfig);
+
+    if (hasPermissions) {
+      // 🟢 Force the Android OS to keep your Dart async loop execution thread alive
+      await FlutterBackground.enableBackgroundExecution();
     }
   }
 
@@ -136,6 +166,11 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     _webAudio?.removeAttribute('src');
     _player?.dispose();
     _scrollController.dispose();
+    // 🟢 Disable foreground execution when leaving the screen
+    if (!kIsWeb) {
+      FlutterBackground.disableBackgroundExecution();
+    }
+
     super.dispose();
   }
 
