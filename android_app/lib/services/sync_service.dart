@@ -57,10 +57,12 @@ class SyncService {
     return false;
   }
 
-  /// Ensures [relPath] is available locally (downloads if missing on Android),
-  /// then returns a [Uri] ready for [AudioSource.uri].
+  /// Ensures [relPath] is available locally (downloads if missing or stale on
+  /// Android), then returns a [Uri] ready for [AudioSource.uri].
   ///
-  /// Returns null if the file could not be downloaded.
+  /// When [forceRefresh] is true and the download fails (e.g. offline), falls
+  /// back to the locally cached file if it exists.  Returns null only when no
+  /// local copy is available at all.
   /// On web, always returns the authenticated server URI without any local check.
   static Future<Uri?> ensureLocalAndGetUri(String relPath, {bool forceRefresh = false}) async {
     if (relPath.isEmpty) return null;
@@ -68,7 +70,10 @@ class SyncService {
       final path = await localPath(relPath);
       if (forceRefresh || !File(path).existsSync()) {
         final ok = await downloadFile(relPath);
-        if (!ok) return null;
+        if (!ok) {
+          // Offline fallback: serve the locally cached file if it already exists.
+          if (!File(path).existsSync()) return null;
+        }
       }
     }
     return audioUri(relPath);
