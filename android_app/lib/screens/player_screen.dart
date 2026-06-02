@@ -419,6 +419,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     if (!mounted || _sentenceEntries.isEmpty) return;
 
+    // 🟢 FIX: Pause current playback before entering Drive Mode to avoid overlapping audio
+    if (_player.playing) {
+      await _player.pause();
+    }
+
     // Navigate to Drive Mode screen
     final variantKey = _variantToApiKey(_currentTab);
     if (!mounted) return;
