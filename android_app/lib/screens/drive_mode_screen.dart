@@ -183,14 +183,19 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
-      // 🟢 Safely scrolls directly to any index, even if it hasn't been built yet!
-      _itemScrollController.scrollTo(
-        index: index,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
-        alignment:
-            0.3, // Centers the active bold sentence 30% from the top edge
-      );
+      try {
+        // Double-check that the controller is attached before executing
+        if (_itemScrollController.isAttached) {
+          _itemScrollController.scrollTo(
+            index: index,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: 0.3,
+          );
+        }
+      } catch (e) {
+        debugPrint('[DriveMode] Scroll tracking error: $e');
+      }
     });
   }
 
@@ -342,6 +347,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
           await Future.delayed(Duration(milliseconds: widget.pauseMs));
           if (!mounted || gen != _generation) return;
           setState(() => _itemIndex++);
+          // 🟢 FIX: Force the list to re-center on the current block
+          // when moving between individual Q/A tracks!
+          _scrollToBlock(_blockIndex);
         } else {
           break; // exit inner loop, handle block transition below
         }
