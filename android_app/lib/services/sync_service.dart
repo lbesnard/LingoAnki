@@ -43,24 +43,29 @@ class SyncService {
 
   /// Downloads a single file from the server and caches it locally.
   /// On web, the file is always streamed from the server so this is a no-op.
-  /// Returns true on success, false if the server returned a non-200 status.
+  /// Returns true on success, false on any failure (non-200 status or network
+  /// error such as SocketException or TimeoutException when offline).
   static Future<bool> downloadFile(String relPath) async {
     if (kIsWeb) return true; // web streams directly from server
     final dir = await _localOutputDir();
     final localFile = File('${dir.path}/$relPath');
-    final resp = await ApiService.downloadFile(relPath);
-    if (resp.statusCode == 200) {
-      await localFile.parent.create(recursive: true);
-      await localFile.writeAsBytes(resp.bodyBytes);
-      return true;
-    }
+    try {
+      final resp = await ApiService.downloadFile(relPath);
+      if (resp.statusCode == 200) {
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(resp.bodyBytes);
+        return true;
+      }
+    } catch (_) {}
     return false;
   }
 
-  /// Ensures [relPath] is available locally (downloads if missing on Android),
-  /// then returns a [Uri] ready for [AudioSource.uri].
+  /// Ensures [relPath] is available locally (downloads if missing or stale on
+  /// Android), then returns a [Uri] ready for [AudioSource.uri].
   ///
-  /// Returns null if the file could not be downloaded.
+  /// When [forceRefresh] is true and the download fails (e.g. offline), falls
+  /// back to the locally cached file if it exists.  Returns null only when no
+  /// local copy is available at all.
   /// On web, always returns the authenticated server URI without any local check.
   static Future<Uri?> ensureLocalAndGetUri(String relPath, {bool forceRefresh = false}) async {
     if (relPath.isEmpty) return null;
@@ -68,7 +73,10 @@ class SyncService {
       final path = await localPath(relPath);
       if (forceRefresh || !File(path).existsSync()) {
         final ok = await downloadFile(relPath);
-        if (!ok) return null;
+        if (!ok) {
+          // Offline fallback: serve the locally cached file if it already exists.
+          if (!File(path).existsSync()) return null;
+        }
       }
     }
     return audioUri(relPath);

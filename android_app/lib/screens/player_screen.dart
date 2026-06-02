@@ -170,7 +170,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _cycleVariants = prefs.getBool('lesson_cycle_variants') ?? false;
     });
     _player.setLoopMode(_loopEnabled ? LoopMode.one : LoopMode.off);
-    // Fetch app config for Drive Mode availability
+    // Fire-and-forget: config is only needed for Drive Mode; must not block
+    // text loading (which hits local SQLite cache and should be instant).
+    _fetchAppConfig();
+  }
+
+  Future<void> _fetchAppConfig() async {
     try {
       final cfg = await ApiService.fetchAppConfig();
       if (mounted) {
@@ -220,8 +225,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     await _player.stop();
     setState(() {
-      _sentenceEntries =
-          []; // 👈 CRITICAL: Clear out old entries so cache read triggers!
       _audioReady = false;
       _cycleTriggered = false;
       _activeEntryIndex = -1;
@@ -242,9 +245,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final variantKey = _variantToApiKey(variantName);
 
       // Local-first: instant display from day_cache SQLite.
-      if (_sentenceEntries.isEmpty) {
-        await _loadEntriesFromDayCache(variantKey);
-      }
+      await _loadEntriesFromDayCache(variantKey);
 
       // Background API refresh — fetches full day data and updates day_cache.
       ApiService.getDayData(_lessonDate!).then((dayData) {
@@ -281,9 +282,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final entries = rawEntries
         .map((e) {
           final em = e as Map<String, dynamic>;
-          final lesson = (em['lessons'] as Map<String, dynamic>?)?[variantKey]
-                  as Map<String, dynamic>? ??
-              {};
+          final lessonsMap = em['lessons'] as Map<String, dynamic>? ?? {};
+
+          // Locate the key case-insensitively so that both
+          // capitalized and lowercased API schemas match smoothly.
+          final matchingKey = lessonsMap.keys.firstWhere(
+            (k) => k.toLowerCase() == variantKey.toLowerCase(),
+            orElse: () => variantKey,
+          );
+          final lesson = lessonsMap[matchingKey] as Map<String, dynamic>? ?? {};
+
           return <String, dynamic>{
             'index': em['index'],
             'sentence': lesson['sentence'] ?? '',
@@ -402,8 +410,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       // Re-sync this day's entries to get the new audio paths.
-      // Must use getDayData (full day object with nested lessons) because
-      // _applyEntriesFromDayData expects the getDayData format.
       if (_lessonDate != null) {
         try {
           final variantKey = _variantToApiKey(_currentTab);
@@ -418,6 +424,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (!mounted || _sentenceEntries.isEmpty) return;
+
+    // Pause current playback before entering Drive Mode to avoid overlapping audio
+    if (_player.playing) {
+      await _player.pause();
+    }
 
     // Navigate to Drive Mode screen
     final variantKey = _variantToApiKey(_currentTab);
@@ -539,9 +550,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           entryIdx == _stickyEntryIndex &&
           _stickyQaIndex >= 0) {
         // In a pause within the same entry — hold last Q/A bold, BUT only if we
-        // are past the first Q/A start.  If the user seeked backward to the
-        // sentence, ms will be before the first Q/A start and we must clear
-        // sticky so the sentence (not a stale Q/A) goes bold.
+        // are past the first Q/A start.
         final firstQaStart = _firstQaStarts[entryIdx];
         if (firstQaStart != null && ms >= firstQaStart) {
           qaIdx = _stickyQaIndex;
@@ -586,13 +595,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (key == null) return;
     final ctx = key.currentContext;
     if (ctx == null) return;
-    // The scoring bar is always at the top, so align the sentence just below it.
-    // alignment: 0.0 aligns to the top, but we add a small offset for padding.
     Scrollable.ensureVisible(
       ctx,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.08, // Just below the scoring bar (tweak as needed)
+      alignment: 0.08,
     );
   }
 
@@ -644,7 +651,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleLoopBlock() {
     setState(() => _loopBlock = !_loopBlock);
-    // If enabling block repeat and we're currently playing, immediately position cursor
     if (_loopBlock && _activeEntryIndex >= 0) {
       setState(() {
         _activeQaIndex = -1;
@@ -662,25 +668,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await prefs.setBool('lesson_cycle_variants', _cycleVariants);
   }
 
-  /// Called when playback reaches the end. If cycle mode is on, advance to
-  /// the next available variant in canonical order; otherwise do nothing
-  /// (the replay icon will appear via the StreamBuilder).
   Future<void> _onPlaybackCompleted() async {
     if (!_cycleVariants || _cycleTriggered) return;
     setState(() => _cycleTriggered = true);
-    // Canonical variant list filtered to only those present in this lesson
     final available =
         _kCanonicalOrder.where((v) => _variants.containsKey(v)).toList();
     if (available.isEmpty) return;
     final currentIdx = available.indexOf(_currentTab);
     if (currentIdx < 0 || currentIdx >= available.length - 1) {
-      // Already on the last variant (or not a variant tab) — stop cycling
       return;
     }
     final nextTab = available[currentIdx + 1];
     setState(() => _currentTab = nextTab);
     await _loadVariant(nextTab);
-    // Wait for audio to be ready (up to 5 s)
     for (var i = 0; i < 50; i++) {
       await Future.delayed(const Duration(milliseconds: 100));
       if (_audioReady) break;
@@ -691,19 +691,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Load the Input Diary content.
-  ///
-  /// Priority:
-  ///   1. input_language_sentence from already-loaded entries (fastest, offline)
-  ///   2. Local cache file (offline)
-  ///   3. Fetch from server via /api/lessons/entries using the first available variant
   Future<void> _loadDiaryContent() async {
     if (_lessonDate == null) {
       setState(() => _diaryContent = '(No date found in lesson name)');
       return;
     }
 
-    // If we already have entries loaded from any TPRS variant, just show them.
     if (_sentenceEntries.isNotEmpty) {
       final buf = StringBuffer();
       for (var i = 0; i < _sentenceEntries.length; i++) {
@@ -719,7 +712,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final base = widget.lesson['base'] as String? ?? '';
 
-    // On Android: check/use local text cache.
     if (!kIsWeb) {
       final cachePath =
           await SyncService.localPath('TPRS/$base.diary_input.txt');
@@ -730,7 +722,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    // Not cached — fetch entries from any available variant to get sentences.
     setState(() {
       _diaryLoading = true;
       _diaryContent = '';
@@ -756,9 +747,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await cacheFile.parent.create(recursive: true);
         await cacheFile.writeAsString(content);
       }
-      if (mounted)
+      if (mounted) {
         setState(() => _diaryContent =
             content.isNotEmpty ? content : '(No diary entries found)');
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _diaryContent =
@@ -830,8 +822,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final sentenceInput = entry['sentence_input'] as String? ?? '';
           final inputSentence =
               entry['input_language_sentence'] as String? ?? '';
-          // For non-original variants, prefer sentence_input (variant's own
-          // English translation); fall back to inputSentence (original English).
           final displayInput = (_currentTab.toLowerCase() != 'original' &&
                   sentenceInput.isNotEmpty)
               ? sentenceInput
@@ -854,7 +844,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Sentence row — tap to toggle translation
                 GestureDetector(
                   onTap: () {
                     setState(() {
@@ -896,8 +885,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                 ),
-
-                // Translation (hidden until tapped)
                 if (isExpanded &&
                     (displayInput.isNotEmpty || outputTranslation.isNotEmpty))
                   Padding(
@@ -914,9 +901,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               fontStyle: FontStyle.italic,
                             ),
                           ),
-                        // For non-original variants (enhanced/future/present),
-                        // output_language_translation is the *original* sentence —
-                        // not a translation of the variant — so don't show it.
                         if (_currentTab.toLowerCase() == 'original' &&
                             outputTranslation.isNotEmpty &&
                             outputTranslation != sentence)
@@ -930,8 +914,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-
-                // Q&A pairs
                 ...qa.asMap().entries.map((e) {
                   final j = e.key;
                   final qaPair = e.value;
@@ -1012,7 +994,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   );
                 }),
-
                 const SizedBox(height: 4),
               ],
             ),
@@ -1076,8 +1057,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() => _scoredSentenceIndex = entryIndex);
 
-    // Save optimistically as synced=true — prevents duplicate send if
-    // the connectivity-restore flush fires while this API call is in-flight.
     int localId = 0;
     try {
       localId = await LocalDbService.saveSrsScore(
@@ -1088,10 +1067,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     } catch (_) {}
 
-    // Fire API in background; on failure reset to unsynced so it queues.
     final savedId = localId;
     ApiService.scoreEntry(_lessonDate!, idx, score).then((result) {
-      // Already marked synced — just show interval snackbar.
       if (mounted) {
         final reviewing = result['reviewing'] as Map<String, dynamic>?;
         final intervalDays = reviewing?['interval_days'] as int?;
@@ -1108,7 +1085,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       }
     }).catchError((e) {
-      // Reset to unsynced so it queues for next connectivity-restore flush.
       if (savedId > 0) LocalDbService.resetScoreSynced(savedId);
       if (mounted) {
         final isOffline = e is SocketException || e is TimeoutException;
@@ -1171,19 +1147,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       appBar: AppBar(
         title: Text(title, overflow: TextOverflow.ellipsis),
         actions: [
-          // Font size cycle button
           IconButton(
             tooltip: l10n.fontSizeTooltip(_fontSize.toStringAsFixed(0)),
             icon: const Icon(Icons.text_fields),
             onPressed: _cycleFontSize,
           ),
-          // Drive Mode
           IconButton(
             tooltip: l10n.driveModeTooltip,
             icon: const Icon(Icons.directions_car_outlined),
             onPressed: _enterDriveMode,
           ),
-          // Loop toggle
           IconButton(
             tooltip: _loopEnabled ? l10n.loopOn : l10n.loopOff,
             icon: Icon(
@@ -1222,7 +1195,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       body: Column(
         children: [
-          // ── Sync progress bar (visible while syncing) ─────────────────────
           ListenableBuilder(
             listenable: SyncManager.instance,
             builder: (_, __) {
@@ -1273,7 +1245,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
               );
             },
           ),
-          // ── Tab / Variant selector ────────────────────────────────────────
           if (_tabNames.length > 1)
             Container(
               color: Colors.grey.shade50,
@@ -1290,20 +1261,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           : null,
                     );
                   }).toList(),
-                  selected: {_currentTab},
                   onSelectionChanged: (sel) {
                     final tab = sel.first;
                     setState(() {
                       _currentTab = tab;
                       _audioReady = false;
-                      // Clear entries when switching variants so stale content
-                      // from the previous tab is not shown.
-                      _sentenceEntries = [];
-                      _segments = [];
-                      _entrySpans = {};
-                      _expandedTranslations.clear();
-                      _sentenceKeys.clear();
+                      // REMOVED: _sentenceEntries = [];
+                      // REMOVED: _segments = [];
+                      // REMOVED: _entrySpans = {};
+                      // REMOVED: _expandedTranslations.clear();
+                      // REMOVED: _sentenceKeys.clear();
                     });
+
                     if (tab == _kInputDiaryTab) {
                       _player.stop();
                       _loadDiaryContent();
@@ -1311,11 +1280,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       _loadVariant(tab);
                     }
                   },
+                  selected: {_currentTab},
                 ),
               ),
             ),
-
-          // ── Audio controls (hidden for Input Diary tab) ───────────────────
           if (!isInputDiary)
             Container(
               color: Colors.grey.shade100,
@@ -1383,7 +1351,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final playing = state?.playing ?? false;
                           final completed = state?.processingState ==
                               ProcessingState.completed;
-                          // Trigger cycle when completed (once, via side-effect in builder)
                           if (completed && _cycleVariants && _audioReady) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               _onPlaybackCompleted();
@@ -1412,7 +1379,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     _triggerSync();
                                   }
                                 : () async {
-                                    // Track lesson play when starting playback
                                     if (!playing && !completed) {
                                       _trackLessonPlay();
                                     }
@@ -1505,12 +1471,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
               ),
             ),
-
-          // ── Scoring bar (visible when a sentence is active and structured data loaded) ──
           if (_activeEntryIndex >= 0 && _sentenceEntries.isNotEmpty)
             _buildScoringBar(),
-
-          // ── Content area ──────────────────────────────────────────────────
           Expanded(
             child: isInputDiary ? _buildDiaryContent() : _buildTprsContent(),
           ),
