@@ -1,8 +1,10 @@
-# LingoDiary
+<p align="center">
+  <img src="android_app/assets/icon/app_icon.png" width="96" alt="LingoDiary Icon"/>
+</p>
+
+## <h1 align="center">LingoDiary</h1>
 
 Write diary entries in your own language. LingoDiary turns them into TPRS-style audio lessons — translated sentences, Q&A pairs, and multiple grammatical variants — ready to listen on your phone or in the browser.
-
----
 
 ## Quick start
 
@@ -63,11 +65,11 @@ gender: "male"
 tts:
   model: "piper"
   piper:
-    voice: "talesyntese-medium"      # study language voice
-    piper_length_scale_tprs: 2       # speech speed (higher = slower)
+    voice: "talesyntese-medium" # study language voice
+    piper_length_scale_tprs: 2 # speech speed (higher = slower)
     piper_length_scale_diary: 2
   piper_input_language:
-    voice: "en_GB-alan-medium"       # native language voice (enables Drive Mode)
+    voice: "en_GB-alan-medium" # native language voice (enables Drive Mode)
   repeat_sentence_tprs: 2
   repeat_sentence_diary: 2
   pause_between_sentences_duration: 600
