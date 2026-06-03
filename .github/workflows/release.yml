@@ -224,6 +224,10 @@ jobs:
         working-directory: android_app
         run: flutter pub get
 
+      - name: Generate launcher icons
+        working-directory: android_app
+        run: flutter pub run flutter_launcher_icons
+
       - name: Analyze Flutter code
         working-directory: android_app
         run: flutter analyze --no-fatal-infos
@@ -296,6 +300,10 @@ jobs:
       - name: Install Flutter dependencies
         working-directory: android_app
         run: flutter pub get
+
+      - name: Generate launcher icons
+        working-directory: android_app
+        run: flutter pub run flutter_launcher_icons
 
       - name: Build Flutter web
         working-directory: android_app
