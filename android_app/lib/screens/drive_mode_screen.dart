@@ -6,6 +6,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/sync_service.dart';
@@ -28,6 +30,7 @@ class DriveModeScreen extends StatefulWidget {
 
   /// Pause between segments in milliseconds (from server config).
   final int pauseMs;
+  final String? lessonDate;
 
   const DriveModeScreen({
     super.key,
@@ -35,6 +38,7 @@ class DriveModeScreen extends StatefulWidget {
     required this.variantKey,
     required this.lessonTitle,
     required this.pauseMs,
+    this.lessonDate,
   });
 
   @override
@@ -74,7 +78,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
   late List<_PlaylistItem> _flatPlaylist;
   int _playlistIndex = 0;
-  int _blockStartIndex = 0; // Start of current block for proper block-level repeating
+  int _blockStartIndex =
+      0; // Start of current block for proper block-level repeating
   bool _repeatBlock = false;
   bool _loopLesson = false; // Repeat entire lesson from start when finished
   bool _playing = false;
@@ -93,7 +98,6 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
   /// Active web listeners typed dynamically to satisfy both implementations
   dynamic _webEndedListener;
   dynamic _webErrorListener;
-
 
   @override
   void initState() {
@@ -267,6 +271,24 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     return playlist;
   }
 
+  Future<void> _trackLessonPlay() async {
+    if (widget.lessonDate == null) return;
+
+    final timestamp = DateTime.now().toUtc().toIso8601String();
+
+    // Save locally first (offline support)
+    try {
+      await LocalDbService.saveLessonLastReviewed(
+          widget.lessonDate!, timestamp);
+    } catch (_) {}
+
+    // Update server in background
+    ApiService.updateLessonLastReviewed(widget.lessonDate!).catchError((_) {
+      // Background sync engine picks this up later when online
+      return <String, dynamic>{};
+    });
+  }
+
   // ── Main loop ───────────────────────────────────────────────────────────────
 
   Future<void> _runDriveMode() async {
@@ -276,6 +298,9 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
     if (_flatPlaylist.isNotEmpty) {
       _scrollToBlock(_playlistIndex);
     }
+
+    // Trigger tracking immediately when Drive Mode playback starts
+    _trackLessonPlay();
 
     while (mounted &&
         gen == _generation &&
@@ -548,7 +573,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     setState(() {
       _playlistIndex = targetIdx;
-      _blockStartIndex = targetIdx; // Update block start for repeat functionality
+      _blockStartIndex =
+          targetIdx; // Update block start for repeat functionality
     });
     _scrollToBlock(_playlistIndex);
     _runDriveMode();
@@ -574,7 +600,8 @@ class _DriveModeScreenState extends State<DriveModeScreen> {
 
     setState(() {
       _playlistIndex = targetIdx;
-      _blockStartIndex = targetIdx; // Update block start for repeat functionality
+      _blockStartIndex =
+          targetIdx; // Update block start for repeat functionality
     });
     _scrollToBlock(_playlistIndex);
     _runDriveMode();

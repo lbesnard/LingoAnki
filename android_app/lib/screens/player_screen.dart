@@ -441,6 +441,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           variantKey: variantKey,
           lessonTitle: widget.lesson['display'] as String? ?? '',
           pauseMs: _driveModePauseMs,
+          lessonDate: _lessonDate,
         ),
       ),
     );

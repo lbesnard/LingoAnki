@@ -21,6 +21,8 @@ cp "$APP_DIR/android/app/src/main/AndroidManifest.xml" "$BACKUP_DIR/AndroidManif
 cp "$APP_DIR/android/app/build.gradle.kts" "$BACKUP_DIR/build.gradle.kts" 2>/dev/null || true
 cp "$APP_DIR/android/build.gradle.kts" "$BACKUP_DIR/root_build.gradle.kts" 2>/dev/null || true
 cp "$APP_DIR/android/settings.gradle.kts" "$BACKUP_DIR/settings.gradle.kts" 2>/dev/null || true
+# Preserve assets directory (including icon source)
+cp -r "$APP_DIR/assets" "$BACKUP_DIR/assets" 2>/dev/null || true
 
 echo "==> Removing old android_app/ …"
 rm -rf "$APP_DIR"
@@ -46,6 +48,11 @@ echo "pubspec.yaml restored OK"
 
 echo "==> Restoring .gitignore …"
 cp "$BACKUP_DIR/.gitignore" "$APP_DIR/.gitignore" 2>/dev/null || true
+
+echo "==> Restoring assets directory …"
+if [ -d "$BACKUP_DIR/assets" ]; then
+  cp -r "$BACKUP_DIR/assets" "$APP_DIR/assets"
+fi
 
 echo "==> Restoring customised AndroidManifest.xml …"
 if [ -f "$BACKUP_DIR/AndroidManifest.xml" ]; then
