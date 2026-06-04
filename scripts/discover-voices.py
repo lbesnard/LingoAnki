@@ -183,7 +183,6 @@ FALLBACK_VOICES = {
         "female": [
             "en-US-amy-medium",
             "en-US-azure-neural",
-            "en-US-lessac-high",
             "en-US-libritts-high",
             "en-US-ljspeech-high",
             "en-US-ryan-high",
@@ -194,7 +193,6 @@ FALLBACK_VOICES = {
     "no": {
         "name": "norwegian",
         "female": ["talesyntese-medium"],
-        "male": ["talesyntese-male"],
     },
     "fr": {
         "name": "french",

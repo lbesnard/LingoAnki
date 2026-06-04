@@ -30,8 +30,6 @@ languages:
     female:
       - en-US-ryan-high
   no:
-    male:
-      - talesyntese-male
     female:
       - talesyntese-medium
   # ... more languages
@@ -199,8 +197,8 @@ Gender []:
   2. female
 Enter choice: 1
 
-Study Language Voice (male voices for no):
-  1. talesyntese-male
+Study Language Voice (available voices for no):
+  1. talesyntese-medium
 Enter choice: 1
 
 Primary Language Voice (male voices for en):
@@ -235,6 +233,12 @@ git commit -m "chore: update available Piper voices"
 This updates `scripts/piper_voices.yaml`, which is checked into the repository and used by `manage-config.py` for voice selection during user setup.
 
 ## Troubleshooting
+
+### Limited Norwegian Voices
+
+**Note:** Piper TTS currently has only one Norwegian voice: `talesyntese-medium` (female). Users selecting Norwegian as their study language will only have this single voice available, regardless of the "male" or "female" gender selection.
+
+This is a limitation of the Piper voice library, not LingoDiary. If you need male Norwegian voices, consider using a different TTS engine or waiting for new voice models to be added to Piper.
 
 ### "No voices found" when running discover-voices
 
