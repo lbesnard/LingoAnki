@@ -5,15 +5,19 @@ Discover available Piper TTS voices in the installed ovos-tts-plugin-piper.
 This script queries the Piper plugin's available voices and organizes them by
 language and gender (male/female). The output is saved to scripts/piper_voices.yaml.
 
+⚠️  IMPORTANT: This script MUST be run from INSIDE the Docker container
+(where Piper is installed). It does NOT use hardcoded fallbacks.
+
 Usage:
-    # From repo root: python scripts/discover-voices.py
-    # It will use docker compose exec to query voices inside the container
+    # From repo root: docker compose exec lingo-diary python scripts/discover-voices.py
+    # Or run from inside the container directly: python scripts/discover-voices.py
 """
 
 import sys
 import subprocess
 import yaml
 import json
+import os
 from pathlib import Path
 from collections import defaultdict
 
@@ -72,28 +76,47 @@ def query_piper_via_docker() -> dict:
 import json
 from pathlib import Path
 try:
-    # Try to query from the actual Piper plugin
-    from piper_tts import get_available_languages
+    # First try to import from piper_tts directly (system Python in Docker base stage)
+    try:
+        from piper_tts import get_available_languages
+        languages = get_available_languages()
+        voices_dict = {}
 
-    voices_dict = {}
-    languages = get_available_languages()
-
-    if isinstance(languages, dict):
-        for lang, variants in languages.items():
-            if isinstance(variants, dict):
-                for variant in variants.keys():
-                    voice_name = f"{lang}-{variant}"
-                    voices_dict[voice_name] = voice_name
-
-    if voices_dict:
-        print(json.dumps({"voices": sorted(voices_dict.keys()), "error": None}))
-    else:
-        # Fallback: scan model directory directly
+        if isinstance(languages, dict):
+            for lang, variants in languages.items():
+                if isinstance(variants, dict):
+                    for variant in variants.keys():
+                        voice_name = f"{lang}-{variant}"
+                        voices_dict[voice_name] = voice_name
+    except ImportError:
+        # Fallback: try importing from ovos plugin
+        from ovos_tts_plugin_piper import PiperTTSPlugin
+        voices_dict = {}
+        # Try to get models from filesystem
         model_paths = [
             Path.home() / ".local" / "share" / "piper" / "models",
             Path("/app/.local/share/piper/models"),
         ]
 
+        for model_path in model_paths:
+            if model_path.exists():
+                for model_file in model_path.glob("*.onnx"):
+                    voice_name = model_file.stem
+                    voices_dict[voice_name] = str(model_file)
+                if voices_dict:
+                    break
+
+    if voices_dict:
+        print(json.dumps({"voices": sorted(voices_dict.keys()), "error": None}))
+    else:
+        # Last resort: scan models directory
+        model_paths = [
+            Path.home() / ".local" / "share" / "piper" / "models",
+            Path("/app/.local/share/piper/models"),
+            Path("/tmp/piper_models"),
+        ]
+
+        voices_dict = {}
         for model_path in model_paths:
             if model_path.exists():
                 for model_file in model_path.glob("*.onnx"):
@@ -109,7 +132,7 @@ try:
 
 except Exception as e:
     import traceback
-    print(json.dumps({"voices": [], "error": str(e)}))
+    print(json.dumps({"voices": [], "error": str(e) + ": " + traceback.format_exc()}))
 """
 
     try:
@@ -130,7 +153,7 @@ except Exception as e:
         )
 
         if result.returncode != 0:
-            print(f"❌ Docker query failed: {result.stderr}")
+            print(f"❌ Docker exec failed: {result.stderr}")
             return None
 
         # Parse JSON output
@@ -138,11 +161,24 @@ except Exception as e:
         try:
             data = json.loads(output)
             if data.get("error"):
-                print(f"❌ Error from Docker: {data['error']}")
+                error_msg = data["error"]
+                # If it's a module not found, give clearer guidance
+                if (
+                    "No module named" in error_msg
+                    or "cannot import" in error_msg.lower()
+                ):
+                    print(f"❌ Piper not installed: {error_msg}")
+                    print()
+                    print("SOLUTION: Install Piper in the container:")
+                    print(
+                        "  docker compose exec lingo-diary pip install ovos-tts-plugin-piper"
+                    )
+                else:
+                    print(f"❌ Error from Docker: {error_msg}")
                 return None
             return {"voices": data.get("voices", [])}
         except json.JSONDecodeError:
-            print(f"❌ Could not parse Docker output")
+            print(f"❌ Could not parse Docker output: {output[:200]}")
             return None
 
     except FileNotFoundError:
@@ -156,31 +192,89 @@ except Exception as e:
 # REMOVED: No hardcoded fallback list. Use docker compose exec to query actual voices.
 
 
-def discover_voices():
-    """Query Piper plugin from Docker and organize voices by language and gender.
+def query_piper_local() -> list:
+    """Query Piper voices from local system (when inside Docker or with local install)."""
+    try:
+        from piper_tts import get_available_languages
 
-    IMPORTANT: This ONLY works if Docker container is running with ovos-tts-plugin-piper installed.
-    Do NOT fall back to hardcoded voice lists — they get stale and cause bugs.
+        voices_dict = {}
+        languages = get_available_languages()
+
+        if isinstance(languages, dict):
+            for lang, variants in languages.items():
+                if isinstance(variants, dict):
+                    for variant in variants.keys():
+                        voice_name = f"{lang}-{variant}"
+                        voices_dict[voice_name] = voice_name
+        return sorted(voices_dict.keys())
+    except ImportError:
+        # Try scanning model directory
+        try:
+            from pathlib import Path
+
+            model_paths = [
+                Path.home() / ".local" / "share" / "piper" / "models",
+                Path("/app/.local/share/piper/models"),
+            ]
+
+            voices_dict = {}
+            for model_path in model_paths:
+                if model_path.exists():
+                    for model_file in model_path.glob("*.onnx"):
+                        voice_name = model_file.stem
+                        voices_dict[voice_name] = str(model_file)
+                    if voices_dict:
+                        break
+
+            return sorted(voices_dict.keys())
+        except Exception:
+            return []
+    except Exception:
+        return []
+
+
+def discover_voices():
+    """Query Piper plugin and organize voices by language and gender.
+
+    Works in two modes:
+      1. Inside Docker: Queries piper_tts directly
+      2. From host: Queries Docker via docker compose exec
     """
     print("=" * 70)
     print("Piper Voice Discovery Tool")
     print("=" * 70)
 
-    result = query_piper_via_docker()
+    # Check if we're inside Docker
+    inside_docker = os.path.exists("/.dockerenv")
 
-    if result is None or not result.get("voices"):
-        print("\n❌ FATAL: No voices discovered from Docker container.")
+    if inside_docker:
+        print("✓ Running inside Docker container")
+        print("Querying Piper directly...")
+        voices_list = query_piper_local()
+    else:
+        print("Running from host machine")
+        print("Attempting to query Docker container...")
+        result = query_piper_via_docker()
+        voices_list = result.get("voices", []) if result else []
+
+    if not voices_list:
+        print("\n❌ FATAL: No voices discovered.")
         print()
-        print("SOLUTION: Start the container and ensure Piper is installed")
-        print("  1. docker compose up -d lingo-diary")
-        print("  2. docker compose exec lingo-diary pip install ovos-tts-plugin-piper")
-        print("  3. Re-run this script")
+        if inside_docker:
+            print("SOLUTION: Piper is not installed or no models found:")
+            print("  pip install ovos-tts-plugin-piper")
+        else:
+            print("SOLUTION:")
+            print("  1. Start the container: docker compose up -d lingo-diary")
+            print("  2. Run discovery INSIDE the container:")
+            print(
+                "     docker compose exec lingo-diary python scripts/discover-voices.py"
+            )
         print()
         print("DO NOT use hardcoded voice lists — they get out of sync and cause bugs.")
         sys.exit(1)
 
-    voices_list = result["voices"]
-    print(f"✓ Found {len(voices_list)} voices from Docker container")
+    print(f"✓ Found {len(voices_list)} voices")
 
     # Organize by language and gender
     languages = defaultdict(lambda: {"male": [], "female": [], "unknown": []})
