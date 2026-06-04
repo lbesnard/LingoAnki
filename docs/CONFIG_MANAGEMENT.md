@@ -41,9 +41,20 @@ languages:
 
 Interactive CLI tool for creating, updating, and deleting user configurations.
 
+**Config directory resolution** (in priority order):
+1. `-o/--output` flag (overrides everything)
+2. Parse `docker-compose.yml` to extract `/app/.config/lingoDiary/` volume mount
+3. Fallback: `~/.config/efunk_lingo/lingoDiary/`
+
 **Usage (interactive menu):**
 ```bash
 python scripts/manage-config.py
+```
+
+**Usage (with custom config directory):**
+```bash
+python scripts/manage-config.py -o /path/to/config add-user
+python scripts/manage-config.py -i /path/to/docker-compose.yml add-user
 ```
 
 **Usage (direct commands):**
@@ -52,7 +63,15 @@ python scripts/manage-config.py add-user
 python scripts/manage-config.py modify-user [username]
 python scripts/manage-config.py delete-user [username]
 python scripts/manage-config.py list-users
+
+# With options:
+python scripts/manage-config.py -o ~/.config/custom add-user
+python scripts/manage-config.py -i docker-compose.yml list-users
 ```
+
+**Options:**
+- `-i, --input FILE` — Path to docker-compose.yml (default: ../docker-compose.yml)
+- `-o, --output DIR` — Config directory (overrides docker-compose.yml volume)
 
 ## Configuration Files
 
