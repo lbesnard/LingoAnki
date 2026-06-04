@@ -1,5 +1,6 @@
 languages:
   en:
+    name: english
     male:
     - alan-low
     - en-US-artic-neural-8000hz
@@ -22,16 +23,19 @@ languages:
     - en-US-ryan-low
     - en-US-ryan-medium
   'no':
+    name: norwegian
     female:
     - talesyntese-medium
     male:
     - talesyntese-male
   fr:
+    name: french
     male:
     - fr-FR-gilles-low
     female:
     - fr-FR-siwis-medium
   de:
+    name: german
     male:
     - de-DE-karlsson-low
     - de-DE-thorsten-high
@@ -40,33 +44,40 @@ languages:
     - de-DE-eva_k-medium
     - de-DE-kerstin-low
   es:
+    name: spanish
     male:
     - es-ES-carlos-low
     - es-MX-carlos-low
     female:
     - es-ES-tania-medium
   it:
+    name: italian
     male:
     - it-IT-riccardo-x-low
     female:
     - it-IT-riccardo_riccardo-x-low
   pt:
+    name: portuguese
     male:
     - pt-BR-faber-medium
     female:
     - pt-PT-fernanda-medium
   ru:
+    name: russian
     male:
     - ru-RU-igor-medium
     female:
     - ru-RU-natasha-medium
   zh:
+    name: chinese
     female:
     - zh-CN-huayan-x-low
   ja:
+    name: japanese
     female:
     - ja-JP-kokoro-medium
   ko:
+    name: korean
     female:
     - ko-KR-kss-medium
 _metadata:

@@ -148,9 +148,25 @@ except Exception as e:
         return None
 
 
+# Canonical language code to name mapping (lowercase)
+LANGUAGE_NAMES = {
+    "en": "english",
+    "no": "norwegian",
+    "fr": "french",
+    "de": "german",
+    "es": "spanish",
+    "it": "italian",
+    "pt": "portuguese",
+    "ru": "russian",
+    "zh": "chinese",
+    "ja": "japanese",
+    "ko": "korean",
+}
+
 # Known Piper voices as fallback (from Hugging Face Piper repository)
 FALLBACK_VOICES = {
     "en": {
+        "name": "english",
         "male": [
             "alan-low",
             "en-US-artic-neural-8000hz",
@@ -175,25 +191,44 @@ FALLBACK_VOICES = {
             "en-US-ryan-medium",
         ],
     },
-    "no": {"female": ["talesyntese-medium"], "male": ["talesyntese-male"]},
-    "fr": {"male": ["fr-FR-gilles-low"], "female": ["fr-FR-siwis-medium"]},
+    "no": {
+        "name": "norwegian",
+        "female": ["talesyntese-medium"],
+        "male": ["talesyntese-male"],
+    },
+    "fr": {
+        "name": "french",
+        "male": ["fr-FR-gilles-low"],
+        "female": ["fr-FR-siwis-medium"],
+    },
     "de": {
+        "name": "german",
         "male": ["de-DE-karlsson-low", "de-DE-thorsten-high"],
         "female": ["de-DE-eva_k-x-low", "de-DE-eva_k-medium", "de-DE-kerstin-low"],
     },
     "es": {
+        "name": "spanish",
         "male": ["es-ES-carlos-low", "es-MX-carlos-low"],
         "female": ["es-ES-tania-medium"],
     },
     "it": {
+        "name": "italian",
         "male": ["it-IT-riccardo-x-low"],
         "female": ["it-IT-riccardo_riccardo-x-low"],
     },
-    "pt": {"male": ["pt-BR-faber-medium"], "female": ["pt-PT-fernanda-medium"]},
-    "ru": {"male": ["ru-RU-igor-medium"], "female": ["ru-RU-natasha-medium"]},
-    "zh": {"female": ["zh-CN-huayan-x-low"]},
-    "ja": {"female": ["ja-JP-kokoro-medium"]},
-    "ko": {"female": ["ko-KR-kss-medium"]},
+    "pt": {
+        "name": "portuguese",
+        "male": ["pt-BR-faber-medium"],
+        "female": ["pt-PT-fernanda-medium"],
+    },
+    "ru": {
+        "name": "russian",
+        "male": ["ru-RU-igor-medium"],
+        "female": ["ru-RU-natasha-medium"],
+    },
+    "zh": {"name": "chinese", "female": ["zh-CN-huayan-x-low"]},
+    "ja": {"name": "japanese", "female": ["ja-JP-kokoro-medium"]},
+    "ko": {"name": "korean", "female": ["ko-KR-kss-medium"]},
 }
 
 
@@ -227,11 +262,11 @@ def discover_voices():
 
             languages[lang_code][gender].append(voice_name)
 
-        # Remove "unknown" gender category if empty
+        # Remove "unknown" gender category if empty, add language names
         organized = {}
         for lang_code in sorted(languages.keys()):
             lang_data = languages[lang_code]
-            organized[lang_code] = {}
+            organized[lang_code] = {"name": LANGUAGE_NAMES.get(lang_code, lang_code)}
             for gender in ["male", "female", "unknown"]:
                 if lang_data[gender]:
                     organized[lang_code][gender] = sorted(lang_data[gender])
@@ -239,7 +274,9 @@ def discover_voices():
     # Print processing log
     print("\nVoices organized by language and gender:")
     for lang_code, genders in sorted(organized.items()):
-        for gender, voice_names in sorted(genders.items()):
+        # Skip "name" field in display
+        display_genders = {k: v for k, v in genders.items() if k != "name"}
+        for gender, voice_names in sorted(display_genders.items()):
             for voice_name in voice_names:
                 print(f"  {voice_name:40} → {lang_code} / {gender}")
 

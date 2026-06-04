@@ -137,16 +137,8 @@ DEFAULT_CONFIG_TEMPLATE = """# LingoDiary User Configuration
 
 output_dir: "/data/{username}/"
 
-# Diary processing
-diary_entries_prompt_user: true
-overwrite_diary_markdown: true
-overwrite_tprs_markdown: true
-overwrite_tprs_audio: false
-
 # Content generation
-create_tprs_auto: true
 create_diary_answers_auto: true
-create_anki_deck: false
 
 # OpenAI Configuration
 openai:
@@ -176,17 +168,6 @@ tts:
   repeat_sentence_diary: 2
   pause_between_sentences_duration: 600
   answer_silence_duration: 5000
-
-# Template markers for diary parsing
-template_diary:
-  trial: '<span style="color: #C70039">Forsøk</span>:'
-  answer: '<span style="color: #097969">Rettelse</span>:'
-  tips: '<span style="color: #dda504">Tips</span>:'
-
-template_tprs:
-  sentence: "SETNING:"
-  question: "SPØRSMÅL:"
-  answer: "SVAR:"
 """
 
 
@@ -302,35 +283,74 @@ class ConfigManager:
     def prompt_for_language(
         self, label: str, current: Optional[str] = None
     ) -> tuple[str, str]:
-        """Prompt for language name and code. Returns (name, code)."""
+        """Prompt for language selection from available languages. Returns (name, code)."""
+        # self.voices is already the languages dict (loaded from _load_voices)
+        language_codes = [
+            code for code in self.voices.keys() if code not in ("_metadata",)
+        ]
+
+        if not language_codes:
+            print("ERROR: No languages available in piper_voices.yaml")
+            return "english", "en"
+
+        # Map code → name from voices file
+        language_map = {}
+        for code in sorted(language_codes):
+            lang_data = self.voices[code]
+            name = lang_data.get("name", code)
+            language_map[code] = name
+
         while True:
             if current:
-                response = input(
-                    f"\n{label} [{current}] (press Enter to keep): "
-                ).strip()
+                print(f"\n{label} [{current}]:")
+                current_code = None
+                for code in sorted(language_codes):
+                    name = language_map[code]
+                    marker = "●" if f"{name} ({code})" == current else " "
+                    print(f"  {marker} {code}. {name}")
+                    if f"{name} ({code})" == current:
+                        current_code = code
+
+                response = input("Enter choice (or press Enter to keep): ").strip()
                 if not response:
-                    # Extract code from current (format: "english (en)")
+                    # Extract code from current format "english (en)"
                     if "(" in current and ")" in current:
                         code = current.split("(")[1].rstrip(")")
                         name = current.split("(")[0].strip()
                         return name, code
-                    return current, current.lower()[:2]
+                    return current, current_code or current.lower()[:2]
             else:
-                response = input(f"\n{label}: ").strip()
+                print(f"\n{label}:")
+                sorted_codes = sorted(language_codes)
+                for i, code in enumerate(sorted_codes, 1):
+                    name = language_map[code]
+                    print(f"  {i}. {name} ({code})")
+
+                response = input("Enter choice (number or code): ").strip()
 
             if not response:
                 print("ERROR: Language cannot be empty")
                 continue
 
-            # Parse format: "English (en)" or just "English"
-            if "(" in response and ")" in response:
-                name = response.split("(")[0].strip()
-                code = response.split("(")[1].rstrip(")")
-            else:
-                name = response
-                code = response.lower()[:2]
+            # Try to match the response to a language code
+            if response in language_codes:
+                name = language_map[response]
+                return name, response
 
-            return name, code
+            # Try to match by index (1-based)
+            try:
+                idx = int(response) - 1
+                sorted_codes = sorted(language_codes)
+                if 0 <= idx < len(sorted_codes):
+                    code = sorted_codes[idx]
+                    name = language_map[code]
+                    return name, code
+            except ValueError:
+                pass
+
+            print(
+                f"ERROR: Invalid choice '{response}'. Enter a number (1-{len(language_codes)}) or language code (e.g., 'en')."
+            )
 
     def prompt_for_gender(self, current: Optional[str] = None) -> str:
         """Prompt for gender (male/female)."""
