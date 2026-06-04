@@ -236,9 +236,10 @@ def query_piper_local() -> list:
 def discover_voices():
     """Query Piper plugin and organize voices by language and gender.
 
-    Works in two modes:
+    Works in three modes:
       1. Inside Docker: Queries piper_tts directly
       2. From host: Queries Docker via docker compose exec
+      3. Fallback: Uses existing piper_voices.yaml if discovery fails
     """
     print("=" * 70)
     print("Piper Voice Discovery Tool")
@@ -258,20 +259,47 @@ def discover_voices():
         voices_list = result.get("voices", []) if result else []
 
     if not voices_list:
-        print("\n❌ FATAL: No voices discovered.")
+        # Fallback: Try to use existing piper_voices.yaml
+        script_dir = Path(__file__).parent
+        voices_file = script_dir / "piper_voices.yaml"
+
+        if voices_file.exists():
+            print(
+                "\n⚠️  No voices discovered from Piper, but found existing piper_voices.yaml"
+            )
+            print("Using cached voice list (may be outdated if you added new voices)")
+            print()
+
+            try:
+                with open(voices_file, "r") as f:
+                    config = yaml.safe_load(f)
+                    languages = config.get("languages", {})
+                    if languages:
+                        return languages
+            except Exception as e:
+                print(f"⚠️  Could not load existing piper_voices.yaml: {e}")
+
+        # If we get here, discovery failed and we have no fallback
+        print("\n❌ FATAL: No voices discovered from Piper.")
         print()
         if inside_docker:
-            print("SOLUTION: Piper is not installed or no models found:")
+            print("SOLUTION: Ensure Piper and voice models are installed:")
             print("  pip install ovos-tts-plugin-piper")
+            print("  piper --download-dir ~/.local/share/piper/models en-US")
         else:
             print("SOLUTION:")
-            print("  1. Start the container: docker compose up -d lingo-diary")
-            print("  2. Run discovery INSIDE the container:")
+            print("  Option 1: Run discovery INSIDE the container:")
             print(
-                "     docker compose exec lingo-diary python scripts/discover-voices.py"
+                "    docker compose exec lingo-diary python scripts/discover-voices.py"
             )
+            print()
+            print("  Option 2: If Piper voice models are already in the container,")
+            print("    check that piper_voices.yaml exists in scripts/")
         print()
-        print("DO NOT use hardcoded voice lists — they get out of sync and cause bugs.")
+        print("NOTE: piper_voices.yaml is already in the repo. This discovery script")
+        print(
+            "      is only needed when adding NEW Piper voice models to the container."
+        )
         sys.exit(1)
 
     print(f"✓ Found {len(voices_list)} voices")
