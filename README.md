@@ -220,3 +220,23 @@ To build the Android APK locally:
 cd android_app && flutter build apk --release
 # APK: android_app/build/app/outputs/flutter-apk/app-release.apk
 ```
+
+---
+
+## Developer: Managing Piper Voices
+
+If you add new Piper TTS voice models to the Docker image, you must regenerate the voice list:
+
+```bash
+# 1. Start the container
+docker compose up -d
+
+# 2. Run voice discovery inside the container
+docker compose exec lingo-diary python scripts/discover-voices.py
+
+# 3. Commit the updated voice list
+git add scripts/piper_voices.yaml
+git commit -m "chore: update available Piper voices"
+```
+
+This creates `scripts/piper_voices.yaml` which is used by the configuration tool (`scripts/manage-config.py`) to help users select voices when creating accounts.

@@ -6,14 +6,12 @@ Manage users and their configurations:
   - add-user: Create a new user with interactive prompts
   - modify-user: Update an existing user's configuration
   - delete-user: Remove a user and back up their config
-  - discover-voices: Regenerate the voice list (runs discover-voices.py)
 
 Usage:
     python scripts/manage-config.py              # Interactive menu
     python scripts/manage-config.py add-user
     python scripts/manage-config.py modify-user [username]
     python scripts/manage-config.py delete-user [username]
-    python scripts/manage-config.py discover-voices
 """
 
 import sys
@@ -556,10 +554,9 @@ class ConfigManager:
             print("  2. Modify User")
             print("  3. Delete User")
             print("  4. List Users")
-            print("  5. Discover Voices")
-            print("  6. Exit")
+            print("  5. Exit")
 
-            choice = input("\nEnter choice (1-6): ").strip()
+            choice = input("\nEnter choice (1-5): ").strip()
 
             if choice == "1":
                 self.add_user()
@@ -570,51 +567,10 @@ class ConfigManager:
             elif choice == "4":
                 self.list_users()
             elif choice == "5":
-                self.discover_voices()
-            elif choice == "6":
                 print("Goodbye!")
                 break
             else:
                 print("Invalid choice. Please try again.")
-
-    def discover_voices(self):
-        """Run the discover-voices.py script."""
-        import subprocess
-
-        print("\n" + "=" * 70)
-        print("Discover Piper Voices")
-        print("=" * 70)
-        print(
-            "\nThis will query the lingo-diary Docker container for available voices."
-        )
-        print("Make sure the container is running!")
-
-        discover_script = Path(__file__).parent / "discover-voices.py"
-
-        try:
-            result = subprocess.run(
-                [
-                    "docker",
-                    "compose",
-                    "exec",
-                    "lingo-diary",
-                    "python",
-                    str(discover_script),
-                ],
-                cwd=Path(__file__).parent.parent,  # Run from repo root
-            )
-            if result.returncode == 0:
-                print("\n✓ Voices discovered successfully!")
-                # Reload voices
-                self.voices = self._load_voices()
-            else:
-                print(
-                    f"\nERROR: Voice discovery failed (exit code: {result.returncode})"
-                )
-        except FileNotFoundError:
-            print("ERROR: docker compose not found. Is Docker installed?")
-        except Exception as e:
-            print(f"ERROR: {e}")
 
 
 def main():
@@ -634,8 +590,6 @@ def main():
             manager.delete_user(username)
         elif command == "list-users":
             manager.list_users()
-        elif command == "discover-voices":
-            manager.discover_voices()
         else:
             print(f"Unknown command: {command}")
             print("\nUsage:")
@@ -645,7 +599,6 @@ def main():
             print("  modify-user         Modify a user's configuration")
             print("  delete-user         Delete a user")
             print("  list-users          List all users")
-            print("  discover-voices     Discover available Piper voices")
             sys.exit(1)
     else:
         # Interactive menu

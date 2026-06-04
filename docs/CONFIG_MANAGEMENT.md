@@ -52,7 +52,6 @@ python scripts/manage-config.py add-user
 python scripts/manage-config.py modify-user [username]
 python scripts/manage-config.py delete-user [username]
 python scripts/manage-config.py list-users
-python scripts/manage-config.py discover-voices
 ```
 
 ## Configuration Files
@@ -198,15 +197,23 @@ OpenAI Key: sk-proj-...
 ✓ User 'laurent' set up successfully!
 ```
 
-## Regenerating Voice List
+## Regenerating Voice List (Developer Task)
 
-After installing new Piper voice models in the Docker container:
+After installing new Piper voice models in the Docker container, you must regenerate the voice list so users can select them:
 
 ```bash
-python scripts/discover-voices.py
+# 1. Start the container
+docker compose up -d
+
+# 2. Run voice discovery inside the container
+docker compose exec lingo-diary python scripts/discover-voices.py
+
+# 3. Commit the updated voice list
+git add scripts/piper_voices.yaml
+git commit -m "chore: update available Piper voices"
 ```
 
-This updates `scripts/piper_voices.yaml` with newly available voices.
+This updates `scripts/piper_voices.yaml`, which is checked into the repository and used by `manage-config.py` for voice selection during user setup.
 
 ## Troubleshooting
 
