@@ -1,0 +1,85 @@
+languages:
+  en:
+    name: english
+    male:
+    - alan-low
+    - en-US-artic-neural-8000hz
+    - en-US-glow-tts
+    - en-US-hfc-neural
+    - en-US-lessac-low
+    - en-US-lessac-medium
+    - en-US-libritts
+    - en-US-ljspeech
+    - en-US-rms-low
+    - en-GB-alba-medium
+    - en-GB-alan-medium
+    female:
+    - en-US-amy-medium
+    - en-US-azure-neural
+    - en-US-lessac-high
+    - en-US-libritts-high
+    - en-US-ljspeech-high
+    - en-US-ryan-high
+    - en-US-ryan-low
+    - en-US-ryan-medium
+  'no':
+    name: norwegian
+    female:
+    - talesyntese-medium
+    male:
+    - talesyntese-male
+  fr:
+    name: french
+    male:
+    - fr-FR-gilles-low
+    female:
+    - fr-FR-siwis-medium
+  de:
+    name: german
+    male:
+    - de-DE-karlsson-low
+    - de-DE-thorsten-high
+    female:
+    - de-DE-eva_k-x-low
+    - de-DE-eva_k-medium
+    - de-DE-kerstin-low
+  es:
+    name: spanish
+    male:
+    - es-ES-carlos-low
+    - es-MX-carlos-low
+    female:
+    - es-ES-tania-medium
+  it:
+    name: italian
+    male:
+    - it-IT-riccardo-x-low
+    female:
+    - it-IT-riccardo_riccardo-x-low
+  pt:
+    name: portuguese
+    male:
+    - pt-BR-faber-medium
+    female:
+    - pt-PT-fernanda-medium
+  ru:
+    name: russian
+    male:
+    - ru-RU-igor-medium
+    female:
+    - ru-RU-natasha-medium
+  zh:
+    name: chinese
+    female:
+    - zh-CN-huayan-x-low
+  ja:
+    name: japanese
+    female:
+    - ja-JP-kokoro-medium
+  ko:
+    name: korean
+    female:
+    - ko-KR-kss-medium
+_metadata:
+  description: Available Piper TTS voices, organized by language and gender.
+  note: 'Regenerate this file by running: python scripts/discover-voices.py'
