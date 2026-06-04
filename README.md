@@ -25,7 +25,60 @@ services:
       SECRET_KEY: "change-me-to-a-random-string"
 ```
 
-Then create the directories and config files the container expects (replace `myuser` with your username):
+### Creating user configs
+
+**Option A: Automated setup tool** (recommended)
+
+Use the interactive `manage-config.py` script to create and manage user configurations:
+
+```bash
+# From the repo directory
+python scripts/manage-config.py add-user
+```
+
+The script will guide you through:
+1. **Username** — your login name
+2. **Password** — stored with bcrypt hashing
+3. **Primary Language** — language you write your diary in (menu: english, norwegian, french, etc.)
+4. **Study Language** — language you're learning (menu: english, norwegian, french, etc.)
+5. **Gender** — for grammatical output (male/female)
+6. **Voice selections** — TTS voices for study language and primary language
+7. **OpenAI API key** — for translation and tips generation
+
+This automatically creates:
+- `~/.config/lingoDiary/users.yaml` (if not exists)
+- `~/.config/lingoDiary/{username}/config.yaml`
+
+**Option B: Custom config directory**
+
+If you use a different config location:
+
+```bash
+python scripts/manage-config.py add-user -o ~/my-lingodiary-config
+```
+
+**Option C: Custom docker-compose.yml path**
+
+```bash
+python scripts/manage-config.py add-user -i /path/to/docker-compose.yml
+```
+
+### Managing users
+
+```bash
+# List all registered users
+python scripts/manage-config.py list-users
+
+# Modify an existing user's config
+python scripts/manage-config.py modify-user myuser
+
+# Delete a user (backs up config automatically)
+python scripts/manage-config.py delete-user myuser
+```
+
+### Manual setup (if not using the tool)
+
+If you prefer to create configs manually, replace `myuser` with your username:
 
 ```bash
 mkdir -p ~/.config/lingoDiary/myuser
@@ -50,14 +103,18 @@ users:
 Create `~/.config/lingoDiary/myuser/config.yaml`:
 
 ```yaml
+output_dir: "/data/myuser/"
+
+create_diary_answers_auto: true
+
 openai:
   key: "sk-..."
   model: "gpt-4o-mini"
 
 languages:
-  primary_language: "english" # the language you write your diary in
+  primary_language: "english"
   primary_language_code: "en"
-  study_language: "norwegian" # the language you are learning
+  study_language: "norwegian"
   study_language_code: "no"
 
 gender: "male"
@@ -65,115 +122,16 @@ gender: "male"
 tts:
   model: "piper"
   piper:
-    voice: "talesyntese-medium" # study language voice
-    piper_length_scale_tprs: 2 # speech speed (higher = slower)
+    piper_length_scale_tprs: 2
     piper_length_scale_diary: 2
+    voice: "talesyntese-medium"
   piper_input_language:
-    voice: "en_GB-alan-medium" # native language voice (enables Drive Mode)
+    voice: "alan-low"
   repeat_sentence_tprs: 2
   repeat_sentence_diary: 2
   pause_between_sentences_duration: 600
   answer_silence_duration: 5000
 ```
-
-<details>
-<summary>Available Piper voices</summary>
-
-Use the **short name** (e.g. `talesyntese-medium`, `alan-medium`, `ryan-medium`). Both short form and full `lang_REGION-name-quality` form are accepted. Qualities: `x_low` < `low` < `medium` < `high`.
-
-**Albanian** — `edon-medium`
-
-**Arabic** — `kareem-low`, `kareem-medium`
-
-**Basque** — `antton-medium`, `maider-medium`
-
-**Bulgarian** — `dimitar-medium`
-
-**Catalan** — `upc_ona-medium`, `upc_ona-x_low`, `upc_pau-x_low`
-
-**Chinese** — `huayan-medium`, `huayan-x_low`
-
-**Czech** — `jirka-low`, `jirka-medium`
-
-**Danish** — `talesyntese-medium`
-
-**Dutch (BE)** — `nathalie-medium`, `nathalie-x_low`, `rdh-medium`, `rdh-x_low`
-
-**Dutch (NL)** — `alex-medium`, `mls-medium`, `pim-medium`, `ronnie-medium`
-
-**English (GB)** — `alan-low`, `alan-medium`, `alba-medium`, `aru-medium`, `cori-high`, `cori-medium`, `jenny_dioco-medium`, `northern_english_male-medium`, `semaine-medium`, `southern_english_female-low`, `vctk-medium`
-
-**English (US)** — `amy-low`, `amy-medium`, `arctic-medium`, `bryce-medium`, `danny-low`, `hfc_female-medium`, `hfc_male-medium`, `joe-medium`, `john-medium`, `kathleen-low`, `kristin-medium`, `kusal-medium`, `lessac-high`, `lessac-low`, `lessac-medium`, `libritts-high`, `libritts_r-medium`, `ljspeech-high`, `ljspeech-medium`, `norman-medium`, `ryan-high`, `ryan-low`, `ryan-medium`
-
-**Farsi** — `amir-medium`, `ganji-medium`, `gyro-medium`
-
-**Finnish** — `harri-low`, `harri-medium`
-
-**French** — `gilles-low`, `mls-medium`, `mls_1840-low`, `siwis-low`, `siwis-medium`, `tom-medium`, `upmc-medium`
-
-**Georgian** — `natia-medium`
-
-**German** — `eva_k-x_low`, `karlsson-low`, `kerstin-low`, `pavoque-low`, `ramona-low`, `thorsten-high`, `thorsten-low`, `thorsten-medium`, `thorsten_emotional-medium`
-
-**Greek** — `rapunzelina-low`, `rapunzelina-medium`
-
-**Hindi** — `pratham-medium`, `priyamvada-medium`, `rohan-medium`
-
-**Hungarian** — `anna-medium`, `berta-medium`, `imre-medium`
-
-**Icelandic** — `bui-medium`, `salka-medium`, `steinn-medium`, `ugla-medium`
-
-**Indonesian** — `news_tts-medium`
-
-**Italian** — `paola-medium`, `riccardo-x_low`
-
-**Kazakh** — `iseke-x_low`, `issai-high`, `raya-x_low`
-
-**Luxembourgish** — `marylux-medium`
-
-**Nepali** — `chitwan-medium`, `google-medium`, `google-x_low`
-
-**Norwegian** — `nvcc-medium`, `talesyntese-medium`
-
-**Polish** — `bass-high`, `darkman-medium`, `gosia-medium`, `mc_speech-medium`, `mls_6892-low`
-
-**Portuguese (BR)** — `cadu-medium`, `edresson-low`, `faber-medium`, `jeff-medium`
-
-**Portuguese (PT)** — `tugão-medium`
-
-**Romanian** — `mihai-medium`
-
-**Russian** — `denis-medium`, `dmitri-medium`, `irina-medium`, `ruslan-medium`
-
-**Serbian** — `serbski_institut-medium`
-
-**Slovak** — `lili-medium`
-
-**Slovenian** — `artur-medium`
-
-**Spanish (AR)** — `daniela-high`
-
-**Spanish (MX)** — `ald-medium`, `claude-high`
-
-**Spanish (ES)** — `carlfm-x_low`, `davefx-medium`, `mls_10246-low`, `mls_9972-low`, `sharvard-medium`
-
-**Swahili** — `lanfrica-medium`
-
-**Swedish** — `alma-medium`, `lisa-medium`, `nst-medium`
-
-**Telugu** — `maya-medium`, `padmavathi-medium`, `venkatesh-medium`
-
-**Turkish** — `dfki-medium`
-
-**Ukrainian** — `lada-x_low`, `mykyta-high`, `oleksa-high`, `tetiana-high`, `ukrainian_tts-medium`
-
-**Urdu** — `fasih-medium`
-
-**Vietnamese** — `25hours_single-low`, `vais1000-medium`, `vivos-x_low`
-
-**Welsh** — `bu_tts-medium`, `gwryw_gogleddol-medium`
-
-</details>
 
 Pull the image and start:
 
