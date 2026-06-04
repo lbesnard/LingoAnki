@@ -383,22 +383,34 @@ class ConfigManager:
     def prompt_for_voice(
         self, label: str, lang_code: str, gender: str, current: Optional[str] = None
     ) -> str:
-        """Prompt for voice selection by language and gender."""
-        available_voices = self.voices.get(lang_code, {}).get(gender, [])
+        """Prompt for voice selection by language and gender with fallback."""
+        lang_data = self.voices.get(lang_code, {})
+        available_voices = lang_data.get(gender, [])
 
+        # If requested gender is empty, aggregate others and 'unknown'
         if not available_voices:
-            print(f"\n⚠ WARNING: No {gender} voices available for {lang_code}")
-            response = input(f"{label} (enter manually): ").strip()
-            if not response and current:
-                print(f"Keeping current: {current}")
-                return current
-            return response
+            print(
+                f"\n⚠ WARNING: No {gender} voices available for {lang_code}. Looking for alternatives..."
+            )
 
-        print(f"\n{label} ({gender} voices for {lang_code}):")
+            # Combine all other genders + unknown
+            alternative_genders = [
+                g for g in ["male", "female", "unknown"] if g != gender
+            ]
+            for alt_gender in alternative_genders:
+                available_voices.extend(lang_data.get(alt_gender, []))
+
+        # If still nothing, force manual input
+        if not available_voices:
+            print(f"⚠ WARNING: No voices found for {lang_code} at all.")
+            response = input(f"{label} (enter manually): ").strip()
+            return response or current or ""
+
+        # Proceed with display and selection
+        print(f"\n{label} ({gender} voices for {lang_code} - fallbacks included):")
         for i, voice in enumerate(available_voices, 1):
             marker = "●" if voice == current else " "
             print(f"  {marker} {i:2}. {voice}")
-
         while True:
             response = input("Enter choice (or press Enter to keep current): ").strip()
 

@@ -1,82 +1,296 @@
 languages:
-  en:
-    name: english
-    male:
-    - alan-low
-    - en-US-artic-neural-8000hz
-    - en-US-glow-tts
-    - en-US-hfc-neural
-    - en-US-lessac-low
-    - en-US-lessac-medium
-    - en-US-libritts
-    - en-US-ljspeech
-    - en-US-rms-low
-    - en-GB-alba-medium
-    - en-GB-alan-medium
-    female:
-    - en-US-amy-medium
-    - en-US-azure-neural
-    - en-US-libritts-high
-    - en-US-ljspeech-high
-    - en-US-ryan-high
-    - en-US-ryan-low
-    - en-US-ryan-medium
-  'no':
-    name: norwegian
-    female:
-    - talesyntese-medium
-  fr:
-    name: french
-    male:
-    - fr-FR-gilles-low
-    female:
-    - fr-FR-siwis-medium
+  ar:
+    name: arabic
+    unknown:
+    - ar_JO-kareem-low
+    - ar_JO-kareem-medium
+  bg:
+    name: bulgarian
+    unknown:
+    - bg_BG-dimitar-medium
+  ca:
+    name: catalan
+    unknown:
+    - ca_ES-upc_ona-medium
+    - ca_ES-upc_ona-x_low
+    - ca_ES-upc_pau-x_low
+  cs:
+    name: czech
+    unknown:
+    - cs_CZ-jirka-low
+    - cs_CZ-jirka-medium
+  cy:
+    name: welsh
+    unknown:
+    - cy_GB-bu_tts-medium
+    - cy_GB-gwryw_gogleddol-medium
+  da:
+    name: danish
+    unknown:
+    - da_DK-talesyntese-medium
   de:
     name: german
-    male:
-    - de-DE-karlsson-low
-    - de-DE-thorsten-high
-    female:
-    - de-DE-eva_k-x-low
-    - de-DE-eva_k-medium
-    - de-DE-kerstin-low
+    unknown:
+    - de_DE-eva_k-x_low
+    - de_DE-karlsson-low
+    - de_DE-kerstin-low
+    - de_DE-mls-medium
+    - de_DE-pavoque-low
+    - de_DE-ramona-low
+    - de_DE-thorsten-high
+    - de_DE-thorsten-low
+    - de_DE-thorsten-medium
+    - de_DE-thorsten_emotional-medium
+  el:
+    name: greek
+    unknown:
+    - el_GR-rapunzelina-low
+    - el_GR-rapunzelina-medium
+  en:
+    name: english
+    unknown:
+    - en_GB-alan-low
+    - en_GB-alan-medium
+    - en_GB-alba-medium
+    - en_GB-aru-medium
+    - en_GB-cori-high
+    - en_GB-cori-medium
+    - en_GB-jenny_dioco-medium
+    - en_GB-northern_english_male-medium
+    - en_GB-semaine-medium
+    - en_GB-southern_english_female-low
+    - en_GB-vctk-medium
+    - en_US-amy-low
+    - en_US-amy-medium
+    - en_US-arctic-medium
+    - en_US-bryce-medium
+    - en_US-danny-low
+    - en_US-hfc_female-medium
+    - en_US-hfc_male-medium
+    - en_US-joe-medium
+    - en_US-john-medium
+    - en_US-kathleen-low
+    - en_US-kristin-medium
+    - en_US-kusal-medium
+    - en_US-l2arctic-medium
+    - en_US-lessac-high
+    - en_US-lessac-low
+    - en_US-lessac-medium
+    - en_US-libritts-high
+    - en_US-libritts_r-medium
+    - en_US-ljspeech-high
+    - en_US-ljspeech-medium
+    - en_US-norman-medium
+    - en_US-reza_ibrahim-medium
+    - en_US-ryan-high
+    - en_US-ryan-low
+    - en_US-ryan-medium
+    - en_US-sam-medium
   es:
     name: spanish
-    male:
-    - es-ES-carlos-low
-    - es-MX-carlos-low
-    female:
-    - es-ES-tania-medium
+    unknown:
+    - es_AR-daniela-high
+    - es_ES-carlfm-x_low
+    - es_ES-davefx-medium
+    - es_ES-mls_10246-low
+    - es_ES-mls_9972-low
+    - es_ES-sharvard-medium
+    - es_MX-ald-medium
+    - es_MX-claude-high
+  eu:
+    name: basque
+    unknown:
+    - eu_ES-antton-medium
+    - eu_ES-maider-medium
+  fa:
+    name: farsi
+    unknown:
+    - fa_IR-amir-medium
+    - fa_IR-ganji-medium
+    - fa_IR-ganji_adabi-medium
+    - fa_IR-gyro-medium
+    - fa_IR-reza_ibrahim-medium
+  fi:
+    name: finnish
+    unknown:
+    - fi_FI-harri-low
+    - fi_FI-harri-medium
+  fr:
+    name: french
+    unknown:
+    - fr_FR-gilles-low
+    - fr_FR-mls-medium
+    - fr_FR-mls_1840-low
+    - fr_FR-siwis-low
+    - fr_FR-siwis-medium
+    - fr_FR-tom-medium
+    - fr_FR-upmc-medium
+  hi:
+    name: hindi
+    unknown:
+    - hi_IN-pratham-medium
+    - hi_IN-priyamvada-medium
+    - hi_IN-rohan-medium
+  hu:
+    name: hungarian
+    unknown:
+    - hu_HU-anna-medium
+    - hu_HU-berta-medium
+    - hu_HU-imre-medium
+  id:
+    name: indonesian
+    unknown:
+    - id_ID-news_tts-medium
+  is:
+    name: icelandic
+    unknown:
+    - is_IS-bui-medium
+    - is_IS-salka-medium
+    - is_IS-steinn-medium
+    - is_IS-ugla-medium
   it:
     name: italian
-    male:
-    - it-IT-riccardo-x-low
-    female:
-    - it-IT-riccardo_riccardo-x-low
+    unknown:
+    - it_IT-paola-medium
+    - it_IT-riccardo-x_low
+  ka:
+    name: georgian
+    unknown:
+    - ka_GE-natia-medium
+  kk:
+    name: kazakh
+    unknown:
+    - kk_KZ-iseke-x_low
+    - kk_KZ-issai-high
+    - kk_KZ-raya-x_low
+  ku:
+    name: kurmanji kurdish
+    unknown:
+    - ku_TR-berfin_renas-medium
+  lb:
+    name: luxembourgish
+    unknown:
+    - lb_LU-marylux-medium
+  lv:
+    name: latvian
+    unknown:
+    - lv_LV-aivars-medium
+  ml:
+    name: malayalam
+    unknown:
+    - ml_IN-arjun-medium
+    - ml_IN-meera-medium
+  ne:
+    name: nepali
+    unknown:
+    - ne_NP-chitwan-medium
+    - ne_NP-google-medium
+    - ne_NP-google-x_low
+  nl:
+    name: dutch
+    unknown:
+    - nl_BE-nathalie-medium
+    - nl_BE-nathalie-x_low
+    - nl_BE-rdh-medium
+    - nl_BE-rdh-x_low
+    - nl_NL-alex-medium
+    - nl_NL-mls-medium
+    - nl_NL-mls_5809-low
+    - nl_NL-mls_7432-low
+    - nl_NL-pim-medium
+    - nl_NL-ronnie-medium
+  'no':
+    name: norwegian
+    unknown:
+    - no_NO-nvcc-medium
+    - no_NO-talesyntese-medium
+  pl:
+    name: polish
+    unknown:
+    - pl_PL-bass-high
+    - pl_PL-darkman-medium
+    - pl_PL-gosia-medium
+    - pl_PL-mc_speech-medium
+    - pl_PL-mls_6892-low
   pt:
     name: portuguese
-    male:
-    - pt-BR-faber-medium
-    female:
-    - pt-PT-fernanda-medium
+    unknown:
+    - pt_BR-cadu-medium
+    - pt_BR-edresson-low
+    - pt_BR-faber-medium
+    - pt_BR-jeff-medium
+    - "pt_PT-tug\xE3o-medium"
+  ro:
+    name: romanian
+    unknown:
+    - ro_RO-mihai-medium
   ru:
     name: russian
-    male:
-    - ru-RU-igor-medium
-    female:
-    - ru-RU-natasha-medium
+    unknown:
+    - ru_RU-denis-medium
+    - ru_RU-dmitri-medium
+    - ru_RU-irina-medium
+    - ru_RU-ruslan-medium
+  sk:
+    name: slovak
+    unknown:
+    - sk_SK-lili-medium
+  sl:
+    name: slovenian
+    unknown:
+    - sl_SI-artur-medium
+  sq:
+    name: albanian
+    unknown:
+    - sq_AL-edon-medium
+  sr:
+    name: serbian
+    unknown:
+    - sr_RS-serbski_institut-medium
+  sv:
+    name: swedish
+    unknown:
+    - sv_SE-alma-medium
+    - sv_SE-lisa-medium
+    - sv_SE-nst-medium
+  sw:
+    name: swahili
+    unknown:
+    - sw_CD-lanfrica-medium
+  te:
+    name: telugu
+    unknown:
+    - te_IN-maya-medium
+    - te_IN-padmavathi-medium
+    - te_IN-venkatesh-medium
+  tr:
+    name: turkish
+    unknown:
+    - tr_TR-dfki-medium
+  uk:
+    name: ukrainian
+    unknown:
+    - uk_UA-lada-x_low
+    - uk_UA-mykyta-high
+    - uk_UA-oleksa-high
+    - uk_UA-tetiana-high
+    - uk_UA-ukrainian_tts-medium
+  ur:
+    name: urdu
+    unknown:
+    - ur_PK-fasih-medium
+  vi:
+    name: vietnamese
+    unknown:
+    - vi_VN-25hours_single-low
+    - vi_VN-vais1000-medium
+    - vi_VN-vivos-x_low
   zh:
     name: chinese
-    female:
-    - zh-CN-huayan-x-low
-  ja:
-    name: japanese
-    female:
-    - ja-JP-kokoro-medium
-  ko:
-    name: korean
-    female:
-    - ko-KR-kss-medium
+    unknown:
+    - zh_CN-chaowen-medium
+    - zh_CN-huayan-medium
+    - zh_CN-huayan-x_low
+    - zh_CN-xiao_ya-medium
 _metadata:
-  description: Available Piper TTS voices, organized by language and gender.
-  note: 'Regenerate this file by running: python scripts/discover-voices.py'
+  source: https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json

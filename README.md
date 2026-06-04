@@ -22,14 +22,16 @@ services:
       - ~/.config/lingoDiary/:/app/.config/lingoDiary/
       - ~/Documents/lingodiary/:/data/
     environment:
+      # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+      # IMPORTANT: rotate this key — do not commit real secrets to source control.
       SECRET_KEY: "change-me-to-a-random-string"
 ```
 
 ### Creating user configs
 
-**Option A: Automated setup tool** (recommended)
+#### Automated setup tool\*\* (recommended)
 
-Use the interactive `manage-config.py` script to create and manage user configurations:
+Use the interactive `./scripts/manage-config.py` script to create and manage user configurations:
 
 ```bash
 # From the repo directory
@@ -37,6 +39,7 @@ python scripts/manage-config.py add-user
 ```
 
 The script will guide you through:
+
 1. **Username** — your login name
 2. **Password** — stored with bcrypt hashing
 3. **Primary Language** — language you write your diary in (menu: english, norwegian, french, etc.)
@@ -45,23 +48,10 @@ The script will guide you through:
 6. **Voice selections** — TTS voices for study language and primary language
 7. **OpenAI API key** — for translation and tips generation
 
-This automatically creates:
+This automatically creates the necessary config files by looking at the path in the `docker-compose.yml` and placing configs in the right location, for example:
+
 - `~/.config/lingoDiary/users.yaml` (if not exists)
 - `~/.config/lingoDiary/{username}/config.yaml`
-
-**Option B: Custom config directory**
-
-If you use a different config location:
-
-```bash
-python scripts/manage-config.py add-user -o ~/my-lingodiary-config
-```
-
-**Option C: Custom docker-compose.yml path**
-
-```bash
-python scripts/manage-config.py add-user -i /path/to/docker-compose.yml
-```
 
 ### Managing users
 
@@ -140,7 +130,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The server runs at `http://localhost:8083`.
+The server runs by default at `http://localhost:8083`.
 
 ---
 
@@ -177,24 +167,7 @@ To build the Android APK locally:
 ```bash
 cd android_app && flutter build apk --release
 # APK: android_app/build/app/outputs/flutter-apk/app-release.apk
+
+# alternatively, run using docker:
+docker compose run --build --rm apk-debug
 ```
-
----
-
-## Developer: Managing Piper Voices
-
-If you add new Piper TTS voice models to the Docker image, you must regenerate the voice list:
-
-```bash
-# 1. Start the container
-docker compose up -d
-
-# 2. Run voice discovery inside the container
-docker compose exec lingo-diary python scripts/discover-voices.py
-
-# 3. Commit the updated voice list
-git add scripts/piper_voices.yaml
-git commit -m "chore: update available Piper voices"
-```
-
-This creates `scripts/piper_voices.yaml` which is used by the configuration tool (`scripts/manage-config.py`) to help users select voices when creating accounts.
