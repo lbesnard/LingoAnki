@@ -22,7 +22,6 @@ Examples:
 
 import sys
 import os
-import json
 import yaml
 import getpass
 import tarfile
@@ -685,30 +684,61 @@ def main():
     """Main entry point."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
+        prog="manage-config.py",
         description="LingoDiary User Configuration Manager",
-        add_help=False,  # We'll handle help manually to avoid conflicts with subcommands
+        epilog="""
+RESOLUTION ORDER (config directory):
+  1. -o/--output DIR (if provided, highest priority)
+  2. Extract from -i/--input docker-compose.yml (look for /app/.config/lingoDiary/)
+  3. Auto-detect ../docker-compose.yml from script location
+  4. Fallback: ~/.config/efunk_lingo/lingoDiary/
+
+EXAMPLES:
+  # Interactive mode (auto-detect docker-compose.yml)
+  python manage-config.py
+
+  # Add user with custom config directory
+  python manage-config.py add-user -o /etc/lingoDiary
+
+  # Add user from custom docker-compose.yml
+  python manage-config.py add-user -i /path/to/docker-compose.yml
+
+  # Modify user with explicit config directory
+  python manage-config.py modify-user john -o ~/.config/custom
+
+  # List users from custom location
+  python manage-config.py list-users -o /data/lingoDiary
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+
     parser.add_argument(
         "-i",
         "--input",
-        help="Path to docker-compose.yml",
+        metavar="FILE",
+        help="Path to docker-compose.yml file to parse for config directory "
+        "(default: auto-detect ../docker-compose.yml)",
         default=None,
     )
     parser.add_argument(
         "-o",
         "--output",
-        help="Config directory (overrides docker-compose.yml)",
+        metavar="DIR",
+        help="Configuration directory where users.yaml and user configs are stored "
+        "(overrides docker-compose.yml volume mount)",
         default=None,
     )
     parser.add_argument(
         "command",
         nargs="?",
-        help="Command to run (add-user, modify-user, delete-user, list-users)",
+        metavar="COMMAND",
+        help="Command to run: add-user, modify-user, delete-user, list-users",
     )
     parser.add_argument(
         "username",
         nargs="?",
-        help="Username (for modify-user or delete-user)",
+        metavar="USERNAME",
+        help="Username (required for: modify-user, delete-user)",
     )
 
     args = parser.parse_args()
