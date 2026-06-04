@@ -708,12 +708,15 @@ class TprsVariantHandler:
 
                     if self.needs_base_tprs_data:
                         # openai_tprs_enhanced/future/present() returns
-                        # {revised_sentence: {qa}}.  The revised sentence is
-                        # NOT a valid key for _write_json_tprs (which matches
-                        # by output_language_translation).  Extract the Q&A
-                        # values and store under the original sentence key.
+                        # {revised_sentence: {qa}}.  Extract both the revised
+                        # sentence and the Q&A data; store under original sentence
+                        # key so _write_json_tprs can match by output_language_translation.
+                        revised_sentence = next(iter(qa_dict_or_block.keys()), None)
                         qa_data = next(iter(qa_dict_or_block.values()), {})
-                        day_qa_dict[sentence] = qa_data
+                        day_qa_dict[sentence] = {
+                            "qa": qa_data,
+                            "revised_sentence": revised_sentence,
+                        }
                     else:
                         day_qa_dict[sentence] = qa_dict_or_block
 
@@ -765,8 +768,18 @@ class TprsVariantHandler:
                 if day is None:
                     continue
 
-                for sentence_text, qa_raw in sentence_dict_for_day.items():
-                    # Match entry by output_language_translation
+                for sentence_text, qa_item in sentence_dict_for_day.items():
+                    # Extract QA and revised sentence from the new data structure.
+                    # For variants with needs_base_tprs_data, qa_item is a dict with
+                    # 'qa' and 'revised_sentence' keys. For original, it's just the QA dict.
+                    if isinstance(qa_item, dict) and "qa" in qa_item:
+                        qa_raw = qa_item["qa"]
+                        revised_sentence = qa_item.get("revised_sentence")
+                    else:
+                        qa_raw = qa_item
+                        revised_sentence = None
+
+                    # Match entry by output_language_translation (original sentence)
                     matched_entry = None
                     for entry in day.entries:
                         if (
@@ -846,10 +859,15 @@ class TprsVariantHandler:
                         if json_key == "original"
                         else ""
                     )
+                    # Use revised_sentence if available (for enhanced/future/present variants),
+                    # otherwise use original sentence_text
+                    final_sentence = (
+                        revised_sentence if revised_sentence else sentence_text
+                    )
                     matched_entry.lessons.set_variant(
                         json_key,
                         SentenceBlock(
-                            sentence=sentence_text,
+                            sentence=final_sentence,
                             qa=qa_list,
                             # Preserve sentence-level fields written by other steps
                             sentence_input=(
@@ -1024,13 +1042,15 @@ class TprsVariantHandler:
                                 diary_sentence_text, existing_qa_for_sentence
                             )
                             # openai_tprs_enhanced/future/present() returns
-                            # {revised_sentence: {qa}}.  The revised sentence
-                            # is NOT a valid lookup key for _write_json_tprs
-                            # (which matches by output_language_translation).
-                            # Extract the Q&A values and store under the
-                            # original sentence key instead.
+                            # {revised_sentence: {qa}}.  Extract both the revised
+                            # sentence and the Q&A data; store under original sentence
+                            # key so _write_json_tprs can match by output_language_translation.
+                            revised_sentence = next(iter(qa_block.keys()), None)
                             qa_data = next(iter(qa_block.values()), {})
-                            current_day_variant_content[diary_sentence_text] = qa_data
+                            current_day_variant_content[diary_sentence_text] = {
+                                "qa": qa_data,
+                                "revised_sentence": revised_sentence,
+                            }
                             date_str = diary_date_key.strftime("%Y/%m/%d")
                             updated_dates.add(date_str)
                         else:  # Standard TPRS
