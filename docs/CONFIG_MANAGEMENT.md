@@ -6,19 +6,32 @@ LingoDiary provides two tools for managing user configs and Piper TTS voices:
 
 ### `scripts/discover-voices.py`
 
-Discovers available Piper TTS voices and saves them to `scripts/piper_voices.yaml`.
+Discovers available Piper TTS voices by querying the actual `piper_tts` plugin in the Docker container.
+
+**⚠️ IMPORTANT:** This script ONLY works when Docker is running with the Piper plugin installed. It does NOT use a hardcoded fallback list — we discovered that hardcoded lists get stale and contain invalid voices. Always query the real plugin.
 
 **Usage:**
 ```bash
+# Make sure Docker container is running first
+docker compose up -d lingo-diary
+
+# Then discover voices
 python scripts/discover-voices.py
 ```
 
 **How it works:**
 1. Connects to the `lingo-diary` Docker container via `docker compose exec`
-2. Scans the Piper models directory (`~/.local/share/piper/models/`)
-3. Falls back to a built-in list of known Piper voices if models are not found
+2. Imports `piper_tts` and queries `get_available_languages()`
+3. Falls back to scanning `~/.local/share/piper/models/` if available
 4. Organizes voices by language code and gender (male/female)
 5. Saves to `scripts/piper_voices.yaml` for use by `manage-config.py`
+
+**If it fails:** The container must be running with `piper_tts` installed. Run:
+```bash
+docker compose up -d lingo-diary
+docker compose exec lingo-diary pip install ovos-tts-plugin-piper
+python scripts/discover-voices.py
+```
 
 **Output:**
 ```yaml
@@ -240,13 +253,23 @@ This updates `scripts/piper_voices.yaml`, which is checked into the repository a
 
 This is a limitation of the Piper voice library, not LingoDiary. If you need male Norwegian voices, consider using a different TTS engine or waiting for new voice models to be added to Piper.
 
-### "No voices found" when running discover-voices
+### "No voices discovered from Docker container"
 
-**Possible causes:**
-- Docker container not running: `docker compose up -d`
-- Piper models not installed in container (expected on first run)
+**Cause:** Docker is not running, or `piper_tts` is not installed in the container
 
-**Solution:** The tool uses a fallback list of known Piper voices. To get specific voices, download them into the container's `~/.local/share/piper/models/` directory.
+**Solution:**
+```bash
+# 1. Start the container
+docker compose up -d lingo-diary
+
+# 2. Install Piper if not already installed
+docker compose exec lingo-diary pip install ovos-tts-plugin-piper
+
+# 3. Re-run discovery
+python scripts/discover-voices.py
+```
+
+**Note:** This script does NOT use hardcoded voice lists — it always queries the actual Piper plugin. This ensures you get real, valid voices that won't cause errors at runtime.
 
 ### "User config not found" when starting the app
 
