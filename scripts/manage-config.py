@@ -8,10 +8,16 @@ Manage users and their configurations:
   - delete-user: Remove a user and back up their config
 
 Usage:
-    python scripts/manage-config.py              # Interactive menu
+    python scripts/manage-config.py [command] [options]
+
+Options:
+    -i, --input FILE       Path to docker-compose.yml (default: ../docker-compose.yml)
+    -o, --output DIR       Config directory (overrides docker-compose.yml volume)
+
+Examples:
     python scripts/manage-config.py add-user
-    python scripts/manage-config.py modify-user [username]
-    python scripts/manage-config.py delete-user [username]
+    python scripts/manage-config.py add-user -o ~/.config/lingoDiary
+    python scripts/manage-config.py add-user -i /path/to/docker-compose.yml
 """
 
 import sys
@@ -20,6 +26,7 @@ import json
 import yaml
 import getpass
 import tarfile
+import argparse
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional, Any
@@ -30,6 +37,93 @@ try:
 except ImportError:
     print("ERROR: bcrypt is not installed. Install with: pip install bcrypt")
     sys.exit(1)
+
+
+def resolve_config_dir(
+    input_file: Optional[str] = None, output_dir: Optional[str] = None
+) -> Path:
+    """
+    Resolve the configuration directory using the priority:
+    1. -o/--output flag (overrides everything)
+    2. Parse docker-compose.yml to extract /app/.config/lingoDiary/ volume mount
+    3. Fallback to ~/.config/efunk_lingo/lingoDiary/
+
+    Args:
+        input_file: Path to docker-compose.yml (from -i flag)
+        output_dir: Config directory (from -o flag)
+
+    Returns:
+        Path object pointing to the config directory
+    """
+    # Option 1: -o flag overrides everything
+    if output_dir:
+        config_dir = Path(output_dir).expanduser()
+        return config_dir
+
+    # Option 2: Parse docker-compose.yml
+    docker_compose_path = None
+
+    if input_file:
+        docker_compose_path = Path(input_file)
+    else:
+        # Default: look in parent directory of this script
+        default_path = Path(__file__).parent.parent / "docker-compose.yml"
+        if default_path.exists():
+            docker_compose_path = default_path
+
+    if docker_compose_path and docker_compose_path.exists():
+        try:
+            config_dir = extract_config_from_docker_compose(docker_compose_path)
+            if config_dir:
+                return config_dir
+        except Exception as e:
+            print(f"⚠ Could not parse {docker_compose_path}: {e}")
+
+    # Option 3: Fallback
+    fallback = Path.home() / ".config" / "efunk_lingo" / "lingoDiary"
+    print(f"ℹ Using config directory: {fallback}")
+    return fallback
+
+
+def extract_config_from_docker_compose(compose_path: Path) -> Optional[Path]:
+    """
+    Extract the host path for /app/.config/lingoDiary/ from docker-compose.yml.
+
+    Example:
+        volumes:
+          - ~/.config/efunk_lingo/lingoDiary/:/app/.config/lingoDiary/
+
+    Returns:
+        Path object pointing to the host directory, or None if not found
+    """
+    try:
+        with open(compose_path, "r") as f:
+            compose = yaml.safe_load(f)
+
+        if not compose:
+            return None
+
+        # Look for lingo-diary service
+        services = compose.get("services", {})
+        lingo_service = services.get("lingo-diary", {})
+        volumes = lingo_service.get("volumes", [])
+
+        # Find volume entry with /app/.config/lingoDiary/
+        for volume_entry in volumes:
+            if isinstance(volume_entry, str):
+                # Format: "host_path:/container_path" or "named_volume:/container_path"
+                if ":/app/.config/lingoDiary/" in volume_entry:
+                    host_path = volume_entry.split(":")[0]
+                    resolved_path = Path(host_path).expanduser()
+                    print(
+                        f"ℹ Found config directory in docker-compose.yml: {resolved_path}"
+                    )
+                    return resolved_path
+
+        return None
+    except Exception as e:
+        print(f"⚠ Error parsing docker-compose.yml: {e}")
+        return None
 
 
 APP_NAME = "lingoDiary"
@@ -98,19 +192,33 @@ template_tprs:
 
 
 class ConfigManager:
-    def __init__(self):
-        self.config_dir = CONFIG_DIR
-        self.users_file = USERS_FILE
-        self.backups_dir = BACKUPS_DIR
-        self.voices_file = VOICES_FILE
+    def __init__(self, config_dir: Path):
+        self.config_dir = config_dir
+        self.users_file = self.config_dir / "users.yaml"
+        self.backups_dir = self.config_dir / "backups"
+        self.voices_file = Path(__file__).parent / "piper_voices.yaml"
 
         # Ensure directories exist
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.backups_dir.mkdir(parents=True, exist_ok=True)
 
+        # Ensure users.yaml exists
+        if not self.users_file.exists():
+            self._initialize_users_file()
+
         # Load users and voices
         self.users = self._load_users()
         self.voices = self._load_voices()
+
+    def _initialize_users_file(self):
+        """Create an empty users.yaml if it doesn't exist."""
+        try:
+            with open(self.users_file, "w") as f:
+                yaml.dump({"users": {}}, f)
+            os.chmod(self.users_file, 0o600)
+        except Exception as e:
+            print(f"ERROR: Failed to create users.yaml: {e}")
+            sys.exit(1)
 
     def _load_users(self) -> Dict[str, Any]:
         """Load users.yaml or return empty dict if not found."""
@@ -575,30 +683,65 @@ class ConfigManager:
 
 def main():
     """Main entry point."""
-    manager = ConfigManager()
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="LingoDiary User Configuration Manager",
+        add_help=False,  # We'll handle help manually to avoid conflicts with subcommands
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        help="Path to docker-compose.yml",
+        default=None,
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Config directory (overrides docker-compose.yml)",
+        default=None,
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        help="Command to run (add-user, modify-user, delete-user, list-users)",
+    )
+    parser.add_argument(
+        "username",
+        nargs="?",
+        help="Username (for modify-user or delete-user)",
+    )
 
-    if len(sys.argv) > 1:
-        command = sys.argv[1].lower()
+    args = parser.parse_args()
+
+    # Resolve config directory
+    config_dir = resolve_config_dir(args.input, args.output)
+
+    # Create manager with resolved config directory
+    manager = ConfigManager(config_dir)
+
+    if args.command:
+        command = args.command.lower()
 
         if command == "add-user":
             manager.add_user()
         elif command == "modify-user":
-            username = sys.argv[2] if len(sys.argv) > 2 else None
-            manager.modify_user(username)
+            manager.modify_user(args.username)
         elif command == "delete-user":
-            username = sys.argv[2] if len(sys.argv) > 2 else None
-            manager.delete_user(username)
+            manager.delete_user(args.username)
         elif command == "list-users":
             manager.list_users()
         else:
             print(f"Unknown command: {command}")
             print("\nUsage:")
-            print("  python scripts/manage-config.py [command] [args]")
+            print("  python scripts/manage-config.py [command] [options]")
             print("\nCommands:")
             print("  add-user            Add a new user")
             print("  modify-user         Modify a user's configuration")
             print("  delete-user         Delete a user")
             print("  list-users          List all users")
+            print("\nOptions:")
+            print("  -i, --input FILE    Path to docker-compose.yml")
+            print("  -o, --output DIR    Config directory")
             sys.exit(1)
     else:
         # Interactive menu
