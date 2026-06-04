@@ -97,3 +97,15 @@ A Piper TTS-generated MP3 of one unit of **Input Language** text: the
 of a **Q&A Pair**.  Paths stored as `sentence_input_language_audio_path`,
 `question_input_language_audio_path`, `answer_input_language_audio_path`.
 _Avoid_: native audio, input audio
+
+### User Config
+Per-user YAML file at `~/.config/efunk_lingo/lingoDiary/{username}/config.yaml`
+containing language settings, Piper TTS voice selections, OpenAI API key, output
+directory path, and processing options (repeat counts, pause durations, template
+markers for diary parsing).
+
+### Piper Voice
+A TTS voice identifier recognized by the `ovos-tts-plugin-piper` package,
+organized by language code (e.g. `en`, `no`) and gender (`male` or `female`).
+Examples: `alan-low` (English male), `talesyntese-medium` (Norwegian female).
+Voice availability is auto-discovered and stored in `scripts/piper_voices.yaml`.
