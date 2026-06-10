@@ -1023,7 +1023,7 @@ def api_home():
     recently_studied.sort(key=lambda d: d.last_reviewed, reverse=True)
 
     recent_lessons = []
-    for day in recently_studied[:5]:
+    for day in recently_studied:
         recent_lessons.append(
             {
                 "date": day.date,

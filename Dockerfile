@@ -80,6 +80,7 @@ RUN git config --global --add safe.directory /opt/flutter && flutter pub get
 # Copy only the source that affects the web build
 COPY --chown=flutteruser:flutteruser android_app/lib/ ./lib/
 COPY --chown=flutteruser:flutteruser android_app/web/ ./web/
+COPY --chown=flutteruser:flutteruser android_app/assets/ ./assets/
 
 RUN git config --global --add safe.directory /opt/flutter && \
   flutter build web --release --no-wasm-dry-run

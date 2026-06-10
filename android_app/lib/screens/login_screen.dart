@@ -69,7 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
-      setState(() => _error = AppLocalizations.of(context).loginConnectionError(e.toString()));
+      setState(() => _error =
+          AppLocalizations.of(context).loginConnectionError(e.toString()));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -89,7 +90,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.language, size: 64, color: Colors.indigo),
+                  Image.asset(
+                    'assets/icon/app_icon.png',
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.contain,
+                  ),
                   const SizedBox(height: 16),
                   Text('LingoDiary',
                       style: Theme.of(context).textTheme.headlineMedium,
@@ -104,8 +110,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.url,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? l10n.loginServerRequired : null,
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? l10n.loginServerRequired
+                          : null,
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -115,8 +122,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: l10n.loginUsername,
                       border: OutlineInputBorder(),
                     ),
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? l10n.loginUsernameRequired : null,
+                    validator: (v) => (v == null || v.isEmpty)
+                        ? l10n.loginUsernameRequired
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -126,8 +134,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       border: OutlineInputBorder(),
                     ),
                     obscureText: true,
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? l10n.loginPasswordRequired : null,
+                    validator: (v) => (v == null || v.isEmpty)
+                        ? l10n.loginPasswordRequired
+                        : null,
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),

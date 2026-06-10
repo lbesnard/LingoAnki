@@ -341,6 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
             [];
 
     final l10n = AppLocalizations.of(context);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -354,7 +355,21 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(l10n.homeNoLessonsStudied,
                   style: const TextStyle(color: Colors.grey))
             else
-              ...recent.map((item) => _recentTile(item)),
+              // Bounding box gives the nested list view a fixed height limit
+              SizedBox(
+                height: 280, // Adjust height to display ~4-5 tiles cleanly
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: recent.length,
+                    itemBuilder: (context, index) {
+                      // Elements are rendered lazily as the user scrolls
+                      return _recentTile(recent[index]);
+                    },
+                  ),
+                ),
+              ),
           ],
         ),
       ),
